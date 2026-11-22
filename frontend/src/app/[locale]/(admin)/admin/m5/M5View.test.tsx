@@ -8,6 +8,7 @@ import es from '../../../../../../messages/es.json';
 import en from '../../../../../../messages/en.json';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { formatMoneyCents } from '@/lib/format';
 import type { AdminBuylistDTO, CardDTO } from '@/types/contract';
 // ⚠️ En estas pruebas el spy HACE DE SERVIDOR, y `isTerminal` es **server-derived** (v1.51).
 // Se proyecta con la MISMA función que usa el mock en vez de escribir el booleano a mano en
@@ -270,11 +271,11 @@ describe('M5View · Buylist admin end-to-end', () => {
     ).toBeInTheDocument();
   });
 
-  it('Convertir a inventario está deshabilitado si el ítem no está aprobado', async () => {
+  it('Convertir a inventario NO se pinta (ni deshabilitado) si el ítem no está aprobado (§BUYLIST-FLUJO F1)', async () => {
     renderWithProviders(<M5View />, 'es');
-    const convertButtons = await screen.findAllByRole('button', { name: 'Convertir a inventario' });
-    // Fixture: ningún ítem está `aprobada` → todos los convertir están deshabilitados.
-    for (const b of convertButtons) expect(b).toBeDisabled();
+    await screen.findAllByText(/^sr-/);
+    // Fixture de la etapa inicial: ningún ítem está `aprobada` → ningún botón, ni muerto.
+    expect(screen.queryAllByRole('button', { name: 'Convertir a inventario' })).toHaveLength(0);
   });
 
   it('Revelar CLABE la muestra bajo demanda y Ocultar la retira (no persiste)', async () => {
@@ -351,16 +352,21 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(within(cherryPick).queryByText(/por decidir/)).toBeNull();
     fireEvent.click(payable(cherryPick));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
-    const confirm = within(dialog).getByRole('button', { name: 'Registrar pago' });
+    const dialog = await screen.findByRole('dialog', { name: 'Pagar por SPEI' });
+    const confirm = await within(dialog).findByRole('button', { name: /Confirmar pago de/ });
     // Referencia obligatoria: sin ella no se puede confirmar.
     expect(confirm).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), {
+    // F1-1: lo MOSTRADO como «Se deposita» es EXACTAMENTE lo que viaja como `expectedNetCents`.
+    const shown = within(dialog).getByTestId('spei-net').textContent as string;
+    fireEvent.change(within(dialog).getByLabelText('Referencia o clave de rastreo del SPEI'), {
       target: { value: 'MBAN-2026-081701' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    fireEvent.click(confirm);
 
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3006', 'MBAN-2026-081701'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3006', 'MBAN-2026-081701', expect.any(Number)));
+    const sentNet = spy.mock.calls[0][2] as number;
+    expect(shown).toBe(formatMoneyCents(sentNet, 'es'));
     expect(await screen.findByText(/Pago SPEI registrado/)).toBeInTheDocument();
   });
 
@@ -384,11 +390,13 @@ describe('M5View · Buylist admin end-to-end', () => {
     fireEvent.click(
       within(requestCard('sr-3006')).getByRole('button', { name: 'Pagar por SPEI' }),
     );
-    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
-    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), {
+    const dialog = await screen.findByRole('dialog', { name: 'Pagar por SPEI' });
+    fireEvent.change(within(dialog).getByLabelText('Referencia o clave de rastreo del SPEI'), {
       target: { value: 'MBAN-2026-081702' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+    const confirm = await within(dialog).findByRole('button', { name: /Confirmar pago de/ });
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    fireEvent.click(confirm);
 
     expect(await within(dialog).findByText(es.error.ITEMS_NOT_DECIDED_WITH_DETAILS.replace(
       '{count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}',
@@ -454,7 +462,7 @@ describe('M5View · Buylist admin end-to-end', () => {
     await openStage('Verificando');
     // sr-3001 createdAt=2026-08-12 → formatDate es-MX "12 ago 2026".
     await screen.findByText('sr-3001');
-    expect(screen.getByText(/12 ago 2026/)).toBeInTheDocument();
+    expect(screen.getAllByText(/12 ago 2026/).length).toBeGreaterThan(0);
   });
 
   it('muestra el total aprobado DEL SERVER (approvedTotalCents, sin sumar en la UI)', async () => {
@@ -539,9 +547,11 @@ describe('M5View · Buylist admin end-to-end', () => {
     await openStage('Por pagar');
     const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
     fireEvent.click(payButtons.find((b) => !(b as HTMLButtonElement).disabled)!);
-    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
-    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), { target: { value: 'X' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pagar por SPEI' });
+    fireEvent.change(within(dialog).getByLabelText('Referencia o clave de rastreo del SPEI'), { target: { value: 'X' } });
+    const confirm = await within(dialog).findByRole('button', { name: /Confirmar pago de/ });
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    fireEvent.click(confirm);
 
     // Código sin copy i18n → cae al mensaje real del backend (useErrorMessage).
     expect(

@@ -243,7 +243,8 @@ describe('servidor falso · `isPayable` (§M5-V.0, los CINCO términos)', () => 
     );
     // `AdminBuylistDTO` no las declara: si un `...row` distraído las filtrara, el cliente podría
     // llegar a recomponer la fórmula, que es justo lo que `isPayable` vino a impedir.
-    for (const hidden of ['receivedAt', 'verifiedAt', 'offerSentAt']) {
+    // `receivedAt` SÍ viaja desde §BUYLIST-FLUJO F1 (comprobante de envío; lo manda `toSellRequestBaseDTO`).
+    for (const hidden of ['verifiedAt', 'offerSentAt']) {
       expect(Object.keys(dto), `${hidden} se filtró al DTO`).not.toContain(hidden);
     }
     expect(dto.approvedTotalCents).toBe(28000);

@@ -3573,6 +3573,85 @@
       "paySpeiTitle": "Registrar pago SPEI",
       "speiReferenceLabel": "Referencia SPEI",
       "paySpeiConfirm": "Registrar pago",
+      "flow": {
+        "spei": {
+          "title": "Pagar por SPEI",
+          "subtitle": "Solicitud {id} · {seller}",
+          "deposits": "Se deposita",
+          "gross": "Total de las cartas (bruto)",
+          "shipping": "Envío que aceptó el vendedor",
+          "clabeLabel": "CLABE del vendedor",
+          "holder": "Titular",
+          "copy": "Copiar",
+          "copied": "Copiado",
+          "refLabel": "Referencia o clave de rastreo del SPEI",
+          "refPlaceholder": "Pega aquí la clave que te dio tu banco",
+          "note": "Depositas exactamente esa cantidad. Si algo cambia antes de confirmar, te avisamos y no se paga nada.",
+          "confirm": "Confirmar pago de {amount}",
+          "loadingClabe": "Obteniendo la CLABE (la consulta queda auditada)…",
+          "clabeMissing": "Este vendedor no tiene CLABE guardada. Pídele que la capture en su cuenta (datos de cobro) y vuelve a abrir el pago; sin ella no se puede depositar.",
+          "changed": "El monto a depositar cambió de {previous} a {current}. No se pagó nada: revisa la cifra nueva y confirma de nuevo.",
+          "noPayout": "No se pudo mostrar el monto a depositar. Recarga la página antes de pagar.",
+          "provisional": "Cifra provisional: aún faltan cartas por decidir."
+        },
+        "bar": {
+          "gross": "Bruto",
+          "shipping": "Envío",
+          "net": "Se deposita",
+          "provisional": "{count, plural, one {Provisional · falta decidir # carta} other {Provisional · faltan decidir # cartas}}",
+          "provisionalAny": "Provisional · faltan decisiones",
+          "pay": "Pagar por SPEI"
+        },
+        "line": {
+          "agreed": "Precio pactado",
+          "agreedCaption": "lo que ofrecimos",
+          "market": "Mercado hoy",
+          "marketUnknown": "sin dato",
+          "chipUp": "Mercado {pct} % arriba del pactado",
+          "chipDown": "Mercado {pct} % abajo del pactado",
+          "chipSame": "Mercado igual al pactado",
+          "photoNone": "Sin foto"
+        },
+        "receipt": {
+          "shipTitle": "Comprobante de envío",
+          "guide": "Guía",
+          "copyGuide": "Copiar guía",
+          "noGuide": "Sin guía registrada",
+          "receivedOn": "Recibida el {date}",
+          "payTitle": "Comprobante de pago SPEI",
+          "reference": "Referencia",
+          "copyReference": "Copiar referencia",
+          "paidOn": "Fecha de pago",
+          "net": "Monto neto depositado",
+          "noReference": "Sin referencia registrada"
+        },
+        "ribbon": {
+          "label": "Estado de la solicitud",
+          "offered": "Ofertado neto",
+          "breakdown": "{gross} – {shipping} envío",
+          "expires": "Vence",
+          "expiresNone": "Sin vencimiento",
+          "tracking": "Rastreo",
+          "trackingLink": "Ver seguimiento",
+          "noTracking": "Sin rastreo",
+          "waiting": "Lleva",
+          "days": "{count, plural, one {# día} other {# días}}",
+          "inTransitDays": "{count, plural, one {# día en camino} other {# días en camino}}",
+          "inStateDays": "{count, plural, one {# día en este estado} other {# días en este estado}}",
+          "dueAt": "Límite: {date}",
+          "overdue": "Vencido"
+        },
+        "mesa": {
+          "title": "Mesa de decisiones",
+          "readonly": "Solo lectura",
+          "fold": "Plegar",
+          "unfold": "Desplegar",
+          "offeredAt": "pactado al ofertar",
+          "skip": "No entró en la oferta",
+          "loading": "Cargando la mesa…",
+          "error": "No se pudo cargar la mesa."
+        }
+      },
       "feedback": {
         "received": "Solicitud marcada como recibida.",
         "verified": "Verificación iniciada.",
@@ -3581,7 +3660,7 @@
         "rejected": "Ítem rechazado.",
         "converted": "Convertido a inventario · folio {folio}.",
         "alreadyConverted": "Este ítem ya estaba convertido a inventario.",
-        "paid": "Pago SPEI registrado; la solicitud quedó pagada.",
+        "paid": "Pago SPEI registrado por {amount}; la solicitud quedó pagada.",
         "requestRejected": "Solicitud rechazada; quedó cerrada."
       },
       "desk": {
@@ -3776,6 +3855,8 @@
       },
       "queues": {
         "title": "Colas del ciclo",
+        "openRequest": "Abrir solicitud",
+        "openRequestFor": "Abrir solicitud {id}",
         "empty": "Nada pendiente aquí.",
         "seller": "Vendedor",
         "request": "Solicitud",

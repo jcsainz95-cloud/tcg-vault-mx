@@ -6063,23 +6063,41 @@ export async function revealBuylistClabe(id: string): Promise<RevealClabeRespons
     return apiRequest<RevealClabeResponse>(`/admin/buylist/${id}/reveal-clabe`);
   }
   mockFindBuylistRequest(id);
-  return delay({ sellRequestId: id, clabe: '002010077777777771' });
+  return delay({ sellRequestId: id, clabe: '002010077777777771', holderName: mockFindBuylistRequest(id).seller?.name ?? 'Ash Ketchum' });
 }
 
 /**
  * Registra el pago SPEI manual → `pagada` (contrato POST /admin/buylist/:id/pay-spei,
  * `super_admin`, money-out, Idempotency-Key). Precondición backend: aprobada + verificada.
  */
-export async function paySpeiBuylist(id: string, speiReference: string): Promise<AdminBuylistDTO> {
+export async function paySpeiBuylist(
+  id: string,
+  speiReference: string,
+  /**
+   * §BUYLIST-FLUJO F1-1 (seguridad): el neto que la pantalla MOSTRÓ (`payout.netCents`). Difiere del que sellaría el
+   * servidor ⇒ `409 PAYOUT_CHANGED` sin efectos. La UI lo manda SIEMPRE; opcional solo para llamadores heredados.
+   */
+  expectedNetCents?: number,
+): Promise<AdminBuylistDTO> {
   if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/pay-spei`, {
       method: 'POST',
-      body: { speiReference },
+      body: expectedNetCents == null ? { speiReference } : { speiReference, expectedNetCents },
       // Clave estable por solicitud: un reintento del mismo pago no duplica el asiento.
       headers: { 'Idempotency-Key': `pay-spei-${id}` },
     });
   }
   const req = mockFindBuylistRequest(id);
+  if (expectedNetCents != null) {
+    const current = fx.mockAdminBuylistDTO(req).payout?.netCents;
+    if (current != null && current !== expectedNetCents) {
+      throw new ApiClientError(409, {
+        code: 'PAYOUT_CHANGED',
+        message: 'The amount to deposit changed',
+        details: { expectedNetCents, currentNetCents: current },
+      });
+    }
+  }
   // MOCK · §M5-V.0 (v1.61): la precondición son **CINCO** términos y se pregunta por la MISMA vía
   // que el DTO (`isPayable`), no por una tercera lista de estados. Por eso esta guarda **ha
   // heredado el tercero (v1.57) y los dos de v1.61 sin tocarse**: es la propiedad que hace que

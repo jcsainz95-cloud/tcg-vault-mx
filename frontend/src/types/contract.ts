@@ -4844,6 +4844,13 @@ export interface AdminSellerRef {
  */
 export interface BuylistDecisionLineDTO {
   itemId: string;
+  /** §BUYLIST-FLUJO F1c: bloque congelado al ofertar; `null` = `skip`/pre-oferta. */
+  offered?: {
+    priceCents: number;
+    derivedAtOfferCents: number | null;
+    marketAtOfferCents: number | null;
+    overrideReason: string | null;
+  } | null;
   card: CardDTO;
   productType: ProductType;
   finish: Finish;
@@ -4950,6 +4957,8 @@ export interface BuylistDecisionTotalsDTO {
 
 export interface BuylistDecisionTableDTO {
   sellRequestId: string;
+  /** §BUYLIST-FLUJO F1c: `readonly` desde `ofertada` (el servidor omite acciones de emisión). Ausente ⇒ `edit`. */
+  mode?: 'edit' | 'readonly';
   status: SellRequestStatus;
   seller?: AdminSellerRef;
   quotedTotalCents: number;
@@ -5180,6 +5189,38 @@ export interface RejectBuylistItemsResponse {
   requestClosed: boolean;
 }
 
+/** §BUYLIST-FLUJO F1 (anexo §1): el neto que se deposita. El front lo MUESTRA y lo reenvía como `expectedNetCents`; nunca lo calcula. */
+export interface BuylistPayoutDTO {
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+  /** `false` ⇒ hay líneas sin decidir o con baja pendiente: cifra provisional. */
+  isFinal: boolean;
+  clabeOnFile: boolean;
+}
+export interface BuylistOfferNetDTO {
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+  expiresAt: string | null;
+}
+export interface BuylistStatusClockDTO {
+  since: string;
+  waitingDays: number;
+  dueAt: string | null;
+  overdue: boolean;
+}
+export interface BuylistTrackingDTO {
+  carrier: string | null;
+  number: string | null;
+  url: string | null;
+  daysInTransit: number;
+}
+/** Línea de ADMIN: `agreedPriceCents` = el precio PACTADO final (baja aceptada o el ofertado). */
+export interface AdminSellItemDTO extends SellItemDTO {
+  agreedPriceCents?: number | null;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
@@ -5306,7 +5347,16 @@ export interface AdminBuylistDTO {
   guideDueInDays?: number | null;
   /** La MISMA regla que la guarda de `decline-accepted` (§BSD.6). ⛔ La pantalla no mira `status` (BSD-F5). */
   declineAcceptedAllowed?: boolean;
-  items: SellItemDTO[];
+  // ---- §BUYLIST-FLUJO F1 (anexo §1) · todos opcionales: servidor anterior ⇒ ausentes ⇒ la UI no inventa nada ----
+  payout?: BuylistPayoutDTO | null;
+  offerNet?: BuylistOfferNetDTO | null;
+  statusClock?: BuylistStatusClockDTO;
+  tracking?: BuylistTrackingDTO | null;
+  /** Comprobante de pago (solo `pagada`) y de recepción; ya viajan en la base del DTO. */
+  speiReference?: string | null;
+  paidAt?: string | null;
+  receivedAt?: string | null;
+  items: AdminSellItemDTO[];
 }
 
 /** 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-5 + BSD-1.3 punto 4): `AdminBuylistDTO.inboundShipment`. ⛔ `labelUrl` nunca. */
@@ -5380,6 +5430,8 @@ export interface RefundOrderResponse {
 export interface RevealClabeResponse {
   sellRequestId: string;
   clabe: string;
+  /** §BUYLIST-FLUJO F1a: titular (el mismo nombre que valida `CLABE_NOT_OWN_NAME`). Opcional: servidor anterior. */
+  holderName?: string;
 }
 
 // PATCH /admin/buylist/items/:itemId/decision — cherry-pick por carta.

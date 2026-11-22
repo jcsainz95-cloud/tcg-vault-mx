@@ -15,7 +15,6 @@ import {
   rejectBuylistItems,
   convertBuylistItemToInventory,
   revealBuylistClabe,
-  paySpeiBuylist,
 } from '@/lib/api';
 import { useRole } from '@/lib/role';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -31,6 +30,16 @@ import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { AcceptedRequestPanel } from './AcceptedRequestPanel';
 import { GuideDueTag } from './GuideDueMark';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
+import {
+  PayoutBar,
+  PaymentReceipt,
+  ReadonlyMesa,
+  RequestRibbon,
+  ReviewLineFacts,
+  ReviewPhoto,
+  ShipmentReceipt,
+  SpeiPayModal,
+} from './BuylistFlowParts';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
@@ -598,30 +607,13 @@ export function M5View() {
     onError: (e, id) => fail(id, e),
   });
 
-  // --- Pago SPEI (contrato POST .../pay-spei · super_admin, money-out) ---
+  // --- Pago SPEI (§BUYLIST-FLUJO F1a): el modal de un paso vive en `SpeiPayModal` (referencia, CLABE, 409/422) ---
   const [payTarget, setPayTarget] = useState<string | null>(null);
-  const [speiReference, setSpeiReference] = useState('');
-  const [payError, setPayError] = useState<string | null>(null);
-  const payMutation = useMutation({
-    mutationFn: (vars: { requestId: string; speiReference: string }) =>
-      paySpeiBuylist(vars.requestId, vars.speiReference),
-    onSuccess: (_d, vars) => {
-      closePay();
-      // Higiene: al registrar el pago se descarta cualquier CLABE revelada en pantalla.
-      setRevealed(null);
-      ok(vars.requestId, t('feedback.paid'));
-    },
-    onError: (e) => setPayError(getError(e)),
-  });
   function openPay(requestId: string) {
     setPayTarget(requestId);
-    setSpeiReference('');
-    setPayError(null);
   }
   function closePay() {
     setPayTarget(null);
-    setSpeiReference('');
-    setPayError(null);
   }
 
   // --- Pestañas por etapa + buscador (folio/vendedor) ---
@@ -776,7 +768,7 @@ export function M5View() {
       {/* Las CUATRO colas del ciclo (§23.8). Son vistas con ACCIÓN PROPIA y por eso viven fuera de
           las pestañas de etapa: éstas particionan `SellRequestStatus`, aquéllas contestan un
           pendiente NUESTRO que, si nadie mira, cuesta dinero o cuesta una venta. */}
-      <BuylistCycleQueues isSuperAdmin={isSuperAdmin} />
+      <BuylistCycleQueues isSuperAdmin={isSuperAdmin} onOpenRequest={jumpToRequest} />
 
       {/* Pestañas por etapa: cada operativa muestra el conteo de solicitudes en esa etapa.
           «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son transversales, server-side paginadas; su
@@ -1038,6 +1030,8 @@ export function M5View() {
                           )}
                         </div>
                       </div>
+                      {/* §BUYLIST-FLUJO F1: comprobante de pago SPEI (referencia · fecha · neto), del servidor. */}
+                      <PaymentReceipt req={req} />
                       {/* Resumen de los ítems. IMP-B: la solicitud cerrada/pagada es terminal a
                           NIVEL SOLICITUD, pero un ítem `aprobada` y NO convertido sigue siendo
                           convertible a inventario (el guard del backend mira el `itemStatus`, no el
@@ -1170,11 +1164,26 @@ export function M5View() {
           // §27.1.4: *«un botón apagado sin motivo visible es un callejón»* — el motivo se pinta
           // debajo y el botón lo REFERENCIA, para que el lector de pantalla lo anuncie con él.
           const pendingDecisionsId = `pay-pending-${req.id}`;
+          const payButton = (
+            <Button
+              variant="accent"
+              size="sm"
+              disabled={!canPay || req.status === 'pagada'}
+              title={!isSuperAdmin ? tm('masked') : pendingDecisionsNote}
+              aria-describedby={pendingDecisionsNote ? pendingDecisionsId : undefined}
+              onClick={() => openPay(req.id)}
+            >
+              {t('paySpei')}
+            </Button>
+          );
           // Solo se muestran las acciones de la ETAPA actual de la solicitud:
           //  - decidir carta (aprobar/ajustar/rechazar) solo tras recibir/verificar;
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
           const canDecide = req.status === 'recibida' || req.status === 'verificacion';
           const showMoneyOut = req.status === 'verificacion' || req.status === 'aprobada';
+          // §BUYLIST-FLUJO F1b: revisión física (diseño A) = filas con foto ampliable, PACTADO y mercado de hoy.
+          const reviewMode = canDecide || showMoneyOut;
+          const payBar = showMoneyOut && req.payout != null;
           // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). Desde v1.82.3
           // (contrato §PNL.12.3) la precondición la DERIVA EL SERVIDOR: `isRejectable = isTerminal === false ∧
           // Regla C` (las líneas `skip` no cuentan). Aquí vivía `allItemsRejected`, la copia local de la regla
@@ -1223,6 +1232,14 @@ export function M5View() {
               </div>
 
               <PipelineStepper steps={steps} current={req.status} />
+
+              {/* §BUYLIST-FLUJO F1c: cinta de estado (ofertado neto · vence · rastreo · lleva N días), todo del servidor. */}
+              <RequestRibbon req={req} />
+              {/* §BUYLIST-FLUJO F1b: comprobante de envío una vez recibida; de pago, en `pagada`. */}
+              {(req.status === 'recibida' || req.status === 'verificacion' || req.status === 'aprobada' || req.status === 'pagada') && (
+                <ShipmentReceipt req={req} />
+              )}
+              {req.status === 'pagada' && <PaymentReceipt req={req} />}
 
               {/* Acciones a nivel solicitud: recepción física, verificación y cierre explícito */}
               <div className="flex flex-wrap gap-2">
@@ -1300,6 +1317,14 @@ export function M5View() {
                   onClose={() => setDeskFor(null)}
                   // §60.5 d: «Declinar» DENTRO de la mesa abre el MISMO diálogo y verbo que el de la fila.
                   onDecline={req.status === 'cotizada' && req.isTerminal === false ? () => openCloseAction('decline', req.id) : undefined}
+                />
+              )}
+
+              {/* §BUYLIST-FLUJO F1c: tras emitir la oferta, la mesa queda en SOLO LECTURA y plegable (lo pactado al ofertar). */}
+              {req.status !== 'cotizada' && req.offerNet != null && (
+                <ReadonlyMesa
+                  requestId={req.id}
+                  defaultOpen={req.status === 'ofertada' || req.status === 'aceptada' || req.status === 'en_transito'}
                 />
               )}
 
@@ -1406,7 +1431,11 @@ export function M5View() {
                     <>
                       {/* Imagen de catálogo por ítem: único referente visual para verificar
                           la carta física contra la que llegó a la bóveda. */}
-                      <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
+                      {reviewMode ? (
+                        <ReviewPhoto item={it} />
+                      ) : (
+                        <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
+                      )}
                       <span className="text-sm font-medium" lang="en">
                         {it.card.name}
                       </span>
@@ -1438,14 +1467,21 @@ export function M5View() {
                           cardBlock
                         )}
                         <FinishBadge finish={it.finish} productType={it.productType} />
-                        {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
-                        <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
-                          {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
-                        </span>
-                        {it.approvedPriceCents != null && (
-                          <span className="tabular text-xs text-success">
-                            {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
-                          </span>
+                        {reviewMode && !notBought ? (
+                          /* F1b: el PACTADO (lo ofertado, o la baja aceptada), no el cotizado; mercado de hoy con chip ±%. */
+                          <ReviewLineFacts requestId={req.id} item={it} />
+                        ) : (
+                          <>
+                            {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
+                            <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
+                              {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
+                            </span>
+                            {it.approvedPriceCents != null && (
+                              <span className="tabular text-xs text-success">
+                                {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                              </span>
+                            )}
+                          </>
                         )}
                         <StatusBadge domain="sellItem" value={it.itemStatus} />
                         {notBought && (
@@ -1486,12 +1522,11 @@ export function M5View() {
                         {/* Convertir a inventario: SOLO para aprobadas. Un ítem `rechazada`
                             (no-NM) NUNCA es convertible (contrato §M5, PROJECT criterio 16),
                             ni siquiera vencidos sus plazos: el botón no se ofrece. */}
-                        {it.itemStatus !== 'convertida_inventario' && !isRejected && (
+                        {/* §BUYLIST-FLUJO F1 (auditoría): el botón DESHABILITADO de «Por ofertar» se quitó; solo aparece cuando se puede usar. */}
+                        {it.itemStatus === 'aprobada' && !isRejected && (
                           <Button
                             size="sm"
                             variant="secondary"
-                            disabled={it.itemStatus !== 'aprobada'}
-                            title={it.itemStatus !== 'aprobada' ? t('convertNeedsApproval') : undefined}
                             loading={
                               convertMutation.isPending && convertMutation.variables?.itemId === it.id
                             }
@@ -1563,16 +1598,7 @@ export function M5View() {
                           {t('revealClabe')}
                         </Button>
                       )}
-                      <Button
-                        variant="accent"
-                        size="sm"
-                        disabled={!canPay || req.status === 'pagada'}
-                        title={!isSuperAdmin ? tm('masked') : pendingDecisionsNote}
-                        aria-describedby={pendingDecisionsNote ? pendingDecisionsId : undefined}
-                        onClick={() => openPay(req.id)}
-                      >
-                        {t('paySpei')}
-                      </Button>
+                      {!payBar && payButton}
                     </div>
                   </div>
                   {/* §M5-V.5 + §27.1.4: POR QUÉ está apagado, en texto secundario y bajo el botón. */}
@@ -1587,6 +1613,8 @@ export function M5View() {
               {req.status === 'pagada' && (
                 <p className="text-xs text-success">{t('paidNote')}</p>
               )}
+              {/* §BUYLIST-FLUJO F1b: barra fija Bruto − Envío = Se deposita (servidor); el pago sale de aquí. */}
+              {payBar && <PayoutBar req={req} pendingDecisions={pendingDecisions} action={payButton} />}
 
               {feedback?.requestId === req.id && feedback.kind === 'final' && (
                 <div ref={finalNoticeRef} tabIndex={-1} className="focus-visible:shadow-focus focus-visible:outline-none">
@@ -1921,49 +1949,19 @@ export function M5View() {
         </div>
       </Modal>
 
-      {/* Modal de pago SPEI manual (referencia obligatoria; queda en bitácora) */}
-      <Modal
-        open={!!payTarget}
+      {/* §BUYLIST-FLUJO F1a · Modal SPEI en un paso. Manda SIEMPRE `expectedNetCents`; 409 ⇒ recarga y monto nuevo. */}
+      <SpeiPayModal
+        req={payTarget ? (all.find((r) => r.id === payTarget) ?? null) : null}
         onClose={closePay}
-        title={t('paySpeiTitle')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={closePay}>
-              {tc('cancel')}
-            </Button>
-            <Button
-              variant="accent"
-              disabled={speiReference.trim() === ''}
-              loading={payMutation.isPending}
-              onClick={() =>
-                payTarget && payMutation.mutate({ requestId: payTarget, speiReference: speiReference.trim() })
-              }
-            >
-              {t('paySpeiConfirm')}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {payTarget && (
-            <p className="text-sm text-muted">
-              <span className="tabular font-medium text-text">{payTarget}</span>
-            </p>
-          )}
-          <Input
-            label={t('speiReferenceLabel')}
-            type="text"
-            value={speiReference}
-            onChange={(e) => setSpeiReference(e.target.value)}
-          />
-          <p className="text-xs text-muted">{tm('moneyOutNote')}</p>
-          {payError && (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {payError}
-            </Banner>
-          )}
-        </div>
-      </Modal>
+        onStale={refresh}
+        getError={getError}
+        onPaid={(requestId, paidNetCents) => {
+          closePay();
+          // Higiene: al registrar el pago se descarta cualquier CLABE revelada en pantalla.
+          setRevealed(null);
+          ok(requestId, t('feedback.paid', { amount: paidNetCents != null ? formatMoneyCents(paidNetCents, locale) : '—' }));
+        }}
+      />
     </div>
   );
 }

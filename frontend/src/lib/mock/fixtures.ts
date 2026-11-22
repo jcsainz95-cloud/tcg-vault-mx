@@ -1869,7 +1869,8 @@ export const MOCK_PAYABILITY_TERM_KEYS = Object.keys(
  */
 type MockPayabilityHiddenKey = Exclude<keyof MockPayabilityColumns, keyof AdminBuylistDTO>;
 const MOCK_PAYABILITY_HIDDEN_COLUMNS: { [K in MockPayabilityHiddenKey]: true } = {
-  receivedAt: true,
+  // `receivedAt` SALIÓ de la lista: el DTO admin ya lo publica (§BUYLIST-FLUJO F1, comprobante de envío; el backend lo
+  // manda desde `toSellRequestBaseDTO`). La compuerta de arriba hizo su trabajo.
   verifiedAt: true,
   offerSentAt: true,
 };
@@ -1919,6 +1920,7 @@ export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
   const dto = { ...row } as Omit<MockAdminBuylistRow, MockPayabilityHiddenKey> &
     Partial<Pick<MockPayabilityColumns, MockPayabilityHiddenKey>>;
   for (const key of MOCK_PAYABILITY_HIDDEN_KEYS) delete dto[key];
+  for (const key of MOCK_FLOW_COLUMN_KEYS) delete (dto as MockFlowColumns)[key];
   return {
     ...(dto as Omit<MockAdminBuylistRow, MockPayabilityHiddenKey | 'approvedTotalCents'>),
     // `null` (columna nullable de la tabla) → `undefined` (campo opcional del contrato).
@@ -1929,6 +1931,72 @@ export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
     isRejectable: !MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) && mockRuleC(row),
     // v1.61 §M5-V.5: **el servidor manda el número**; el cliente no cuenta `itemStatus`.
     pendingDecisionItemCount: mockPendingDecisionItemIds(row).length,
+    ...mockFlowFields(row),
+  };
+}
+
+/**
+ * §BUYLIST-FLUJO F1 (anexo §1) — el servidor FALSO deriva `payout` / `offerNet` / `statusClock` / `tracking` y
+ * `agreedPriceCents` por línea. El neto es una resta con piso en 0 (misma regla que `computePayoutNetCents`); el front
+ * jamás la repite: solo pinta `payout.netCents` y lo reenvía como `expectedNetCents`.
+ */
+function mockFlowFields(
+  row: MockAdminBuylistRow,
+): Pick<AdminBuylistDTO, 'payout' | 'offerNet' | 'statusClock' | 'tracking' | 'speiReference' | 'paidAt' | 'receivedAt' | 'items'> {
+  const r = row as MockAdminBuylistRow & Record<string, unknown>;
+  const num = (k: string): number | null => (typeof r[k] === 'number' ? (r[k] as number) : null);
+  const str = (k: string): string | null => (typeof r[k] === 'string' ? (r[k] as string) : null);
+  const items = row.items.map((it) => ({ ...it, agreedPriceCents: it.offeredPriceCents ?? null }));
+  const gross = row.approvedTotalCents ?? num('offerGrossCents') ?? row.quotedTotalCents;
+  const ship = num('offerShippingFeeCents') ?? 0;
+  const payoutStates = new Set<SellRequestStatus>(['verificacion', 'aprobada', 'pagada']);
+  const payout = payoutStates.has(row.status)
+    ? {
+        grossCents: gross,
+        shippingFeeCents: ship,
+        netCents: row.status === 'pagada' && num('payoutNetCents') != null ? (num('payoutNetCents') as number) : Math.max(0, gross - ship),
+        isFinal: row.status === 'pagada' || mockPendingDecisionItemIds(row).length === 0,
+        clabeOnFile: true,
+      }
+    : null;
+  const offerNetCents = num('offerNetCents');
+  const offerSentAt = str('offerSentAt');
+  const offerNet =
+    offerSentAt != null && offerNetCents != null
+      ? { grossCents: num('offerGrossCents') ?? 0, shippingFeeCents: ship, netCents: offerNetCents, expiresAt: str('offerAcceptDeadlineAt') }
+      : null;
+  const sinceBy: Partial<Record<SellRequestStatus, string | null>> = {
+    ofertada: offerSentAt,
+    recibida: str('receivedAt'),
+    verificacion: str('verifiedAt'),
+    en_transito: str('shipmentConfirmedAt'),
+    pagada: str('paidAt'),
+  };
+  const since = sinceBy[row.status] ?? row.createdAt;
+  const dueAt = row.status === 'ofertada' ? str('offerAcceptDeadlineAt') : row.status === 'aceptada' ? str('shipDeadlineAt') : null;
+  const now = Date.now();
+  return {
+    items,
+    payout,
+    offerNet,
+    statusClock: {
+      since,
+      waitingDays: Math.max(0, Math.floor((now - new Date(since).getTime()) / 86_400_000)),
+      dueAt,
+      overdue: dueAt != null && now > new Date(dueAt).getTime(),
+    },
+    tracking:
+      row.status === 'en_transito'
+        ? {
+            carrier: str('shipmentCarrier'),
+            number: str('shipmentTrackingNumber'),
+            url: str('shipmentTrackingNumber') ? `https://www.estafeta.com/rastreo/${str('shipmentTrackingNumber')}` : null,
+            daysInTransit: Math.max(0, Math.floor((now - new Date(str('shipmentConfirmedAt') ?? row.createdAt).getTime()) / 86_400_000)),
+          }
+        : null,
+    speiReference: str('speiReference'),
+    paidAt: str('paidAt'),
+    receivedAt: str('receivedAt'),
   };
 }
 
@@ -3567,7 +3635,26 @@ export type MockAdminBuylistRow = Omit<
   AdminBuylistDTO,
   'isTerminal' | 'isPayable' | 'isRejectable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
 > &
-  MockPayabilityColumns;
+  MockPayabilityColumns &
+  MockFlowColumns;
+
+/** §BUYLIST-FLUJO F1: columnas del servidor falso que NO viajan en el DTO (solo alimentan `payout`/`offerNet`/`statusClock`). */
+export type MockFlowColumns = Partial<{
+  offerGrossCents: number;
+  offerShippingFeeCents: number;
+  offerNetCents: number;
+  offerAcceptDeadlineAt: string;
+  shipmentConfirmedAt: string;
+  payoutNetCents: number;
+}>;
+const MOCK_FLOW_COLUMN_KEYS: (keyof MockFlowColumns)[] = [
+  'offerGrossCents',
+  'offerShippingFeeCents',
+  'offerNetCents',
+  'offerAcceptDeadlineAt',
+  'shipmentConfirmedAt',
+  'payoutNetCents',
+];
 
 export const mockAdminBuylist: MockAdminBuylistRow[] = [
   /**
@@ -3707,6 +3794,11 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     approvedTotalCents: 47000,
     offerSentAt: '2026-08-28T10:00:00Z',
     offerState: 'sent',
+    offerGrossCents: 47000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 29000,
+    shipmentCarrier: 'Estafeta',
+    shipmentTrackingNumber: '8012 3456 7891',
     seller: { id: 'u-782', name: 'Brock Harrison', email: 'brock@example.com' },
     items: [
       { id: 'sri-cp-1', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 40000, offerDecision: 'buy', offeredPriceCents: 40000, approvedPriceCents: 40000, itemStatus: 'aprobada' },
@@ -3732,6 +3824,13 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     approvedTotalCents: null,
     offerSentAt: '2026-09-04T10:00:00Z',
     offerState: 'sent',
+    offerGrossCents: 90000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 72000,
+    offerAcceptDeadlineAt: '2026-09-11T10:00:00Z',
+    shipmentConfirmedAt: '2026-09-06T10:00:00Z',
+    shipmentCarrier: 'Estafeta',
+    shipmentTrackingNumber: '8012 3456 7890',
     seller: { id: 'u-783', name: 'Gary Oak', email: 'gary@example.com' },
     items: [
       { id: 'sri-tr-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'cotizada' },
@@ -6943,7 +7042,7 @@ function mockMesaFields(
         ? {
             quotedCents: quoted,
             deltaCents: derived - quoted,
-            reasonCode: derived > quoted ? 'MARKET_UP' : 'MARKET_DOWN',
+            reasonCode: derived - quoted > 0 ? 'MARKET_UP' : 'MARKET_DOWN',
             reasonText: '',
           }
         : null,
@@ -6997,12 +7096,20 @@ export function mockDecisionTable(id: string): BuylistDecisionTableDTO {
   const lines = row.items.map((it, i) => mockDecisionLine(it, i));
   const buyableGrossCents = lines.reduce((sum, l) => sum + (l.derivedPriceCents ?? 0), 0);
   const netCents = Math.max(0, buyableGrossCents - MOCK_SHIPPING_FEE_CENTS);
+  // §BUYLIST-FLUJO F1c: `readonly` desde `ofertada` (todo lo que ya salió del ciclo de oferta); `edit` solo en `cotizada`.
+  const readonlyMesa = row.status !== 'cotizada';
   return {
     sellRequestId: row.id,
+    mode: readonlyMesa ? 'readonly' : 'edit',
     status: row.status,
     seller: row.seller,
     quotedTotalCents: row.quotedTotalCents,
-    lines,
+    lines: lines.map((l, i) => {
+      const it = row.items[i];
+      return it?.offeredPriceCents != null
+        ? { ...l, offered: { priceCents: it.offeredPriceCents, derivedAtOfferCents: null, marketAtOfferCents: l.marketMxnCents ?? null, overrideReason: null } }
+        : { ...l, offered: null };
+    }),
     totals: {
       buyableGrossCents,
       shippingFeeCents: MOCK_SHIPPING_FEE_CENTS,

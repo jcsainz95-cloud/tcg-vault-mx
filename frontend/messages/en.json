@@ -3573,6 +3573,85 @@
       "paySpeiTitle": "Record SPEI payment",
       "speiReferenceLabel": "SPEI reference",
       "paySpeiConfirm": "Record payment",
+      "flow": {
+        "spei": {
+          "title": "Pay by SPEI",
+          "subtitle": "Request {id} · {seller}",
+          "deposits": "To deposit",
+          "gross": "Cards total (gross)",
+          "shipping": "Shipping the seller accepted",
+          "clabeLabel": "Seller CLABE",
+          "holder": "Account holder",
+          "copy": "Copy",
+          "copied": "Copied",
+          "refLabel": "SPEI reference or tracking key",
+          "refPlaceholder": "Paste the key your bank gave you",
+          "note": "You deposit exactly this amount. If anything changes before you confirm, we warn you and nothing is paid.",
+          "confirm": "Confirm payment of {amount}",
+          "loadingClabe": "Fetching the CLABE (the lookup is audited)…",
+          "clabeMissing": "This seller has no CLABE on file. Ask them to enter it in their account (payout details) and open the payment again; it cannot be deposited without it.",
+          "changed": "The amount to deposit changed from {previous} to {current}. Nothing was paid: check the new figure and confirm again.",
+          "noPayout": "The amount to deposit could not be shown. Reload the page before paying.",
+          "provisional": "Provisional figure: some cards are still undecided."
+        },
+        "bar": {
+          "gross": "Gross",
+          "shipping": "Shipping",
+          "net": "To deposit",
+          "provisional": "{count, plural, one {Provisional · # card left to decide} other {Provisional · # cards left to decide}}",
+          "provisionalAny": "Provisional · decisions pending",
+          "pay": "Pay by SPEI"
+        },
+        "line": {
+          "agreed": "Agreed price",
+          "agreedCaption": "what we offered",
+          "market": "Market today",
+          "marketUnknown": "no data",
+          "chipUp": "Market {pct} % above agreed",
+          "chipDown": "Market {pct} % below agreed",
+          "chipSame": "Market equal to agreed",
+          "photoNone": "No photo"
+        },
+        "receipt": {
+          "shipTitle": "Shipping receipt",
+          "guide": "Waybill",
+          "copyGuide": "Copy waybill",
+          "noGuide": "No waybill recorded",
+          "receivedOn": "Received on {date}",
+          "payTitle": "SPEI payment receipt",
+          "reference": "Reference",
+          "copyReference": "Copy reference",
+          "paidOn": "Payment date",
+          "net": "Net amount deposited",
+          "noReference": "No reference recorded"
+        },
+        "ribbon": {
+          "label": "Request status",
+          "offered": "Net offered",
+          "breakdown": "{gross} – {shipping} shipping",
+          "expires": "Expires",
+          "expiresNone": "No expiry",
+          "tracking": "Tracking",
+          "trackingLink": "Track shipment",
+          "noTracking": "No tracking",
+          "waiting": "Waiting",
+          "days": "{count, plural, one {# day} other {# days}}",
+          "inTransitDays": "{count, plural, one {# day in transit} other {# days in transit}}",
+          "inStateDays": "{count, plural, one {# day in this state} other {# days in this state}}",
+          "dueAt": "Deadline: {date}",
+          "overdue": "Overdue"
+        },
+        "mesa": {
+          "title": "Decision table",
+          "readonly": "Read only",
+          "fold": "Collapse",
+          "unfold": "Expand",
+          "offeredAt": "agreed at offer",
+          "skip": "Not part of the offer",
+          "loading": "Loading the table…",
+          "error": "The table could not be loaded."
+        }
+      },
       "feedback": {
         "received": "Request marked as received.",
         "verified": "Verification started.",
@@ -3581,7 +3660,7 @@
         "rejected": "Item rejected.",
         "converted": "Converted to inventory · folio {folio}.",
         "alreadyConverted": "This item was already converted to inventory.",
-        "paid": "SPEI payment recorded; the request is now paid.",
+        "paid": "SPEI payment recorded for {amount}; the request is now paid.",
         "requestRejected": "Request rejected; it is now closed."
       },
       "desk": {
@@ -3776,6 +3855,8 @@
       },
       "queues": {
         "title": "Cycle queues",
+        "openRequest": "Open request",
+        "openRequestFor": "Open request {id}",
         "empty": "Nothing pending here.",
         "seller": "Seller",
         "request": "Request",
