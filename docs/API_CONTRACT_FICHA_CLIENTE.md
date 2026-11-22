@@ -3,7 +3,7 @@
 Convenciones: dinero en centavos enteros MXN (`*Cents`); fechas ISO-8601 UTC; `overview` solo lectura sin schema; las notas (§1b) añaden una tabla. Decidido por el dueño: diseño A, con notas, y el operador ve totales (HECHOS 2026-11-22). Roles: guard de clase de `AdminUsersController` (`vault_operator` + `super_admin`) y `NotSupplierTargetGuard` (cuenta `supplier` ⇒ 404). Respuesta `Cache-Control: no-store`.
 
 ## 1. `GET /api/v1/admin/users/:id/overview`
-Rol: `vault_operator` y `super_admin`, **mismo DTO para ambos** (incluidos los totales `lifetime`). Id inexistente o proveedor ⇒ 404. Implementación: `select`/`groupBy` en lista blanca (R-1), una transacción de solo lectura, sin N+1.
+Rol: `vault_operator` y `super_admin`, **mismo DTO para ambos** (incluidos los totales `lifetime`). Id inexistente o proveedor ⇒ 404. **Para `vault_operator`, toda cuenta que no sea `customer` (staff) ⇒ 404 también** en `GET /admin/users/:id`, `:id/audit`, `overview` y notas, y `GET /admin/users` solo devuelve `role=customer` (DECISIONES §FICHA-CLIENTE 13; cambio de backend). Súper-admin sin cambio. Implementación: `select`/`groupBy` en lista blanca (R-1), una transacción de solo lectura, sin N+1.
 
 ```ts
 interface AdminUserOverviewDTO {
