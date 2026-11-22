@@ -351,6 +351,11 @@ export class RejectRequestDto {
  * es la FORMA DEL DTO**, no una validación: no hay campo que manipular (el `ValidationPipe` con
  * whitelist descarta cualquier extra).
  */
+/** §BUYLIST-FLUJO F2a: body de `POST /admin/buylist/:id/convert-all` (misma forma que el de una linea; `locationId` opcional). */
+export class ConvertAllDto {
+  @IsOptional() @IsString() locationId?: string;
+}
+
 export class ConvertToInventoryDto {
   @IsOptional() @IsString() locationId?: string;
 }

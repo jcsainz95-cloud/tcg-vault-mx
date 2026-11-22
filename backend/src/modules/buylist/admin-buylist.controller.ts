@@ -22,6 +22,7 @@ import { AuditService } from '../audit/audit.service';
 import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
+  ConvertAllDto,
   ConvertToInventoryDto,
   DeclineDto,
   GuideCancellationDoneDto,
@@ -680,6 +681,31 @@ export class AdminBuylistController {
       entityType: 'SellRequestItem',
       entityId: itemId,
       after: res,
+    });
+    return res;
+  }
+
+  /** §BUYLIST-FLUJO F2a: alta de todas las lineas aprobadas, con ubicacion opcional; exito parcial por linea. */
+  @Post(':id/convert-all')
+  @HttpCode(HttpStatus.OK)
+  async convertAll(
+    @Param('id') id: string,
+    @Body() dto: ConvertAllDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.buylist.convertAll(id, user.id, dto?.locationId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.convert_all',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: {
+        locationId: dto?.locationId ?? null,
+        converted: res.converted.length,
+        skipped: res.skipped.length,
+        failed: res.failed.length,
+      },
     });
     return res;
   }

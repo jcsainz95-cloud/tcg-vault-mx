@@ -8284,6 +8284,12 @@ export class BuylistService implements OnModuleInit {
           { itemId, itemStatus: e.fresh?.itemStatus, reason: 'CONCURRENT_UPDATE' },
         );
       }
+      // §BUYLIST-FLUJO F2a: `locationId` inexistente (FK) era un 500 anonimo; ahora 422 con el codigo de ubicacion de M1.
+      if (locationId && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+        throw BusinessException.validation('LOCATION_NOT_AVAILABLE', 'Location not available: not_found', {
+          reason: 'not_found',
+        });
+      }
       // Violación de unicidad → otra conversión ganó la carrera: ya convertido.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const existing = await this.prisma.inventoryItem.findFirst({
@@ -8298,6 +8304,57 @@ export class BuylistService implements OnModuleInit {
       }
       throw e;
     }
+  }
+
+  /**
+   * §BUYLIST-FLUJO F2a (anexo §6) — `POST /admin/buylist/:id/convert-all {locationId?}`: da de alta TODAS las lineas aprobadas
+   * de una solicitud, una por una con `convertToInventory` (mismo camino, mismas guardas y CAS por linea), y reporta el exito
+   * parcial por linea. Sin transaccion global: cada linea es atomica por si misma y un fallo no revierte a las demas.
+   * `skipped`: ya convertida (`ALREADY_CONVERTED`) o no `aprobada` (`NOT_APPROVED`). Reintento seguro (la ya convertida pasa a
+   * `skipped`). Sin cambio de esquema.
+   */
+  async convertAll(
+    id: string,
+    actorUserId: string,
+    locationId?: string,
+  ): Promise<{
+    converted: { itemId: string; inventoryItemId: string }[];
+    skipped: { itemId: string; code: string }[];
+    failed: { itemId: string; code: string }[];
+  }> {
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        items: { select: { id: true, itemStatus: true, inventoryItemId: true }, orderBy: { id: 'asc' } },
+      },
+    });
+    if (!req) throw BusinessException.notFound();
+    const converted: { itemId: string; inventoryItemId: string }[] = [];
+    const skipped: { itemId: string; code: string }[] = [];
+    const failed: { itemId: string; code: string }[] = [];
+    for (const it of req.items) {
+      if (it.inventoryItemId) {
+        skipped.push({ itemId: it.id, code: 'ALREADY_CONVERTED' });
+        continue;
+      }
+      if (it.itemStatus !== 'aprobada') {
+        skipped.push({ itemId: it.id, code: 'NOT_APPROVED' });
+        continue;
+      }
+      try {
+        const r = await this.convertToInventory(it.id, actorUserId, locationId);
+        if (r.alreadyConverted) skipped.push({ itemId: it.id, code: 'ALREADY_CONVERTED' });
+        else if (r.inventoryItemId) converted.push({ itemId: it.id, inventoryItemId: r.inventoryItemId });
+        else failed.push({ itemId: it.id, code: 'CONVERT_FAILED' });
+      } catch (e) {
+        failed.push({ itemId: it.id, code: e instanceof BusinessException ? e.code : 'CONVERT_FAILED' });
+        if (!(e instanceof BusinessException)) {
+          this.logger.error(`convert-all ${id}: linea ${it.id} fallo: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+    return { converted, skipped, failed };
   }
 
   /**
