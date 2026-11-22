@@ -8,6 +8,7 @@
  *    doble que REUTILIZA el `providerQuotationId` para dos envíos (M-5).
  *  - PS-96 (lado cuerpo): omitir `package_protected`/`declared_value` en la cotización o en la compra.
  */
+import { originSnapshotOf } from '../src/modules/shipments/label-purchase.service';
 import { decimalToCents, sumDecimalsToCents } from '../src/modules/shipping-provider/decimal-cents';
 import { FakeShippingProvider } from '../src/modules/shipping-provider/fake-shipping-provider';
 import {
@@ -352,6 +353,23 @@ describe('Comprar — cuerpo (§19.19.8, PS-85 / PS-96 / PS-97 lado cuerpo) y pa
     const noSnap = buildPurchaseBody({ ...PURCHASE_INPUT, from: { templateId: 't', snapshot: null }, to: { ...PURCHASE_INPUT.to, furtherInformation: undefined } }) as { shipment: Record<string, unknown> };
     expect(noSnap.shipment.address_from).toEqual({ address_template_id: 't' });
     expect(noSnap.shipment.address_to).not.toHaveProperty('further_information');
+  });
+
+  it('§DIR-TIENDA: snapshot sin reference ⇒ sin clave `reference`; con reference larga ⇒ recortada a 70', () => {
+    const snap = { street1: 'Calle 1', name: 'Tienda Demo', company: 'Tienda Demo', phone: '5500000000', email: 'a@example.com' };
+    const none = buildPurchaseBody({ ...PURCHASE_INPUT, from: { templateId: 't', snapshot: snap } }) as { shipment: Record<string, any> };
+    expect(none.shipment.address_from).not.toHaveProperty('reference');
+    const blank = buildPurchaseBody({ ...PURCHASE_INPUT, from: { templateId: 't', snapshot: { ...snap, reference: '  ' } } }) as { shipment: Record<string, any> };
+    expect(blank.shipment.address_from).not.toHaveProperty('reference');
+    const long = buildPurchaseBody({ ...PURCHASE_INPUT, from: { templateId: 't', snapshot: { ...snap, reference: 'z'.repeat(90) } } }) as { shipment: Record<string, any> };
+    expect(long.shipment.address_from.reference).toBe('z'.repeat(70));
+  });
+
+  it('§DIR-TIENDA: dial con company y reference vacíos ⇒ address_from.company = name y sin `reference`', () => {
+    const snap = originSnapshotOf({ street1: 'Calle 1', name: 'Tienda Demo', company: '', phone: '5500000000', email: 'a@example.com', reference: '' } as never);
+    const b = buildPurchaseBody({ ...PURCHASE_INPUT, from: { templateId: 't', snapshot: snap } }) as { shipment: Record<string, any> };
+    expect(b.shipment.address_from.company).toBe('Tienda Demo');
+    expect(b.shipment.address_from).not.toHaveProperty('reference');
   });
 
   async function purchaseWith(json: unknown) {

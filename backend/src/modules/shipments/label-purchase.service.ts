@@ -108,6 +108,22 @@ export interface LabelBody {
 
 export type LabelOutcome = 'labeled' | 'processing' | 'in_progress' | 'in_flight';
 
+/**
+ * §DIR-TIENDA: el dial es LA dirección de la tienda. `company` vacía ⇒ `name` (igual que la entrada);
+ * `reference` vacía ⇒ se OMITE (nunca `''`).
+ */
+export function originSnapshotOf(origin: OriginSnapshotDial | null | undefined): OriginSnapshot | null {
+  if (!origin) return null;
+  return {
+    street1: origin.street1 ?? '',
+    name: origin.name ?? '',
+    company: origin.company?.trim() ? origin.company : (origin.name ?? ''),
+    phone: origin.phone ?? '',
+    email: origin.email ?? '',
+    ...(origin.reference?.trim() ? { reference: origin.reference } : {}),
+  };
+}
+
 /** El cuerpo de `POST …/label` (§19.7): `400 VALIDATION_ERROR {field}`. Campos de costo del cuerpo ⇒ se IGNORAN (SDX-R12). */
 export function parseLabelBody(raw: unknown): LabelBody {
   // ⭐ rev BSD-1 (§BSD.4.2, criterio 532): ⛔ el destino no viaja en el cuerpo — 400 antes de cualquier red.
@@ -683,16 +699,7 @@ export class ShipmentLabelService {
       },
       ['reference'],
     );
-    const originSnap: OriginSnapshot | null = origin
-      ? {
-          street1: origin.street1 ?? '',
-          name: origin.name ?? '',
-          company: origin.company ?? '',
-          phone: origin.phone ?? '',
-          email: origin.email ?? '',
-          reference: origin.reference ?? '',
-        }
-      : null;
+    const originSnap = originSnapshotOf(origin);
     return {
       rateId: claim.rate.rateId,
       printingFormat: format === 'thermal' ? 'thermal' : 'standard',

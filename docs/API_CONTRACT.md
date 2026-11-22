@@ -324,7 +324,7 @@
 
 ### settings
 - GET `/admin/settings` · staff
-- PUT `/admin/settings` · staff
+- PUT `/admin/settings` · staff (`skydropx_origin_snapshot` = dirección de la tienda, remitente de salidas y destino de entradas; `reference` ≤ 70 ⇒ 422 si excede, `postalCode` 5 dígitos; DECISIONES §DIR-TIENDA)
 - GET `/admin/settings/iva-transfer` · staff
 - GET `/admin/settings/iva-transfer/preview` · staff
 - PUT `/admin/settings/iva-transfer` · staff

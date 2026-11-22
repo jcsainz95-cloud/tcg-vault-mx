@@ -16,7 +16,7 @@ import { asApiError } from '@/lib/api-client';
 import { formatMoneyCents, formatTimeMx } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { ConsignmentNotesSearchDTO, EditableSettingsPatch, SettingsDTO, ShippingInsuranceTier, ShippingLabelPurchase, ShippingPackageDTO } from '@/types/contract';
+import type { ConsignmentNotesSearchDTO, EditableSettingsPatch, SettingsDTO, ShippingInsuranceTier, ShippingLabelPurchase, ShippingPackageDTO, StoreAddressKey, StoreAddressSnapshot } from '@/types/contract';
 import { centsToPesosInput, pesosToCents as pesosInputToCents, pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
@@ -63,6 +63,23 @@ export function tierErrors(rows: TierRow[]): Record<number, { coverage?: 'covera
   });
   return out;
 }
+
+type StoreField = { key: StoreAddressKey; required: boolean; type?: string; inputMode?: 'tel' | 'email' | 'numeric' };
+/** Mismas diez claves que `ORIGIN_SNAPSHOT_KEYS` (backend `shipping-dials.ts`); obligatorias = `STORE_REQUIRED` de `label-inbound.ts`. */
+const STORE_FIELDS: StoreField[] = [
+  { key: 'name', required: true },
+  { key: 'company', required: false },
+  { key: 'street1', required: true },
+  { key: 'postalCode', required: true, inputMode: 'numeric' },
+  { key: 'areaLevel1', required: true },
+  { key: 'areaLevel2', required: true },
+  { key: 'areaLevel3', required: true },
+  { key: 'phone', required: true, type: 'tel', inputMode: 'tel' },
+  { key: 'email', required: true, type: 'email', inputMode: 'email' },
+  { key: 'reference', required: false },
+];
+export const STORE_REQUIRED_KEYS = STORE_FIELDS.filter((f) => f.required).map((f) => f.key);
+const STORE_REFERENCE_MAX = 70;
 
 export function ShippingSection() {
   const t = useTranslations('admin.m10.shipping');
@@ -215,6 +232,10 @@ function ShippingForm({
   const [carriers, setCarriers] = useState<string[]>(settings.shippingPreferredCarriers ?? []);
   const [newCarrier, setNewCarrier] = useState('');
   const [dropoffs, setDropoffs] = useState<Record<string, { name: string; address: string }>>(settings.shippingDropoffPoints ?? {});
+  const [store, setStore] = useState<Record<StoreAddressKey, string>>(() => {
+    const snap = settings.skydropxOriginSnapshot ?? {};
+    return Object.fromEntries(STORE_FIELDS.map((f) => [f.key, snap[f.key] ?? ''])) as Record<StoreAddressKey, string>;
+  });
   const [origin, setOrigin] = useState(settings.skydropxOriginAddressTemplateId ?? '');
   const [format, setFormat] = useState(settings.shippingLabelFormat ?? 'standard');
   const [lowBalance, setLowBalance] = useState(settings.skydropxLowBalanceCents !== undefined ? centsToPesos(settings.skydropxLowBalanceCents) : '');
@@ -229,6 +250,17 @@ function ShippingForm({
 
   const rowErrors = tierErrors(tiers);
   const noteInvalid = !/^\d{8}$/.test(note);
+  const storeAny = STORE_FIELDS.some((f) => store[f.key].trim() !== '');
+  const storeMissing = (k: StoreAddressKey) => storeAny && STORE_REQUIRED_KEYS.includes(k) && store[k].trim() === '';
+  const storeFieldError = (k: StoreAddressKey): 'missing' | 'postalCode' | 'referenceLong' | null => {
+    if (storeMissing(k)) return 'missing';
+    if (k === 'postalCode' && store.postalCode.trim() !== '' && !/^\d{5}$/.test(store.postalCode.trim())) return 'postalCode';
+    if (k === 'reference' && store.reference.trim().length > STORE_REFERENCE_MAX) return 'referenceLong';
+    return null;
+  };
+  const storeMissingKeys = STORE_FIELDS.filter((f) => storeMissing(f.key)).map((f) => f.key);
+  // M-3: una dirección incompleta o inválida NO bloquea el resto de la sección; solo se omite del PUT (el dial conserva su valor).
+  const storeBlocked = STORE_FIELDS.some((f) => storeFieldError(f.key) !== null);
   const invalid = Object.keys(rowErrors).length > 0 || noteInvalid;
 
   const save = useMutation({
@@ -244,6 +276,8 @@ function ShippingForm({
         shippingPreferredCarriers: carriers,
         shippingDropoffPoints: dropoffs,
         skydropxOriginAddressTemplateId: origin || null,
+        // Vacía del todo ⇒ null (sin capturar); si no, las diez claves (vacías ⇒ null). Mismas claves que `ORIGIN_SNAPSHOT_KEYS`.
+        ...(storeBlocked ? {} : { skydropxOriginSnapshot: storeAny ? (Object.fromEntries(STORE_FIELDS.map((f) => [f.key, store[f.key].trim() || null])) as StoreAddressSnapshot) : null }),
         shippingLabelFormat: format,
         shippingTrackingPollMinutes: Number(poll),
       };
@@ -363,6 +397,35 @@ function ShippingForm({
           </div>
         )}
       </div>
+
+      {/* Dirección de la tienda (`skydropx_origin_snapshot`): destino de las entradas de buylist y remitente de las salidas */}
+      <fieldset className="flex flex-col gap-3 border border-border-strong p-4" data-testid="shipping-store-address">
+        <legend className="px-1 text-lg font-semibold text-text">{t('store.title')}</legend>
+        <p className="text-sm text-text">{t('store.help')}</p>
+        <p className="text-xs text-muted">{t('store.requiredNote')}</p>
+        {storeBlocked && (
+          <p role="status" className="text-sm text-text" data-testid="shipping-store-blocked">
+            {storeMissingKeys.length > 0
+              ? t('store.notSavedMissing', { fields: storeMissingKeys.map((k) => t(`store.${k}`)).join(', ') })
+              : t('store.notSaved')}
+          </p>
+        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {STORE_FIELDS.map((f) => (
+            <Input
+              key={f.key}
+              label={`${t(`store.${f.key}`)}${f.required ? ` ${t('store.requiredMark')}` : ''}`}
+              type={f.type}
+              inputMode={f.inputMode}
+              autoComplete="off"
+              maxLength={f.key === 'reference' ? STORE_REFERENCE_MAX : f.key === 'postalCode' ? 5 : 200}
+              value={store[f.key]}
+              error={tried && storeFieldError(f.key) ? t(`store.${{ missing: 'missing', postalCode: 'postalInvalid', referenceLong: 'referenceTooLong' }[storeFieldError(f.key)!]}`) : undefined}
+              onChange={(e) => setStore((s) => ({ ...s, [f.key]: e.target.value }))}
+            />
+          ))}
+        </div>
+      </fieldset>
 
       {/* 43.10e — paquetería preferida y sucursal */}
       <div className="flex flex-col gap-2">
