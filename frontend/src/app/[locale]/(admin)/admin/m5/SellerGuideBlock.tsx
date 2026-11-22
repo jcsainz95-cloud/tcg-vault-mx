@@ -3,29 +3,44 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { asApiError } from '@/lib/api-client';
-import type { AdminInboundShipmentDTO } from '@/types/contract';
+import type { AdminBuylistDTO, AdminInboundShipmentDTO } from '@/types/contract';
 import { Button } from '@/components/ui/Button';
 import { openLabelPdf } from '../m4/capture/label-pdf';
 import { CopyButton } from './BuylistFlowParts';
 
+type GuideSource = Pick<AdminBuylistDTO, 'inboundShipment' | 'shipmentCarrier' | 'shipmentTrackingNumber'>;
+export interface ManualGuide { carrier: string | null; trackingNumber: string }
+
 /**
- * ¿Hay guía que mostrar? Desde que la guía existe (`guia`) o quedó cancelada; `solicitado` (sin guía todavía) no.
+ * Qué guía mostrar. Hay guía de entrada cuando la fila trae `trackingNumber` o `labelSource` (una fila `cancelado`
+ * vacía —guía a mano + fila abierta sin comprar + confirm-shipment— NO cuenta). Si no, la guía a mano vive en la
+ * solicitud (`shipmentCarrier`/`shipmentTrackingNumber`; el backend nunca crea fila `manual`).
  */
-export function hasSellerGuide(inbound: AdminInboundShipmentDTO | null | undefined): inbound is AdminInboundShipmentDTO {
-  return inbound != null && inbound.status !== 'solicitado';
+export function sellerGuideOf(req: GuideSource): { inbound: AdminInboundShipmentDTO | null; manual: ManualGuide | null } | null {
+  const i = req.inboundShipment ?? null;
+  if (i && (i.trackingNumber || i.labelSource)) return { inbound: i, manual: null };
+  if (req.shipmentTrackingNumber) return { inbound: null, manual: { carrier: req.shipmentCarrier ?? null, trackingNumber: req.shipmentTrackingNumber } };
+  return null;
+}
+
+export function hasSellerGuide(req: GuideSource): boolean {
+  return sellerGuideOf(req) != null;
 }
 
 /**
  * «Guía del vendedor»: la guía que le compramos (o capturamos) al vendedor, visible mientras la solicitud viva y después.
- * Paquetería + número (copiable), rastreo y PDF por el proxy autenticado (`openLabelPdf`). Una guía `manual` no tiene PDF.
+ * Paquetería + número (copiable), rastreo y PDF por el proxy autenticado (`openLabelPdf`). Una guía a mano no tiene PDF.
  */
-export function SellerGuideBlock({ requestId, inbound, embedded = false }: { requestId: string; inbound: AdminInboundShipmentDTO; embedded?: boolean }) {
+export function SellerGuideBlock({ requestId, inbound = null, manual = null, embedded = false }: { requestId: string; inbound?: AdminInboundShipmentDTO | null; manual?: ManualGuide | null; embedded?: boolean }) {
   const t = useTranslations('admin.m5.sellerGuide');
   const [err, setErr] = useState<string | null>(null);
-  const canceled = inbound.status === 'cancelado';
-  const manual = inbound.labelSource === 'manual';
-  const showPdf = inbound.labelSource === 'skydropx' && !canceled;
-  const number = inbound.trackingNumber;
+  const canceled = inbound?.status === 'cancelado';
+  // Cancelación sellada pero aún no confirmada por la paquetería: sin PDF y rotulada.
+  const canceling = !!inbound && !canceled && !!inbound.providerCanceledAt && !inbound.cancelConfirmed;
+  const isManual = manual != null || inbound?.labelSource === 'manual';
+  const showPdf = !!inbound && inbound.labelSource === 'skydropx' && !canceled && !canceling;
+  const number = manual?.trackingNumber ?? inbound?.trackingNumber ?? null;
+  const carrier = manual ? manual.carrier : (inbound?.carrier ?? null);
   return (
     <section
       aria-label={t('title')}
@@ -36,7 +51,7 @@ export function SellerGuideBlock({ requestId, inbound, embedded = false }: { req
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <span className="text-sm">
           <span className="text-muted">{t('carrier')}: </span>
-          {inbound.carrier ?? '—'}
+          {carrier ?? '—'}
         </span>
         <span className="flex items-center gap-3 text-sm">
           <span className="text-muted">{t('tracking')}: </span>
@@ -48,11 +63,16 @@ export function SellerGuideBlock({ requestId, inbound, embedded = false }: { req
             {t('canceled')}
           </span>
         )}
-        {manual && <span className="text-sm text-muted">{t('manual')}</span>}
+        {canceling && (
+          <span data-testid="seller-guide-canceling" className="text-sm font-medium text-accent">
+            {t('canceling')}
+          </span>
+        )}
+        {isManual && <span className="text-sm text-muted">{t('manual')}</span>}
       </div>
-      {(inbound.trackingUrl || showPdf) && (
+      {(inbound?.trackingUrl || showPdf) && (
         <div className="flex flex-wrap gap-2">
-          {inbound.trackingUrl && (
+          {inbound?.trackingUrl && (
             <a
               href={inbound.trackingUrl}
               target="_blank"
@@ -68,7 +88,8 @@ export function SellerGuideBlock({ requestId, inbound, embedded = false }: { req
               variant="secondary"
               onClick={() => {
                 setErr(null);
-                openLabelPdf(inbound.id, inbound.folio, 'print').catch((e) =>
+                // `download` (no `print`): `window.open` tras el `await` lo bloquea el navegador; como en M4/CaptureLabelDialog.
+                openLabelPdf(inbound.id, inbound.folio, 'download').catch((e) =>
                   setErr(asApiError(e)?.code === 'LABEL_NOT_AVAILABLE' ? t('notAvailable') : t('pdfError')),
                 );
               }}

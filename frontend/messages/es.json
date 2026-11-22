@@ -3564,6 +3564,7 @@
         "pdf": "Ver / imprimir guía (PDF)",
         "manual": "Guía capturada a mano",
         "canceled": "Guía cancelada",
+        "canceling": "Cancelación en proceso",
         "notAvailable": "El PDF no está disponible para esta guía.",
         "pdfError": "No se pudo abrir el PDF. Intenta de nuevo."
       },

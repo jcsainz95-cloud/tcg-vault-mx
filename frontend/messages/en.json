@@ -3564,6 +3564,7 @@
         "pdf": "View / print label (PDF)",
         "manual": "Label entered by hand",
         "canceled": "Label canceled",
+        "canceling": "Cancellation in progress",
         "notAvailable": "The PDF is not available for this label.",
         "pdfError": "Could not open the PDF. Try again."
       },
