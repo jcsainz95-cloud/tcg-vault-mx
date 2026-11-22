@@ -40,6 +40,14 @@ import {
   ShipmentReceipt,
   SpeiPayModal,
 } from './BuylistFlowParts';
+import {
+  ConvertAllButton,
+  PickupLine,
+  RejectPanel,
+  RevisePricePanel,
+  ReviewItemActions,
+  type ReviewPanelState,
+} from './BuylistReviewActions';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
@@ -330,13 +338,8 @@ export function M5View() {
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const adjustCents = pesosToCents(adjustPrice);
 
-  // Rechazo con motivo obligatorio (v1.18): mini-diálogo antes de enviar la decisión.
-  const [rejectTarget, setRejectTarget] = useState<{ requestId: string; item: SellItemDTO } | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectError, setRejectError] = useState<string | null>(null);
-  const rejectReasonTrimmed = rejectReason.trim();
-  const rejectReasonValid =
-    rejectReasonTrimmed.length >= REJECT_REASON_MIN && rejectReasonTrimmed.length <= REJECT_REASON_MAX;
+  // §BUYLIST-FLUJO F2: el panel abierto en la fila (Bajar precio / No aceptar / No llegó); uno a la vez.
+  const [reviewPanel, setReviewPanel] = useState<ReviewPanelState | null>(null);
 
   // --- Rechazo de VARIAS cartas con un motivo y UN correo (§60.5 c · contrato v1.82 §PNL.4) ---
   const [bulkSelected, setBulkSelected] = useState<Record<string, string[]>>({});
@@ -426,30 +429,17 @@ export function M5View() {
     mutationFn: (vars: {
       requestId: string;
       itemId: string;
-      decision: 'approve' | 'adjust' | 'reject';
+      // El rechazo (siempre con `reasonCode`) vive en `RejectPanel` (§BUYLIST-FLUJO F2b), no aquí.
+      decision: 'approve' | 'adjust';
       approvedPriceCents?: number;
-      reason?: string;
-    }) =>
-      decideBuylistItem(
-        vars.itemId,
-        vars.decision === 'reject'
-          ? { decision: 'reject', reason: vars.reason }
-          : { decision: vars.decision, approvedPriceCents: vars.approvedPriceCents },
-      ),
+    }) => decideBuylistItem(vars.itemId, { decision: vars.decision, approvedPriceCents: vars.approvedPriceCents }),
     onSuccess: (_d, vars) => {
       if (vars.decision === 'adjust') closeAdjust();
-      if (vars.decision === 'reject') {
-        closeReject();
-        // La carta rechazada aparece en la pestaña transversal «Piezas rechazadas».
-        void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
-      }
       ok(
         vars.requestId,
         vars.decision === 'approve'
           ? t('feedback.approved')
-          : vars.decision === 'adjust'
-            ? t('feedback.adjusted')
-            : t('feedback.rejected'),
+          : t('feedback.adjusted'),
       );
     },
     onError: (e, vars) => {
@@ -460,7 +450,6 @@ export function M5View() {
       const err = asApiError(e);
       if (err?.status === 409 && err.code === 'CONFLICT' && err.details?.reason === 'ITEM_FINAL') {
         if (vars.decision === 'adjust') closeAdjust();
-        if (vars.decision === 'reject') closeReject();
         refresh();
         const itemStatus = err.details.itemStatus;
         setFeedback({
@@ -476,7 +465,6 @@ export function M5View() {
       // El ajuste/rechazo muestran el error DENTRO de su modal (p. ej. 422
       // APPROVED_PRICE_CAP_EXCEEDED o el 400 VALIDATION_ERROR del motivo).
       if (vars.decision === 'adjust') setAdjustError(getError(e));
-      else if (vars.decision === 'reject') setRejectError(getError(e));
       else fail(vars.requestId, e);
     },
   });
@@ -490,17 +478,6 @@ export function M5View() {
     setAdjustTarget(null);
     setAdjustPrice('');
     setAdjustError(null);
-  }
-
-  function openReject(requestId: string, item: SellItemDTO) {
-    setRejectTarget({ requestId, item });
-    setRejectReason('');
-    setRejectError(null);
-  }
-  function closeReject() {
-    setRejectTarget(null);
-    setRejectReason('');
-    setRejectError(null);
   }
 
   // --- Cierre explícito de la solicitud (contrato §M5 · POST /admin/buylist/:id/reject, v1.24) ---
@@ -898,6 +875,16 @@ export function M5View() {
                         ) : (
                           <p className="text-xs text-muted">{t('rejected.noDeadlines')}</p>
                         )}
+                        <PickupLine
+                          itemId={row.id}
+                          cardName={row.card.name}
+                          pickup={row.pickup}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                            ok(row.sellRequestId, msg);
+                          }}
+                          onError={(e) => fail(row.sellRequestId, e)}
+                        />
                       </div>
                     );
                   })}
@@ -1032,6 +1019,16 @@ export function M5View() {
                       </div>
                       {/* §BUYLIST-FLUJO F1: comprobante de pago SPEI (referencia · fecha · neto), del servidor. */}
                       <PaymentReceipt req={req} />
+                      <div className="flex justify-end">
+                        <ConvertAllButton
+                          req={req}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
+                            refresh();
+                            ok(req.id, msg);
+                          }}
+                        />
+                      </div>
                       {/* Resumen de los ítems. IMP-B: la solicitud cerrada/pagada es terminal a
                           NIVEL SOLICITUD, pero un ítem `aprobada` y NO convertido sigue siendo
                           convertible a inventario (el guard del backend mira el `itemStatus`, no el
@@ -1498,25 +1495,21 @@ export function M5View() {
                       <div className="flex flex-wrap gap-2">
                         {canDecide && decidable && !notBought && (
                           <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              loading={decisionPending && decisionMutation.variables?.decision === 'approve'}
-                              onClick={() =>
+                            {/* §BUYLIST-FLUJO F2 (diseño A): Aprobar al pactado · Bajar precio · No aceptar · No llegó, en la fila. */}
+                            <ReviewItemActions
+                              item={it}
+                              panel={reviewPanel}
+                              onPanel={setReviewPanel}
+                              approving={decisionPending && decisionMutation.variables?.decision === 'approve'}
+                              onApprove={() =>
                                 decisionMutation.mutate({ requestId: req.id, itemId: it.id, decision: 'approve' })
                               }
-                            >
-                              {t('approve')}
-                            </Button>
-                            {canAdjust && (
+                            />
+                            {canAdjust && it.revision?.state !== 'pending' && (
                               <Button size="sm" variant="ghost" onClick={() => openAdjust(req.id, it)}>
                                 {t('adjust')}
                               </Button>
                             )}
-                            {/* v1.18: el rechazo exige MOTIVO (3–500) → abre el mini-diálogo. */}
-                            <Button size="sm" variant="ghost" onClick={() => openReject(req.id, it)}>
-                              {t('reject')}
-                            </Button>
                           </>
                         )}
                         {/* Convertir a inventario: SOLO para aprobadas. Un ítem `rechazada`
@@ -1537,6 +1530,48 @@ export function M5View() {
                         )}
                       </div>
                     </div>
+                    {reviewPanel?.itemId === it.id && reviewPanel.kind === 'reduce' && (
+                      <RevisePricePanel
+                        req={req}
+                        item={it}
+                        getError={getError}
+                        onClose={() => setReviewPanel(null)}
+                        onDone={(msg) => {
+                          setReviewPanel(null);
+                          refresh();
+                          ok(req.id, msg);
+                        }}
+                      />
+                    )}
+                    {reviewPanel?.itemId === it.id && reviewPanel.kind !== 'reduce' && (
+                      <RejectPanel
+                        key={reviewPanel.kind}
+                        req={req}
+                        item={it}
+                        initialCause={reviewPanel.kind === 'not_received' ? 'not_received' : null}
+                        getError={getError}
+                        onClose={() => setReviewPanel(null)}
+                        onDone={(msg) => {
+                          setReviewPanel(null);
+                          void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                          refresh();
+                          ok(req.id, msg);
+                        }}
+                        onFinal={(err) => {
+                          setReviewPanel(null);
+                          refresh();
+                          const itemStatus = err.details?.itemStatus;
+                          setFeedback({
+                            requestId: req.id,
+                            kind: 'final',
+                            message:
+                              typeof itemStatus === 'string' && ITEM_TERMINAL.has(itemStatus)
+                                ? te('CONFLICT_ITEM_FINAL_WITH_DETAILS', { itemStatus })
+                                : te('CONFLICT_ITEM_FINAL'),
+                          });
+                        }}
+                      />
+                    )}
                     {notBought && (
                       <p className="pl-14 text-xs text-muted">{t('notBought.note')}</p>
                     )}
@@ -1563,9 +1598,36 @@ export function M5View() {
                         )}
                       </div>
                     )}
+                    {isRejected && (
+                      <div className="pl-14">
+                        <PickupLine
+                          itemId={it.id}
+                          cardName={it.card.name}
+                          pickup={it.pickup}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                            refresh();
+                            ok(req.id, msg);
+                          }}
+                          onError={(e) => fail(req.id, e)}
+                        />
+                      </div>
+                    )}
                     </div>
                   );
                 })}
+              </div>
+
+              {/* §BUYLIST-FLUJO F2a: «Convertir todas» (diálogo con ubicación y la lista de lo que se da de alta). */}
+              <div className="flex justify-end">
+                <ConvertAllButton
+                  req={req}
+                  onDone={(msg) => {
+                    void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
+                    refresh();
+                    ok(req.id, msg);
+                  }}
+                />
               </div>
 
               {/* CLABE revelada bajo demanda: solo esta solicitud, solo hasta ocultarla */}
@@ -1775,67 +1837,6 @@ export function M5View() {
           {rejectRequestError && (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>
               {rejectRequestError}
-            </Banner>
-          )}
-        </div>
-      </Modal>
-
-      {/* Modal de rechazo con motivo obligatorio (v1.18 · decision=reject + reason 3–500).
-          El motivo llega al vendedor por CORREO junto con sus plazos (aviso en el copy). */}
-      <Modal
-        open={!!rejectTarget}
-        onClose={closeReject}
-        title={t('rejectTitle')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeReject}>
-              {tc('cancel')}
-            </Button>
-            <Button
-              variant="accent"
-              disabled={!rejectReasonValid}
-              loading={decisionMutation.isPending && decisionMutation.variables?.decision === 'reject'}
-              onClick={() =>
-                rejectTarget &&
-                rejectReasonValid &&
-                decisionMutation.mutate({
-                  requestId: rejectTarget.requestId,
-                  itemId: rejectTarget.item.id,
-                  decision: 'reject',
-                  reason: rejectReasonTrimmed,
-                })
-              }
-            >
-              {t('rejectConfirm')}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {rejectTarget && (
-            <p className="text-sm text-muted">
-              <span lang="en" className="font-medium text-text">{rejectTarget.item.card.name}</span>
-              {' · '}
-              {t('quoted')}:{' '}
-              <span className="tabular">
-                {(rejectTarget.item.quotedPriceCents != null ? formatMoneyCents(rejectTarget.item.quotedPriceCents, locale) : '—')}
-              </span>
-            </p>
-          )}
-          {/* Validación en cliente ANTES de enviar (espeja el 3–500 del backend). */}
-          <Input
-            label={t('rejectReasonLabel')}
-            hint={t('rejectReasonHint')}
-            error={rejectReason !== '' && !rejectReasonValid ? t('rejectReasonInvalid') : undefined}
-            type="text"
-            maxLength={REJECT_REASON_MAX}
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-          />
-          <p className="text-xs text-muted">{t('rejectNotifyNote')}</p>
-          {rejectError && (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {rejectError}
             </Banner>
           )}
         </div>

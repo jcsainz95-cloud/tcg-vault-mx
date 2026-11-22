@@ -1004,6 +1004,42 @@
     "entregado": "Delivered",
     "cancelado": "Cancelled"
   },
+  "sellerFlujo": {
+    "eyebrow": "Your account · Request {id}",
+    "listNote": "You have a new-price proposal waiting for your answer.",
+    "revision": {
+      "title": "New price proposal for {card}",
+      "now": "New price",
+      "before": "We previously offered {amount}",
+      "reasonFallback": "When reviewing your package we found a difference from what was declared.",
+      "deadline": "{count, plural, =0 {Your deadline to answer expires today.} one {You have # day to answer.} other {You have # days to answer.}} If you do not answer, we will not buy it and we will keep it for you to collect.",
+      "accept": "Accept {amount}",
+      "decline": "Decline",
+      "accepted": "You accepted the {amount} proposal for {card}.",
+      "declined": "You declined the proposal for {card}. Choose below how to get your card back.",
+      "expired": "The proposal for {card} expired unanswered; we did not buy it.",
+      "errors": {
+        "resolved": "This proposal was already answered differently. Reload the page.",
+        "notFound": "We could not find this proposal.",
+        "generic": "We could not record your answer. Try again."
+      }
+    },
+    "pickup": {
+      "title": "{card}: your card is waiting",
+      "intro": "We did not buy it. Choose how to get it back:",
+      "inPerson": "Pick up in store (free)",
+      "inPersonHint": "We will contact you to arrange a day and time.",
+      "shipBack": "Ship it to me (at my cost)",
+      "shipBackHint": "We coordinate it with you; shipping is at your expense.",
+      "chosen": "You chose: {method}",
+      "deadlines": "You have until {returnDate} to choose and until {abandonDate} to collect it; after that it is considered abandoned.",
+      "done": "Delivered on {date}.",
+      "errors": {
+        "alreadyDone": "This card was already delivered; the method cannot be changed.",
+        "generic": "We could not save your choice. Try again."
+      }
+    }
+  },
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Sell my cards",
@@ -3574,6 +3610,107 @@
       "speiReferenceLabel": "SPEI reference",
       "paySpeiConfirm": "Record payment",
       "flow": {
+        "f2": {
+          "status": { "approvedAgreed": "Approved at agreed price", "approvedRevised": "Approved with the accepted reduction" },
+          "actions": {
+            "approve": "Approve at agreed price",
+            "reduce": "Lower price",
+            "reject": "Don't accept",
+            "notReceived": "Not received"
+          },
+          "waiting": {
+            "label": "Waiting for the seller · {count, plural, =0 {expires today} one {expires in # day} other {expires in # days}}",
+            "noDate": "Waiting for the seller",
+            "proposed": "We proposed {proposed} (was {previous})",
+            "netIf": "If they accept, the deposit would be {net}"
+          },
+          "revisionPendingPay": "A price reduction is waiting for the seller: payment is blocked until they answer (or it expires).",
+          "revise": {
+            "newPrice": "New price (MX$)",
+            "agreedHint": "Agreed: {amount}",
+            "invalidAmount": "Enter a valid amount, e.g. 5700.00",
+            "why": "Why lower it",
+            "reasons": {
+              "condition_mismatch": "Arrived in a different condition",
+              "wrong_card": "Not the card they declared",
+              "other": "Other reason"
+            },
+            "noteLabel": "Explain the reason (3 to 500 characters)",
+            "noteInvalid": "Enter between 3 and 500 characters.",
+            "netLabel": "With this reduction we would deposit",
+            "netNote": "Calculated by the system; other pending reductions count at their proposed value.",
+            "netLoading": "Calculating…",
+            "netNone": "Enter a price below the agreed one to see the net.",
+            "hint": "The seller gets an email and has 7 days to accept or decline.",
+            "send": "Send proposal to the seller",
+            "cancel": "Cancel",
+            "sent": "Proposal for {card} sent to the seller. We are waiting for their answer.",
+            "errors": {
+              "invalid": "The proposal is not valid: check the amount and the reason.",
+              "pending": "A reduction is already waiting for the seller's answer.",
+              "resolved": "This card is already resolved; reload the request.",
+              "notLower": "The new price must be above zero and below the agreed one ({offered}).",
+              "notOffered": "This card is not part of the offer; its price cannot be lowered.",
+              "notReceived": "The request is not marked as received yet; receive it before lowering a price."
+            }
+          },
+          "rejectPanel": {
+            "why": "Why isn't it accepted?",
+            "causes": {
+              "not_received": "It did not arrive in the package",
+              "condition_mismatch": "Arrived in a different condition",
+              "wrong_card": "Not the card they declared",
+              "other": "Other reason"
+            },
+            "otherLabel": "Reason (3 to 500 characters)",
+            "wrongNoteLabel": "Which card arrived (optional)",
+            "previewTitle": "This is what the seller will receive by email",
+            "pickCause": "Pick a cause to see the text.",
+            "previewNote": "Preview: the final email is written by the server with the real data.",
+            "preview": {
+              "not_received": "We checked your package (request {folio}) and {card} ({set} · {number}) was not inside. We did not include it in the payment: you are deposited the rest, minus the shipping you accepted. Since we did not receive it, we have nothing to return. If you believe you did send it, reply to this email with your tracking number.",
+              "condition_mismatch": "{card} arrived in a different condition than the one you declared ({declared}), so we did not include it in the payment.",
+              "wrong_card": "Instead of {card}, a different card was inside{note}, so we did not include it in the payment."
+            },
+            "pickupBlock": "Your cards are waiting for you. You can pick them up at the store at no cost (reply to the email and we will arrange a day and time) or ask us to ship them at your expense. Choose in your account; the email includes the deadlines to choose and to collect them, after which they are considered abandoned.",
+            "noPickup": "No pickup is offered: we never received the card.",
+            "withPickup": "They are offered in-store pickup at no cost or shipping at their expense.",
+            "cancel": "Cancel",
+            "confirm": "Don't accept {card}",
+            "done": "{card} was not accepted; the seller gets the email.",
+            "errors": {
+              "reasonCode": "Pick a cause.",
+              "reason": "Enter between 3 and 500 characters.",
+              "pending": "This card has a reduction waiting for the seller.",
+              "notReceived": "\"Not received\" cannot be set until the request is marked as received."
+            }
+          },
+          "pickup": {
+            "state": {
+              "none": "Pickup method not chosen yet",
+              "in_person": "Picks up in store (free)",
+              "ship_back": "Asked for shipping at their cost"
+            },
+            "done": "Delivered on {date}",
+            "markDone": "Delivered",
+            "doneFeedback": "{card}: marked as delivered."
+          },
+          "convertAll": {
+            "cta": "Convert all ({count})",
+            "title": "Add to inventory",
+            "intro": "Approved cards of {id} that will be added.",
+            "location": "Storage location",
+            "noLocation": "No location (assign later)",
+            "locationHint": "Applies to every card in the list.",
+            "listTitle": "Cards that will be added",
+            "confirm": "Add {count}",
+            "done": "{count, plural, one {# card was added to inventory.} other {# cards were added to inventory.}}",
+            "partial": "Added: {converted}. Skipped: {skipped}. Failed: {failed}.",
+            "retry": "You can retry: the ones already added are skipped.",
+            "locationGone": "That location is no longer available; pick another.",
+            "error": "Could not add them. Try again."
+          }
+        },
         "spei": {
           "title": "Pay by SPEI",
           "subtitle": "Request {id} · {seller}",

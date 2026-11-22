@@ -1823,6 +1823,27 @@ export function mockPendingDecisionItemIds(row: Pick<AdminBuylistDTO, 'items'>):
     .map((it) => it.id);
 }
 
+/**
+ * §BUYLIST-FLUJO F2c (servidor FALSO) — el neto que quedaría si el vendedor aceptara la baja de `itemId` a `revisedCents`
+ * (anexo §3: bajas ajenas pendientes cuentan a su valor propuesto). Espeja `computePayoutNetCents`; solo lo usan el
+ * `preview` y `netIfAcceptedCents` del mock — la pantalla jamás suma.
+ */
+export function mockProjectedNetCents(
+  row: Pick<MockAdminBuylistRow, 'items' | 'offerShippingFeeCents'>,
+  itemId: string,
+  revisedCents: number,
+): { grossCents: number; shippingFeeCents: number; netCents: number } {
+  let gross = 0;
+  for (const it of row.items) {
+    if (it.offerDecision !== 'buy' || it.itemStatus === 'rechazada') continue;
+    if (it.id === itemId) gross += revisedCents;
+    else if (it.revision?.state === 'pending') gross += it.revision.proposedCents ?? 0;
+    else gross += it.approvedPriceCents ?? it.offeredPriceCents ?? 0;
+  }
+  const ship = row.offerShippingFeeCents ?? 0;
+  return { grossCents: gross, shippingFeeCents: ship, netCents: Math.max(0, gross - ship) };
+}
+
 /** Lo que la fórmula de §M5-V.0 mira de una fila: sus columnas, su `status` y sus líneas. */
 type MockPayabilityRow = MockPayabilityColumns & Pick<AdminBuylistDTO, 'status' | 'items'>;
 
@@ -1946,7 +1967,14 @@ function mockFlowFields(
   const r = row as MockAdminBuylistRow & Record<string, unknown>;
   const num = (k: string): number | null => (typeof r[k] === 'number' ? (r[k] as number) : null);
   const str = (k: string): string | null => (typeof r[k] === 'string' ? (r[k] as string) : null);
-  const items = row.items.map((it) => ({ ...it, agreedPriceCents: it.offeredPriceCents ?? null }));
+  const items = row.items.map((it) => ({
+    ...it,
+    agreedPriceCents: it.revision?.state === 'accepted' && it.approvedPriceCents != null ? it.approvedPriceCents : (it.offeredPriceCents ?? null),
+    revision:
+      it.revision?.state === 'pending'
+        ? { ...it.revision, netIfAcceptedCents: mockProjectedNetCents(row, it.id, it.revision.proposedCents ?? 0).netCents }
+        : (it.revision ?? null),
+  }));
   const gross = row.approvedTotalCents ?? num('offerGrossCents') ?? row.quotedTotalCents;
   const ship = num('offerShippingFeeCents') ?? 0;
   const payoutStates = new Set<SellRequestStatus>(['verificacion', 'aprobada', 'pagada']);
@@ -2106,6 +2134,29 @@ export const mockSellRequests: MockSellRequestRow[] = [
     labelPdfAvailable: false,
     items: [
       { id: 'sri-nc-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
+    ],
+  },
+  /**
+   * §BUYLIST-FLUJO F2 — portal del vendedor: Mewtwo con una BAJA pendiente (variante A: Aceptar/Rechazar grandes) y Eevee
+   * rechazada por condición, a la espera de que elija cómo recoger (en persona / envío a su cargo). Sin `reasonCode` (solo texto).
+   */
+  {
+    sellRequestId: 'sr-3020',
+    status: 'verificacion',
+    quotedTotalCents: 205_000,
+    ineRequired: false,
+    createdAt: '2026-11-10T14:00:00Z',
+    items: [
+      {
+        id: 'sri-f2c-1', card: { ...cardById('c-zapdos'), id: 'c-mewtwo', name: 'Mewtwo', number: '10', imageSmallUrl: 'https://images.pokemontcg.io/base1/10.png', imageLargeUrl: 'https://images.pokemontcg.io/base1/10_hires.png' },
+        productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 145_000, offerDecision: 'buy', offeredPriceCents: 145_000, itemStatus: 'ajustada',
+        revision: { state: 'pending', proposedCents: 110_000, previousCents: 145_000, reasonText: 'La carta llegó en una condición distinta a la declarada', proposedAt: new Date(Date.now() - 1 * 86_400_000).toISOString(), expiresAt: new Date(Date.now() + 6 * 86_400_000).toISOString() },
+      },
+      {
+        id: 'sri-f2c-2', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 60_000, offerDecision: 'buy', offeredPriceCents: 60_000, itemStatus: 'rechazada',
+        rejectionCode: 'condition_mismatch', rejectionReason: 'Llegó en otra condición', rejectedAt: '2026-11-20T10:00:00Z', returnDeadlineAt: '2026-11-27T10:00:00Z', abandonDeadlineAt: '2026-12-20T10:00:00Z',
+        pickup: { method: null, chosenAt: null, doneAt: null, returnDeadlineAt: '2026-11-27T10:00:00Z', abandonDeadlineAt: '2026-12-20T10:00:00Z' },
+      },
     ],
   },
 ];
@@ -3834,6 +3885,64 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     seller: { id: 'u-783', name: 'Gary Oak', email: 'gary@example.com' },
     items: [
       { id: 'sri-tr-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'cotizada' },
+    ],
+  },
+  /**
+   * §BUYLIST-FLUJO F2 — revisión física con las cuatro acciones por carta (diseño A): Charizard ya aprobada al pactado,
+   * Blastoise y Pikachu por decidir, Mewtwo con una BAJA pendiente (propuesta 6 d antes ⇒ «vence en 1 día»).
+   * Cifras en centavos; el neto de la baja pendiente (`netIfAcceptedCents`) lo deriva `mockProjectedNetCents`, no la pantalla.
+   */
+  {
+    id: 'sr-3020',
+    userId: 'u-790',
+    status: 'verificacion',
+    quotedTotalCents: 2_653_000,
+    createdAt: '2026-11-10T14:00:00Z',
+    receivedAt: '2026-11-18T15:00:00Z',
+    verifiedAt: '2026-11-18T16:00:00Z',
+    approvedTotalCents: 1_850_000,
+    offerSentAt: '2026-11-11T10:00:00Z',
+    offerState: 'sent',
+    offerGrossCents: 2_653_000,
+    offerShippingFeeCents: 18_000,
+    offerNetCents: 2_635_000,
+    seller: { id: 'u-790', name: 'Mariana Torres Ruiz', email: 'mariana@example.com' },
+    items: [
+      { id: 'sri-f2-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r80_300', quotedPriceCents: 1_850_000, offerDecision: 'buy', offeredPriceCents: 1_850_000, approvedPriceCents: 1_850_000, itemStatus: 'aprobada' },
+      { id: 'sri-f2-2', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r80_300', quotedPriceCents: 620_000, offerDecision: 'buy', offeredPriceCents: 620_000, itemStatus: 'verificacion' },
+      {
+        id: 'sri-f2-3', card: { ...cardById('c-zapdos'), id: 'c-mewtwo', name: 'Mewtwo', number: '10', imageSmallUrl: 'https://images.pokemontcg.io/base1/10.png', imageLargeUrl: 'https://images.pokemontcg.io/base1/10_hires.png' },
+        productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 145_000, offerDecision: 'buy', offeredPriceCents: 145_000, itemStatus: 'ajustada',
+        revision: { state: 'pending', proposedCents: 110_000, previousCents: 145_000, reasonCode: 'condition_mismatch', note: null, proposedAt: new Date(Date.now() - 6 * 86_400_000).toISOString(), expiresAt: new Date(Date.now() + 1 * 86_400_000).toISOString(), respondedAt: null },
+      },
+      { id: 'sri-f2-4', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 38_000, offerDecision: 'buy', offeredPriceCents: 38_000, itemStatus: 'verificacion' },
+    ],
+  },
+  /** §BUYLIST-FLUJO F2a — «Convertir todas»: tres líneas aprobadas listas para dar de alta + una ya rechazada por recoger. */
+  {
+    id: 'sr-3021',
+    userId: 'u-791',
+    status: 'aprobada',
+    quotedTotalCents: 1_000_000,
+    createdAt: '2026-11-09T14:00:00Z',
+    receivedAt: '2026-11-17T15:00:00Z',
+    verifiedAt: '2026-11-18T10:00:00Z',
+    approvedTotalCents: 940_000,
+    offerSentAt: '2026-11-10T10:00:00Z',
+    offerState: 'sent',
+    offerGrossCents: 1_000_000,
+    offerShippingFeeCents: 18_000,
+    offerNetCents: 982_000,
+    seller: { id: 'u-791', name: 'Daniel Ortega', email: 'daniel@example.com' },
+    items: [
+      { id: 'sri-f2-5', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r80_300', quotedPriceCents: 600_000, offerDecision: 'buy', offeredPriceCents: 600_000, approvedPriceCents: 600_000, itemStatus: 'aprobada' },
+      { id: 'sri-f2-6', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 250_000, offerDecision: 'buy', offeredPriceCents: 250_000, approvedPriceCents: 250_000, itemStatus: 'aprobada' },
+      { id: 'sri-f2-7', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90_000, offerDecision: 'buy', offeredPriceCents: 90_000, approvedPriceCents: 90_000, itemStatus: 'aprobada' },
+      {
+        id: 'sri-f2-8', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 60_000, offerDecision: 'buy', offeredPriceCents: 60_000, itemStatus: 'rechazada',
+        rejectionCode: 'condition_mismatch', rejectionReason: 'Llegó en otra condición', rejectedAt: '2026-11-18T10:00:00Z', returnDeadlineAt: '2026-11-25T10:00:00Z', abandonDeadlineAt: '2026-12-18T10:00:00Z',
+        pickup: { method: 'in_person', chosenAt: '2026-11-19T10:00:00Z', doneAt: null, returnDeadlineAt: '2026-11-25T10:00:00Z', abandonDeadlineAt: '2026-12-18T10:00:00Z' },
+      },
     ],
   },
 ];

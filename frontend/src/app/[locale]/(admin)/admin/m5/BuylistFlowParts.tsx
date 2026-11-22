@@ -66,6 +66,7 @@ export interface SpeiPayModalProps {
 export function SpeiPayModal({ req, onClose, onPaid, onStale, getError }: SpeiPayModalProps) {
   const t = useTranslations('admin.m5.flow.spei');
   const tc = useTranslations('common');
+  const tf2 = useTranslations('admin.m5.flow.f2');
   const locale = useLocale() as AppLocale;
   const id = req?.id ?? null;
   const [reference, setReference] = useState('');
@@ -112,6 +113,12 @@ export function SpeiPayModal({ req, onClose, onPaid, onStale, getError }: SpeiPa
           onStale();
           return;
         }
+      }
+      // §BUYLIST-FLUJO F2c: una baja sin respuesta del vendedor bloquea el pago (nunca se paga un precio menor sin su «sí»).
+      if (e instanceof ApiClientError && e.status === 409 && e.code === 'REVISION_PENDING') {
+        setPayError(tf2('revisionPendingPay'));
+        onStale();
+        return;
       }
       setPayError(getError(e));
     },

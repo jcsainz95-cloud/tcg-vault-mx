@@ -66,6 +66,18 @@ describe('F1a · modal SPEI (un paso)', () => {
     await waitFor(() => expect(pay).toHaveBeenLastCalledWith('sr-3003', 'REF-1', 2600000));
   });
 
+  it('F2c · 409 REVISION_PENDING: una baja sin respuesta bloquea el pago, con su copy y recarga', async () => {
+    vi.spyOn(api, 'revealBuylistClabe').mockResolvedValue({ sellRequestId: 'sr-3003', clabe: '002010077777777771', holderName: 'X' });
+    vi.spyOn(api, 'paySpeiBuylist').mockRejectedValue(
+      new ApiClientError(409, { code: 'REVISION_PENDING', message: 'srv', details: { itemIds: ['sri-f2-3'] } }),
+    );
+    const props = openModal(reqOf('sr-3003', { payout: PAYOUT }));
+    await fillAndConfirm();
+    expect(await screen.findByText(/Hay una baja de precio esperando al vendedor/)).toBeInTheDocument();
+    expect(props.onStale).toHaveBeenCalledTimes(1);
+    expect(props.onPaid).not.toHaveBeenCalled();
+  });
+
   it('422 CLABE_MISSING: el remedio sale en texto claro y no se puede confirmar', async () => {
     vi.spyOn(api, 'revealBuylistClabe').mockRejectedValue(
       new ApiClientError(422, { code: 'CLABE_MISSING', message: 'no clabe', details: { remedy: 'ask_seller_clabe' } }),

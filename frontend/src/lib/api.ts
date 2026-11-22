@@ -16,6 +16,8 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
+import * as flujoMock from './mock/buylist-flujo';
+import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
 import { runDecksMetaRefreshJob } from './api/decks-meta-jobs';
@@ -74,6 +76,7 @@ import type {
   VaultLocationDTO,
   VaultZone,
   AdminBuylistDTO,
+  BuylistPickupMethod,
   OpenInboundShipmentRes,
   AdminSellerRef,
   RejectedSellItemDTO,
@@ -5888,7 +5891,7 @@ export async function decideBuylistItem(
       body: input,
     });
   }
-  const { item } = mockFindBuylistItem(itemId);
+  const { req, item } = mockFindBuylistItem(itemId);
   // Espeja el peldaño de §PNL.10.2 (E-2, v1.82.1): carta ya inventario o ya pagada ⇒ `409 CONFLICT {reason:'ITEM_FINAL'}`,
   // cero escrituras, para los TRES verbos.
   if (item.itemStatus === 'convertida_inventario' || item.itemStatus === 'pagada') {
@@ -5905,21 +5908,38 @@ export async function decideBuylistItem(
   };
   if (input.decision === 'reject') {
     // Espeja la validación del backend (400 VALIDATION_ERROR, contrato §M5).
+    // §BUYLIST-FLUJO F2b: `reasonCode` OBLIGATORIO (400 `field:'reasonCode'`); `other` exige `reason` 3–500.
+    if (!input.reasonCode) {
+      throw new ApiClientError(400, {
+        code: 'VALIDATION_ERROR',
+        message: 'reasonCode is required for reject',
+        details: { field: 'reasonCode' },
+      });
+    }
     const reason = input.reason?.trim() ?? '';
-    if (reason.length < 3 || reason.length > 500) {
+    if (input.reasonCode === 'other' && (reason.length < 3 || reason.length > 500)) {
       throw new ApiClientError(400, {
         code: 'VALIDATION_ERROR',
         message: 'reason is required for reject (3-500 chars)',
+        details: { field: 'reason' },
       });
     }
+    if (input.reasonCode === 'not_received' && req.status !== 'recibida' && req.status !== 'verificacion') {
+      throw new ApiClientError(422, { code: 'REQUEST_NOT_RECEIVED', message: 'Request not received yet' });
+    }
     const rejectedAt = new Date().toISOString();
+    item.rejectionCode = input.reasonCode;
     item.itemStatus = 'rechazada';
     item.approvedPriceCents = undefined; // invariante: fuera del total aprobado
-    item.rejectionReason = reason;
+    item.rejectionReason = reason || null;
     item.rejectedAt = rejectedAt;
     const deadlines = mockRejectDeadlines(rejectedAt);
     item.returnDeadlineAt = deadlines.returnDeadlineAt;
     item.abandonDeadlineAt = deadlines.abandonDeadlineAt;
+    item.pickup =
+      input.reasonCode === 'not_received'
+        ? null
+        : { method: null, chosenAt: null, doneAt: null, ...deadlines };
     return delay({ ...item });
   }
   item.itemStatus = next[input.decision];
@@ -5999,9 +6019,12 @@ export async function getAdminRejectedBuylistItems(
   // aparecen aquí), espejando la proyección RejectedSellItemDTO del backend.
   const rows: RejectedSellItemDTO[] = fx.mockAdminBuylist.flatMap((req) =>
     req.items
-      .filter((it) => it.itemStatus === 'rechazada')
+      // §BUYLIST-FLUJO F2b: «No llegó» no tiene qué recoger ⇒ no sale en esta cola.
+      .filter((it) => it.itemStatus === 'rechazada' && it.rejectionCode !== 'not_received')
       .map((it) => ({
         id: it.id,
+        rejectionCode: it.rejectionCode ?? null,
+        pickup: it.pickup ?? null,
         sellRequestId: req.id,
         seller: req.seller ?? mockSellerFor(req.userId),
         card: it.card,
@@ -6107,6 +6130,11 @@ export async function paySpeiBuylist(
   // aunque V-a también falle, y no es cosmética — cuando faltan veredictos, **decidirlos es el
   // acto que satisface los dos términos**; el mensaje genérico mandaría al operador a revisar el
   // estado y la recepción, que están bien, en vez de a la pantalla donde está el trabajo.
+  // §BUYLIST-FLUJO F2c: una baja pendiente bloquea el pago ANTES de `ITEMS_NOT_DECIDED` (anexo §2).
+  const pendingRevisionIds = req.items.filter((it) => it.revision?.state === 'pending').map((it) => it.id);
+  if (pendingRevisionIds.length > 0) {
+    throw new ApiClientError(409, { code: 'REVISION_PENDING', message: 'A price revision is waiting for the seller', details: { itemIds: pendingRevisionIds } });
+  }
   const pendingDecisionItemIds = fx.mockPendingDecisionItemIds(req);
   if (req.offerSentAt != null && pendingDecisionItemIds.length > 0) {
     throw new ApiClientError(422, {
@@ -8560,4 +8588,34 @@ export async function downloadDiscountReportCsv(
     else mockDsc.mockAuditExport('DiscountCodeBatch', target.id, 'discount.batch.report_exported', r.rows.length);
     return { blob: new Blob([mockDsc.mockReportCsv(r)], { type: 'text/csv;charset=utf-8' }), filename: null };
   });
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * §BUYLIST-FLUJO F2 (anexo §3–§6) — las llamadas reales viven en `api/buylist-flujo.ts` y el servidor falso en
+ * `mock/buylist-flujo.ts`; aquí solo se decide entre los dos (regla R1: nadie más importa `lib/mock`).
+ * ------------------------------------------------------------------------------------------------ */
+export type { RevisePriceInput } from './api/buylist-flujo';
+export async function reviseBuylistItemPrice(itemId: string, input: flujoReal.RevisePriceInput) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.reviseBuylistItemPrice(itemId, input);
+  return flujoMock.mockReviseBuylistItemPrice(itemId, input);
+}
+export async function previewBuylistRevision(itemId: string, revisedPriceCents: number) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.previewBuylistRevision(itemId, revisedPriceCents);
+  return flujoMock.mockPreviewBuylistRevision(itemId, revisedPriceCents);
+}
+export async function markBuylistPickupDone(itemId: string) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.markBuylistPickupDone(itemId);
+  return flujoMock.mockMarkBuylistPickupDone(itemId);
+}
+export async function convertAllBuylist(requestId: string, locationId?: string) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.convertAllBuylist(requestId, locationId);
+  return flujoMock.mockConvertAllBuylist(requestId, locationId);
+}
+export async function respondBuylistRevision(requestId: string, itemId: string, decision: 'accept' | 'decline') {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.respondBuylistRevision(requestId, itemId, decision);
+  return flujoMock.mockRespondBuylistRevision(requestId, itemId, decision);
+}
+export async function chooseBuylistPickup(requestId: string, itemId: string, method: BuylistPickupMethod) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.chooseBuylistPickup(requestId, itemId, method);
+  return flujoMock.mockChooseBuylistPickup(requestId, itemId, method);
 }

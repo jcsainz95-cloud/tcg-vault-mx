@@ -31,6 +31,7 @@ export interface MyRequestsSectionProps {
  */
 export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyRequestsSectionProps) {
   const t = useTranslations('buylist');
+  const tf = useTranslations('sellerFlujo');
   const locale = useLocale() as AppLocale;
   const buylistSteps = useBuylistSteps();
   const queryClient = useQueryClient();
@@ -82,7 +83,9 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
               requests.data!.map((r) => {
 
                 // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
-                const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
+                // §BUYLIST-FLUJO F2: una `ajustada` con `revision` es una baja del flujo nuevo (se responde en el portal, no aquí).
+                const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada' && !it.revision);
+                const revisionPending = r.items.some((it) => it.revision?.state === 'pending');
                 const adjustedTotalCents = adjustedItems.reduce(
                   (s, it) => s + (it.approvedPriceCents ?? 0),
                   0,
@@ -215,6 +218,12 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
                           </Button>
                         </div>
                       </div>
+                    )}
+
+                    {revisionPending && (
+                      <p className="mt-3 font-mono text-[11px] leading-[1.6] text-accent" data-testid="my-requests-revision-note">
+                        {tf('listNote')}
+                      </p>
                     )}
 
                     {hasPendingItems && (

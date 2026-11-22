@@ -1004,6 +1004,42 @@
     "entregado": "Entregado",
     "cancelado": "Cancelado"
   },
+  "sellerFlujo": {
+    "eyebrow": "Tu cuenta · Solicitud {id}",
+    "listNote": "Tienes una propuesta de nuevo precio esperando tu respuesta.",
+    "revision": {
+      "title": "Propuesta de nuevo precio para {card}",
+      "now": "Nuevo precio",
+      "before": "Antes ofrecimos {amount}",
+      "reasonFallback": "Al revisar tu paquete encontramos una diferencia con lo declarado.",
+      "deadline": "{count, plural, =0 {Hoy vence tu plazo para contestar.} one {Tienes # día para contestar.} other {Tienes # días para contestar.}} Si no contestas, no la compramos y te la esperamos para devolvértela.",
+      "accept": "Aceptar {amount}",
+      "decline": "Rechazar",
+      "accepted": "Aceptaste la propuesta de {amount} por {card}.",
+      "declined": "Rechazaste la propuesta por {card}. Elige abajo cómo recoger tu carta.",
+      "expired": "La propuesta por {card} venció sin respuesta; no la compramos.",
+      "errors": {
+        "resolved": "Esta propuesta ya se respondió de otra forma. Recarga la página.",
+        "notFound": "No encontramos esta propuesta.",
+        "generic": "No pudimos registrar tu respuesta. Intenta de nuevo."
+      }
+    },
+    "pickup": {
+      "title": "{card}: tu carta te espera",
+      "intro": "No la compramos. Elige cómo recogerla:",
+      "inPerson": "Recoger en tienda (sin costo)",
+      "inPersonHint": "Te contactamos para acordar día y hora.",
+      "shipBack": "Que me la envíen (a mi cargo)",
+      "shipBackHint": "Lo coordinamos contigo; el costo del envío corre por tu cuenta.",
+      "chosen": "Elegiste: {method}",
+      "deadlines": "Tienes hasta el {returnDate} para elegir y hasta el {abandonDate} para recogerla; pasada esa fecha se considera abandonada.",
+      "done": "Entregada el {date}.",
+      "errors": {
+        "alreadyDone": "Esta carta ya se entregó; no se puede cambiar el método.",
+        "generic": "No pudimos guardar tu elección. Intenta de nuevo."
+      }
+    }
+  },
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
@@ -3574,6 +3610,107 @@
       "speiReferenceLabel": "Referencia SPEI",
       "paySpeiConfirm": "Registrar pago",
       "flow": {
+        "f2": {
+          "status": { "approvedAgreed": "Aprobada al pactado", "approvedRevised": "Aprobada con la baja aceptada" },
+          "actions": {
+            "approve": "Aprobar al pactado",
+            "reduce": "Bajar precio",
+            "reject": "No aceptar",
+            "notReceived": "No llegó"
+          },
+          "waiting": {
+            "label": "Esperando al vendedor · {count, plural, =0 {vence hoy} one {vence en # día} other {vence en # días}}",
+            "noDate": "Esperando al vendedor",
+            "proposed": "Propusimos {proposed} (antes {previous})",
+            "netIf": "Si acepta se depositarían {net}"
+          },
+          "revisionPendingPay": "Hay una baja de precio esperando al vendedor: no se puede pagar hasta que conteste (o venza su plazo).",
+          "revise": {
+            "newPrice": "Nuevo precio (MX$)",
+            "agreedHint": "Pactado: {amount}",
+            "invalidAmount": "Escribe un monto válido, por ejemplo 5700.00",
+            "why": "Por qué baja",
+            "reasons": {
+              "condition_mismatch": "Llegó en otra condición",
+              "wrong_card": "No es la carta que declaró",
+              "other": "Otra razón"
+            },
+            "noteLabel": "Explica la razón (3 a 500 caracteres)",
+            "noteInvalid": "Escribe entre 3 y 500 caracteres.",
+            "netLabel": "Con esta baja se depositaría",
+            "netNote": "Lo calcula el sistema; las otras bajas pendientes cuentan a su valor propuesto.",
+            "netLoading": "Calculando…",
+            "netNone": "Escribe un precio menor al pactado para ver el neto.",
+            "hint": "El vendedor recibe un correo y tiene 7 días para aceptar o rechazar.",
+            "send": "Enviar propuesta al vendedor",
+            "cancel": "Cancelar",
+            "sent": "Propuesta enviada al vendedor por {card}. Esperamos su respuesta.",
+            "errors": {
+              "invalid": "La propuesta no es válida: revisa el monto y la razón.",
+              "pending": "Hay una baja pendiente de respuesta del vendedor.",
+              "resolved": "Esta carta ya quedó resuelta; recarga la solicitud.",
+              "notLower": "El nuevo precio debe ser mayor que cero y menor al pactado ({offered}).",
+              "notOffered": "Esta carta no entra en la oferta; no se le puede bajar el precio.",
+              "notReceived": "La solicitud aún no está recibida; recíbela antes de bajar un precio."
+            }
+          },
+          "rejectPanel": {
+            "why": "¿Por qué no se acepta?",
+            "causes": {
+              "not_received": "No llegó en el paquete",
+              "condition_mismatch": "Llegó en otra condición",
+              "wrong_card": "No es la carta que declaró",
+              "other": "Otra razón"
+            },
+            "otherLabel": "Motivo (3 a 500 caracteres)",
+            "wrongNoteLabel": "Qué carta llegó (opcional)",
+            "previewTitle": "Esto es lo que recibirá el vendedor por correo",
+            "pickCause": "Elige una causa para ver el texto.",
+            "previewNote": "Vista previa: el correo final lo redacta el servidor con los datos reales.",
+            "preview": {
+              "not_received": "Revisamos tu paquete (solicitud {folio}) y {card} ({set} · {number}) no venía dentro. No la incluimos en el pago: se te deposita el resto, menos el envío que aceptaste. Como no la recibimos, no tenemos nada que devolverte. Si crees que sí la mandaste, responde este correo con tu guía.",
+              "condition_mismatch": "{card} llegó en una condición distinta a la que declaraste ({declared}), por eso no la incluimos en el pago.",
+              "wrong_card": "En lugar de {card} venía otra carta{note}, por eso no la incluimos en el pago."
+            },
+            "pickupBlock": "Tus cartas te esperan. Puedes pasar por ellas a la tienda sin costo (responde el correo y acordamos día y hora) o pedir que te las enviemos a tu cargo. Elige en tu cuenta; el correo trae las fechas límite para elegir y para recogerlas, pasadas las cuales se consideran abandonadas.",
+            "noPickup": "No se le ofrece recoger la carta: no la recibimos.",
+            "withPickup": "Se le ofrece recogerla en tienda sin costo o pedir envío a su cargo.",
+            "cancel": "Cancelar",
+            "confirm": "No aceptar {card}",
+            "done": "{card} no se aceptó; el vendedor recibe el correo.",
+            "errors": {
+              "reasonCode": "Elige una causa.",
+              "reason": "Escribe entre 3 y 500 caracteres.",
+              "pending": "Esta carta tiene una baja esperando al vendedor.",
+              "notReceived": "No se puede marcar «No llegó» hasta que la solicitud esté recibida."
+            }
+          },
+          "pickup": {
+            "state": {
+              "none": "Sin elegir cómo recoger",
+              "in_person": "Recoge en tienda (sin costo)",
+              "ship_back": "Pidió envío a su cargo"
+            },
+            "done": "Entregada el {date}",
+            "markDone": "Entregada",
+            "doneFeedback": "{card}: marcada como entregada."
+          },
+          "convertAll": {
+            "cta": "Convertir todas ({count})",
+            "title": "Dar de alta en inventario",
+            "intro": "Cartas aprobadas de {id} que se van a dar de alta.",
+            "location": "Ubicación donde se guardan",
+            "noLocation": "Sin ubicación (asignar después)",
+            "locationHint": "Se aplica a todas las cartas de la lista.",
+            "listTitle": "Cartas que se darán de alta",
+            "confirm": "Dar de alta {count}",
+            "done": "{count, plural, one {Se dio de alta # carta en inventario.} other {Se dieron de alta # cartas en inventario.}}",
+            "partial": "Dadas de alta: {converted}. Omitidas: {skipped}. Con error: {failed}.",
+            "retry": "Puedes reintentar: las ya dadas de alta se omiten.",
+            "locationGone": "Esa ubicación ya no está disponible; elige otra.",
+            "error": "No se pudo dar de alta. Intenta de nuevo."
+          }
+        },
         "spei": {
           "title": "Pagar por SPEI",
           "subtitle": "Solicitud {id} · {seller}",

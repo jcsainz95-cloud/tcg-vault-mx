@@ -424,6 +424,7 @@ describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
   it('v1.18 · reject con motivo fija rejectedAt + plazos (7d/30d), anula el precio aprobado y aparece en rejected-items', async () => {
     const res = await decideBuylistItem('sri-9', {
       decision: 'reject',
+      reasonCode: 'other',
       reason: 'no es NM: doblez central',
     });
     expect(res.itemStatus).toBe('rechazada');
@@ -444,6 +445,21 @@ describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
     expect(row.reason).toBe('no es NM: doblez central');
     expect(row.returnDeadlineAt).toBe(res.returnDeadlineAt);
     expect(row.abandonDeadlineAt).toBe(res.abandonDeadlineAt);
+  });
+
+  it('F2b · reject SIN reasonCode ⇒ 400 field=reasonCode (el rechazo siempre lleva causa)', async () => {
+    await expect(decideBuylistItem('sri-1', { decision: 'reject', reason: 'no es NM' })).rejects.toMatchObject({
+      status: 400,
+      details: { field: 'reasonCode' },
+    });
+  });
+
+  it('F2b · «No llegó» no sale en rejected-items (nada que recoger) y no trae pickup', async () => {
+    const res = await decideBuylistItem('sri-f2-4', { decision: 'reject', reasonCode: 'not_received' });
+    expect(res.rejectionCode).toBe('not_received');
+    expect(res.pickup).toBeNull();
+    const page = await getAdminRejectedBuylistItems();
+    expect(page.data.find((r) => r.id === 'sri-f2-4')).toBeUndefined();
   });
 });
 

@@ -416,28 +416,31 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
 
     // Acciones cherry-pick por item.
-    await expect(page.getByRole('button', { name: t('es', 'admin.m5.approve') }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: t('es', 'admin.m5.adjust') }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first()).toBeVisible();
+    // §BUYLIST-FLUJO F2 (diseño A): las cuatro acciones en la fila de cada carta.
+    await expect(page.getByRole('button', { name: t('es', 'admin.m5.flow.f2.actions.approve') }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: new RegExp(`^${t('es', 'admin.m5.flow.f2.actions.reduce')}`) }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: new RegExp(`^${t('es', 'admin.m5.flow.f2.actions.reject')}`) }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: t('es', 'admin.m5.flow.f2.actions.notReceived') }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: t('es', 'admin.m5.convert') }).first()).toBeVisible();
     // Nota de dinero saliente (solo súper-admin, queda en bitácora).
     await expect(page.getByText(t('es', 'admin.moneyOutNote')).first()).toBeVisible();
   });
 
-  test('v1.18: rechazar exige motivo en un diálogo (3–500) antes de enviar la decisión', async ({ page }) => {
-    needsSeed('ninguna solicitud en `verificacion`: no hay botón «Rechazar» que abrir');
+  test('F2b: «No aceptar» abre el selector de causas con la vista previa y exige causa antes de enviar', async ({ page }) => {
+    needsSeed('ninguna solicitud en `verificacion`: no hay botón «No aceptar» que abrir');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
-    // `exact`: desde §60.5 c la fila también trae «Rechazar seleccionadas (k)» y «Rechazar todas (n)».
-    await page.getByRole('button', { name: t('es', 'admin.m5.reject'), exact: true }).first().click();
+    await page.getByRole('button', { name: new RegExp(`^${t('es', 'admin.m5.flow.f2.actions.reject')}`) }).first().click();
 
-    // El mini-diálogo pide el motivo; sin él, confirmar está deshabilitado.
-    const dialog = page.getByRole('dialog', { name: t('es', 'admin.m5.rejectTitle') });
-    await expect(dialog).toBeVisible();
-    const confirm = dialog.getByRole('button', { name: t('es', 'admin.m5.rejectConfirm') });
+    // El panel pide la causa; sin ella, confirmar está deshabilitado (el servidor exige `reasonCode`).
+    const panel = page.locator('[data-testid^="f2-panel-reject-"]').first();
+    await expect(panel).toBeVisible();
+    const confirm = panel.locator('[data-testid^="f2-reject-send-"]');
     await expect(confirm).toBeDisabled();
-    await dialog.getByLabel(t('es', 'admin.m5.rejectReasonLabel')).fill('no es NM: esquina doblada');
+    await panel.locator('label', { hasText: t('es', 'admin.m5.flow.f2.rejectPanel.causes.other') }).click();
+    await expect(confirm).toBeDisabled();
+    await panel.getByLabel(new RegExp(t('es', 'admin.m5.flow.f2.rejectPanel.otherLabel').slice(0, 6))).fill('no es NM: esquina doblada');
     await expect(confirm).toBeEnabled();
   });
 

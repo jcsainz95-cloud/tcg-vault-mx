@@ -25,6 +25,7 @@ import { SUPPORT_CONTACT_FALLBACK } from '../../../checkout/support-contact';
 import { OfferAmounts } from './OfferAmounts';
 import { readOffer } from './offer-readiness';
 import { SellerLabelBlock } from './SellerLabelBlock';
+import { SellerFlujoLines } from './SellerFlujoLines';
 
 /** Identidad de la carta bajo su nombre: set · número · acabado. Mismo renglón que el correo. */
 function LineSpec({ line }: { line: SellItemDTO }) {
@@ -481,6 +482,9 @@ function Detail({
           ))}
         </ul>
       </section>
+
+      {/* §BUYLIST-FLUJO F2: bajas de precio por responder y cartas por recoger (el servidor manda `revision`/`pickup`). */}
+      {!hideMoney && <SellerFlujoLines sellRequestId={data.sellRequestId} lines={data.items} />}
 
       {/* §23.5d/e — SU propia dirección de origen: es su dato y es lo que vamos a IMPRIMIR, así
           que tiene que poder verificarla ANTES de que compremos la etiqueta. No es NUESTRA

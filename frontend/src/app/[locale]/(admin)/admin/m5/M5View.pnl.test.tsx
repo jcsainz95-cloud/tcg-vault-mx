@@ -12,6 +12,11 @@ import { ApiClientError } from '@/lib/api-client';
 import type { BuyDecision, CardDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
 import { mockAdminBuylistDTO as srv } from '@/lib/mock/fixtures';
 
+// §BUYLIST-FLUJO F2: la fila trae «Aprobar al pactado» y «No aceptar ▾» (nombre con prefijo).
+const F2 = es.admin.m5.flow.f2;
+const APPROVE = F2.actions.approve;
+const REJECT = new RegExp(`^${F2.actions.reject}`);
+
 /**
  * DESIGN_SYSTEM §60.5 / §60.7 a · contrato v1.82 §PNL.4 y §E2E-ADM.2.
  * - **BRJ-UI-1** (= FE-BRJ-1): seleccionar 2 de 3 `buy` (con una `skip` presente) ⇒ `itemIds` exactos; la `skip` sin casilla.
@@ -156,7 +161,7 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
     const r = screen.getByTestId('m5-item-it-s');
     expect(within(r).getByText('NO COMPRADA')).toBeInTheDocument();
     expect(within(r).getByText('Se marcó como no comprada al ofertar: no se aprueba ni se rechaza.')).toBeInTheDocument();
-    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+    for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).queryByRole('button', { name })).not.toBeInTheDocument();
     }
   });
@@ -164,15 +169,15 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
   it('M5-NC-2 · `buy` ⇒ Aprobar y Rechazar, ⛔ sin Ajustar', async () => {
     await render('verificacion', [item('it-a', 'Alakazam', 'buy')]);
     const r = screen.getByTestId('m5-item-it-a');
-    expect(within(r).getByRole('button', { name: es.admin.m5.approve })).toBeInTheDocument();
-    expect(within(r).getByRole('button', { name: es.admin.m5.reject })).toBeInTheDocument();
+    expect(within(r).getByRole('button', { name: APPROVE })).toBeInTheDocument();
+    expect(within(r).getByRole('button', { name: REJECT })).toBeInTheDocument();
     expect(within(r).queryByRole('button', { name: es.admin.m5.adjust })).not.toBeInTheDocument();
   });
 
   it('M5-NC-3 · `null` (pre-ciclo) ⇒ los tres (regresión)', async () => {
     await render('verificacion', [item('it-n', 'Nidoran', null)]);
     const r = screen.getByTestId('m5-item-it-n');
-    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+    for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).getByRole('button', { name })).toBeInTheDocument();
     }
   });
@@ -182,7 +187,7 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
       new ApiClientError(422, { code: 'ITEM_NOT_OFFERED', message: 'This line was not purchased', details: { itemId: 'it-n', offerDecision: 'skip' } }),
     );
     await render('verificacion', [item('it-n', 'Nidoran', null)]);
-    fireEvent.click(within(screen.getByTestId('m5-item-it-n')).getByRole('button', { name: es.admin.m5.approve }));
+    fireEvent.click(within(screen.getByTestId('m5-item-it-n')).getByRole('button', { name: APPROVE }));
     expect(await screen.findByText(es.error.ITEM_NOT_OFFERED)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('This line was not purchased');
   });
@@ -242,7 +247,7 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   }
   function expectNoDecisionControls() {
     const r = screen.getByTestId('m5-item-it-a');
-    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+    for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).queryByRole('button', { name })).not.toBeInTheDocument();
     }
     expect(within(r).queryByRole('checkbox')).not.toBeInTheDocument();
@@ -265,10 +270,10 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   it('Rechazar (diálogo) sobre una carta ya convertida ⇒ diálogo cerrado, recarga, texto de `convertida_inventario` en la fila con el foco', async () => {
     const decide = vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('convertida_inventario'));
     const list = await renderStale('convertida_inventario');
-    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.reject }));
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText(es.admin.m5.rejectReasonLabel), { target: { value: 'Borde dañado' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: es.admin.m5.rejectConfirm }));
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: REJECT }));
+    const panel = await screen.findByTestId('f2-panel-reject-it-a');
+    fireEvent.click(within(panel).getByLabelText(new RegExp(F2.rejectPanel.causes.condition_mismatch)));
+    fireEvent.click(within(panel).getByTestId('f2-reject-send-it-a'));
 
     const notice = await screen.findByText(CONVERTED);
     expect(decide).toHaveBeenCalledTimes(1);
@@ -284,7 +289,7 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   it('Aprobar (fila) sobre una carta ya pagada ⇒ texto de `pagada`, recarga, sin botones ni casilla', async () => {
     vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('pagada'));
     const list = await renderStale('pagada');
-    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.approve }));
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: APPROVE }));
     const notice = await screen.findByText(PAID);
     expect(notice.closest('[role="status"]')).not.toBeNull();
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
