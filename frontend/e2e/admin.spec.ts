@@ -426,8 +426,8 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await expect(page.getByText(t('es', 'admin.moneyOutNote')).first()).toBeVisible();
   });
 
-  test('F2b: «No aceptar» abre el selector de causas con la vista previa y exige causa antes de enviar', async ({ page }) => {
-    needsSeed('ninguna solicitud en `verificacion`: no hay botón «No aceptar» que abrir');
+  test('F2b + F2 cierre: «No aceptar» exige causa con vista previa; el rechazo múltiple avisa que se cancelará la baja pendiente', async ({ page }) => {
+    needsSeed('ninguna solicitud en `verificacion`: no hay botón «No aceptar» que abrir (la parte F2 cierre usa además sr-3020 de los mocks)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
@@ -442,11 +442,9 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await expect(confirm).toBeDisabled();
     await panel.getByLabel(new RegExp(t('es', 'admin.m5.flow.f2.rejectPanel.otherLabel').slice(0, 6))).fill('no es NM: esquina doblada');
     await expect(confirm).toBeEnabled();
-  });
 
-  test('F2 cierre: el rechazo múltiple pide la causa y avisa que se cancelará la propuesta de baja', async ({ page }) => {
-    needsSeed('ninguna solicitud en `verificacion` con una baja pendiente (mocks: sr-3020)');
-    await loginAs(page, 'admin');
+    // F2 cierre (misma guarda: exige solicitudes en `verificacion`). Recarga para partir de un estado limpio.
+    // sr-3020 es la solicitud de los mocks con una baja pendiente.
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
     // La fila con baja pendiente ofrece aprobar/rechazar y dice que la baja se retira (anexo §3.2).
@@ -455,10 +453,10 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await page.getByTestId('m5-bulk-bar-sr-3020').getByRole('button', { name: new RegExp(`^${t('es', 'admin.m5.bulkReject.allCta').split(' (')[0]}`) }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByTestId('m5-bulk-cancels-notice')).toBeVisible();
-    const confirm = dialog.getByTestId('m5-bulk-confirm');
-    await expect(confirm).toBeDisabled(); // sin causa
+    const bulkConfirm = dialog.getByTestId('m5-bulk-confirm');
+    await expect(bulkConfirm).toBeDisabled(); // sin causa
     await dialog.getByTestId('m5-bulk-cause-condition_mismatch').check({ force: true });
-    await expect(confirm).toBeEnabled();
+    await expect(bulkConfirm).toBeEnabled();
   });
 
   test('@real v1.18: la pestaña Piezas rechazadas existe y NO ofrece convertir a inventario', async ({
