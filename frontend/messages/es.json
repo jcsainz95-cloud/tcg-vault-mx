@@ -3554,6 +3554,19 @@
       "emptyTab": "No hay solicitudes en esta etapa.",
       "emptySearch": "Ninguna solicitud coincide con la búsqueda.",
       "seller": "Vendedor",
+      "sellerGuide": {
+        "title": "Guía del vendedor",
+        "carrier": "Paquetería",
+        "tracking": "Guía",
+        "copy": "Copiar guía",
+        "copied": "Copiada",
+        "track": "Ver rastreo",
+        "pdf": "Ver / imprimir guía (PDF)",
+        "manual": "Guía capturada a mano",
+        "canceled": "Guía cancelada",
+        "notAvailable": "El PDF no está disponible para esta guía.",
+        "pdfError": "No se pudo abrir el PDF. Intenta de nuevo."
+      },
       "sellerContact": {
         "none": "Sin teléfono registrado",
         "email": "Correo",

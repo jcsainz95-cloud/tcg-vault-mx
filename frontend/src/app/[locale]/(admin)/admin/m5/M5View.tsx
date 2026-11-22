@@ -30,6 +30,8 @@ import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { AcceptedRequestPanel } from './AcceptedRequestPanel';
 import { GuideDueTag } from './GuideDueMark';
 import { SellerContact } from './SellerContact';
+import { SellerGuideBlock, hasSellerGuide } from './SellerGuideBlock';
+import { liveSkydropxGuide } from './DeclineAcceptedDialog';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
 import {
   PayoutBar,
@@ -1253,8 +1255,13 @@ export function M5View() {
               {/* §BUYLIST-FLUJO F1c: cinta de estado (ofertado neto · vence · rastreo · lleva N días), todo del servidor. */}
               <RequestRibbon req={req} />
               {/* §BUYLIST-FLUJO F1b: comprobante de envío una vez recibida; de pago, en `pagada`. */}
+              {/* «Guía del vendedor»: desde que hay guía (comprada o a mano) y en todos los estados siguientes. En `aceptada`
+                  con guía viva de Skydropx la pinta `AcceptedRequestPanel` (misma pieza, sin duplicar). */}
+              {hasSellerGuide(req.inboundShipment) && !(req.status === 'aceptada' && liveSkydropxGuide(req)) && (
+                <SellerGuideBlock requestId={req.id} inbound={req.inboundShipment} />
+              )}
               {(req.status === 'recibida' || req.status === 'verificacion' || req.status === 'aprobada' || req.status === 'pagada') && (
-                <ShipmentReceipt req={req} />
+                <ShipmentReceipt req={req} withoutGuide={hasSellerGuide(req.inboundShipment)} />
               )}
               {req.status === 'pagada' && <PaymentReceipt req={req} />}
 

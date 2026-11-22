@@ -13,12 +13,12 @@ import { Button } from '@/components/ui/Button';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { CaptureLabelDialog, type CaptureSaved, type CaptureTarget } from '../m4/CaptureLabelDialog';
 import { CancelLabelDialog, LabelAlertBlock } from '../m4/LabelActions';
-import { openLabelPdf } from '../m4/capture/label-pdf';
 import { inboundErrorView } from '../m4/capture/sdx-errors';
 import { useSellStatusLabel } from '../m4/capture/sell-status';
 import { BuylistShipmentActions } from './BuylistShipmentActions';
 import { DeclineAcceptedDialog, liveSkydropxGuide, type DeclineAcceptedOutcome } from './DeclineAcceptedDialog';
 import { GuideDueBlock } from './GuideDueMark';
+import { SellerGuideBlock } from './SellerGuideBlock';
 
 /**
  * 💰 rev BSD-1 — **la ficha de una solicitud `aceptada` en M5** (DESIGN_SYSTEM §BSD-UX.6a–c · contrato §BSD.4–§BSD.6,
@@ -63,7 +63,6 @@ export function AcceptedRequestPanel({
   const [openError, setOpenError] = useState<{ text: string; hideButton: boolean } | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [reissueOpen, setReissueOpen] = useState(false);
-  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const inbound = r.inboundShipment ?? null;
   const sdx = liveSkydropxGuide(r);
@@ -139,29 +138,16 @@ export function AcceptedRequestPanel({
       {/* La guía de Skydropx de entrada: viva, en proceso o con alerta. */}
       {sdx && (
         <div className="flex flex-col gap-1" data-testid="m5-inbound-live">
-          <p className="text-sm text-text">{t('summary', { carrier: sdx.carrier ?? '—', tracking: sdx.trackingNumber ?? '—' })}</p>
+          <SellerGuideBlock requestId={r.id} inbound={sdx} embedded />
           {/* C-5: bruto pagado (con IVA y seguro), tal cual; ⛔ la pantalla no suma el desglose. */}
           <p className="tabular text-sm text-text">{t('cost', { cost: formatMoneyCents(sdx.costCents, locale) })}</p>
           <div className="mt-1 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setPdfError(null);
-                openLabelPdf(sdx.id, sdx.folio, 'download').catch((e) =>
-                  setPdfError(asApiError(e)?.code === 'LABEL_NOT_AVAILABLE' ? tLabel('notAvailable') : tSdx('label.printError')),
-                );
-              }}
-            >
-              {tSdx('label.download')}
-            </Button>
             {!r.sellerShippedDeclaredAt && (
               <Button size="sm" variant="ghost" onClick={() => setReissueOpen(true)}>
                 {tLabel('cancel.cta')}
               </Button>
             )}
           </div>
-          {pdfError && <p className="text-sm text-accent">{pdfError}</p>}
           <CancelLabelDialog
             open={reissueOpen}
             variant="reissue"
