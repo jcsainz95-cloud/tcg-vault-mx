@@ -31,7 +31,7 @@ interface AdminUserOverviewDTO {
     };
   };
   vault: {
-    piecesCount: number;                 // InventoryItem ownerUserId = :id, en custodia/listada (misma regla que `ownedItems`)
+    piecesCount: number;                 // InventoryItem con ownerUserId = :id, sin filtro de estado (misma regla que `ownedItems`)
     valueCents: number | null;           // Σ referenceValue de las piezas con precio; null si NINGUNA tiene
     pricedCount: number;                 // cuántas piezas tienen precio (si < piecesCount, la UI avisa «N sin precio»)
     asOf: string | null;                 // fecha más antigua de los precios usados
@@ -47,7 +47,7 @@ interface ShipmentRef {
   orderId: string | null; orderNumber: string | null;
   itemsCount: number; totalCents: number;
   carrier: string | null; trackingNumber: string | null;
-  trackingUrl: string | null;            // armado en servidor con la tabla de paqueterías existente; null si no hay guía
+  trackingUrl: string | null;            // columna guardada `Shipment.trackingUrl`, que solo escribe Skydropx; null si no hay guía o si la guía es manual (no hay tabla de paqueterías; el front muestra número y paquetería sin enlace)
   requestedAt: string; shippedAt: string | null; deliveredAt: string | null;
 }
 interface RefundRef {
@@ -104,6 +104,6 @@ Componentes: `CustomerHeader` (nombre, rol/estado, «cliente desde», celular + 
 - Estados vacíos con texto («Sin pedidos todavía»), carga por bloque (esqueletos), error por bloque con «Reintentar». Textos en `es.json` y `en.json`. Acciones rápidas: abrir pedido (M4), abrir solicitud (M5), WhatsApp; en cuenta sin celular válido, el botón se sustituye por «Falta celular válido» (super: «Editar»).
 
 ## 6. Reparto
-- **backend (una sola entrega):** (1) `GET …/overview` + DTO + proyectores en lista blanca + pruebas: operador y super reciben `lifetime` idéntico, 404 proveedor, sin campos prohibidos (candado de claves), sumas contra datos sembrados (compras, ventas, reembolsos, bóveda con piezas sin precio ⇒ `valueCents:null`/`pricedCount`), `no-store`, cuenta anonimizada, rendimiento (≤ 8 consultas, sin N+1). (2) `?userId=` en `GET /admin/refunds` y `GET /admin/manual-refunds` (§2). (3) `CustomerNote` §1b: migración + reversa, 4 endpoints, auditoría sin texto, límites, borrado del `body` al anonimizar cuenta, pruebas (roles, edición ajena ⇒ 403 para operador, IDOR de nota entre clientes ⇒ 404, idempotencia, 1000/1001 caracteres, nota ausente de `GET /:id`/`overview`/rutas de cliente, auditoría sin `body`). No toca `PATCH /phone` (es de §CELULAR).
+- **backend (una sola entrega):** (1) `GET …/overview` + DTO + proyectores en lista blanca + pruebas: operador y super reciben `lifetime` idéntico, 404 proveedor, sin campos prohibidos (candado de claves), sumas contra datos sembrados (compras, ventas, reembolsos, bóveda con piezas sin precio ⇒ `valueCents:null`/`pricedCount`), `no-store`, cuenta anonimizada, rendimiento (12 consultas constantes + la valuación de bóveda, sin N+1; la prueba fija el tope y no crece con el número de pedidos/piezas). (2) `?userId=` en `GET /admin/refunds` y `GET /admin/manual-refunds` (§2). (3) `CustomerNote` §1b: migración + reversa, 4 endpoints, auditoría sin texto, límites, borrado del `body` al anonimizar cuenta, pruebas (roles, edición ajena ⇒ 403 para operador, IDOR de nota entre clientes ⇒ 404, idempotencia, 1000/1001 caracteres, nota ausente de `GET /:id`/`overview`/rutas de cliente, auditoría sin `body`). No toca `PATCH /phone` (es de §CELULAR).
 - **frontend (una sola entrega):** tipos en `lib/api.ts`, mock/fixtures de `overview` y notas, ficha A (la B no se dibuja), `NotesPanel`, integración con el componente de celular de §CELULAR, enlaces a M4/M5/reembolsos con `?userId=`, pruebas de «el operador ve totales», de escape de texto (nota con `<script>`) y de «no se filtra a medición».
 - **qa + seguridad-lead:** gates por PII en admin (IDOR entre roles y entre clientes, ausencia de campos prohibidos, notas fuera de superficies de cliente/medición, `no-store`, XSS en notas, decisión sobre auditar apertura).

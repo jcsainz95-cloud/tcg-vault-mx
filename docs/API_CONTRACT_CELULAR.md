@@ -14,7 +14,7 @@
 | `GET /users/me` | cuenta | Agrega `phoneRequired: boolean` (derivado). `phone` se devuelve tal cual está guardado. |
 | `PATCH /users/me` | cuenta | `phone`: si viene, string que normaliza a válido; se guarda normalizado. Vacío, null, no-string o inválido ⇒ 422 `PHONE_INVALID` `details:{field:"phone"}`. Nunca anula. Respuesta incluye `phoneRequired`. |
 | `PATCH /admin/users/:id/phone` | admin | Body `{phone}`; misma validación; no vacía; escribe auditoría con valor enmascarado. 404 si no existe. |
-| Alta de cliente M6 (`admin.service.ts:805`) | admin | `phone` obligatorio y válido; si no ⇒ 422 `PHONE_INVALID`. |
+| Alta de cliente **y de staff** M6 (`admin.service.ts:805`) | admin | `phone` obligatorio y válido para todos los roles; si no ⇒ 422 `PHONE_INVALID`. |
 | `GET /admin/users/:id` | staff | Devuelve `phone` completo (ya dato de contacto del cliente) y `phoneRequired`. |
 | `POST /checkout/quote`, `POST /checkout/session`, crear retiro, crear solicitud de buylist | cuenta | Guard `@RequirePhone()`: `!isValidMxPhone(user.phone)` ⇒ 422 `PHONE_REQUIRED` `details:{field:"phone"}` antes de cualquier efecto. Buylist (`buylist.service.ts:1674-1690`) sustituye su revisión nulo/vacío por el helper. |
 Códigos nuevos en `error-codes.ts`: `PHONE_INVALID` (422). `PHONE_REQUIRED` ya existe (422). Sin schema ni migración.
