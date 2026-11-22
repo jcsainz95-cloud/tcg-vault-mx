@@ -118,3 +118,20 @@ export function statusClockOf(r: StatusClockRow, now: Date) {
     overdue: dueAt != null && now.getTime() > dueAt.getTime(),
   };
 }
+
+/**
+ * §BUYLIST-FLUJO F2c — el neto que quedaria si el vendedor ACEPTA la baja de esa linea (`revision.netIfAcceptedCents`). Sale de
+ * `computePayoutNetCents` (misma resta que lectura y sellado): solo cambia el bruto base. Con lineas ya aprobadas el bruto es su
+ * suma + la propuesta (la linea pendiente no esta en la suma); sin ninguna, la cascada cae a lo ofertado y la linea se sustituye.
+ */
+export function netIfRevisionAcceptedCents(
+  r: { approvedTotalCents?: number | null; offerGrossCents?: number | null; quotedTotalCents?: number | null; offerShippingFeeCents?: number | null },
+  line: { offeredPriceCents?: number | null; revisedPriceCents?: number | null },
+): number | null {
+  if (line.revisedPriceCents == null || line.offeredPriceCents == null) return null;
+  const gross =
+    r.approvedTotalCents != null
+      ? r.approvedTotalCents + line.revisedPriceCents
+      : (r.offerGrossCents ?? r.quotedTotalCents ?? 0) - line.offeredPriceCents + line.revisedPriceCents;
+  return computePayoutNetCents({ ...r, approvedTotalCents: Math.max(0, gross) }).netCents;
+}

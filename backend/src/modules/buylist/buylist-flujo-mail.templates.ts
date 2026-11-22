@@ -2,6 +2,7 @@ import { Finish } from '@prisma/client';
 import { MailMessage } from '../mail/mail.port';
 import {
   cardLineRows,
+  ctaRows,
   eyebrowRow,
   headingRow,
   mailShell,
@@ -11,7 +12,7 @@ import {
   spacerRow,
   termsBoxRows,
 } from './mail-shell';
-import { BRAND, FINISH_LABELS, formatDate, money, normalizeLocale, sellRequestFooterWhy } from './buylist-mail.templates';
+import { BRAND, FINISH_LABELS, formatDate, formatDateTime, money, normalizeLocale, sellRequestFooterWhy } from './buylist-mail.templates';
 
 /**
  * §BUYLIST-FLUJO F2 (docs/API_CONTRACT_BUYLIST_FLUJO.md §4 y §7) — correos C1 («Tus cartas te esperan») y C2 («No llegó»).
@@ -246,6 +247,122 @@ export function sellItemNotReceivedTemplate(params: SellItemNotReceivedParams, n
   return {
     to: '',
     subject: en ? 'A card in your sell request did not arrive' : 'Una carta de tu solicitud de venta no llegó',
+    html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
+    text,
+  };
+}
+
+export interface SellItemRevisionParams {
+  folio: string;
+  card: FlujoCard;
+  /** Lo ofertado y lo propuesto, en centavos DE ESTA linea (nunca de otras). */
+  offeredCents: number;
+  proposedCents: number;
+  cause: 'condition_mismatch' | 'wrong_card' | 'other';
+  declaredCondition?: string | null;
+  note?: string | null;
+  /** `revisionProposedAt` + 7 d; la plantilla ⛔ no suma dias: lo recibe. */
+  expiresAt: Date;
+  responseDays: number;
+  /** Enlace a la solicitud del portal (ahi estan Aceptar/Rechazar); sin el, el correo lo dice. */
+  portalUrl?: string;
+  /** `true` ⇒ C4 (recordatorio del mismo pedido). */
+  reminder: boolean;
+}
+
+/**
+ * **C3 — «PROPUESTA DE NUEVO PRECIO»** y **C4** (su recordatorio) (anexo §7). La carta, el precio original, el propuesto, la causa,
+ * el vencimiento (fecha y hora, nunca «en N dias» suelto) y dos botones (Aceptar/Rechazar) que llevan al portal: la respuesta
+ * NUNCA se ejecuta desde un enlace anonimo (misma regla que la oferta). Dice con todas sus letras que sin «si» no se paga menos.
+ */
+export function sellItemRevisionTemplate(params: SellItemRevisionParams, name: string, locale?: string | null): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const card = cardLabel(params.card);
+  const when = formatDateTime(params.expiresAt, l);
+  const orig = money(params.offeredCents, l);
+  const prop = money(params.proposedCents, l);
+  const subject = params.reminder
+    ? en
+      ? 'Reminder: your answer on the new price for a card expires soon'
+      : 'Recordatorio: tu respuesta sobre el nuevo precio de una carta vence pronto'
+    : en
+      ? 'We propose a new price for a card in your sell request'
+      : 'Te proponemos un nuevo precio por una carta de tu solicitud';
+  const eyebrow = en ? 'NEW PRICE PROPOSAL' : 'PROPUESTA DE NUEVO PRECIO';
+  const title = params.reminder
+    ? en
+      ? 'Your answer expires soon'
+      : 'Tu respuesta vence pronto'
+    : en
+      ? 'We propose a new price'
+      : 'Te proponemos un nuevo precio';
+  const intro = params.reminder
+    ? en
+      ? `We are reminding you that you have not answered our new price proposal for ${card} (request ${params.folio}).`
+      : `Te recordamos que aún no respondes nuestra propuesta de nuevo precio por ${card} (solicitud ${params.folio}).`
+    : en
+      ? `When we checked your package (request ${params.folio}) we found a difference in ${card}.`
+      : `Al revisar tu paquete (solicitud ${params.folio}) encontramos una diferencia en ${card}.`;
+  const d = params.declaredCondition ? ` (${params.declaredCondition})` : '';
+  const n = params.note ? ` (${params.note})` : '';
+  const causeLine =
+    params.cause === 'condition_mismatch'
+      ? en
+        ? `It arrived in a different condition than the one you declared${d}.`
+        : `Llegó en una condición distinta a la que declaraste${d}.`
+      : params.cause === 'wrong_card'
+        ? en
+          ? `A different card than the declared one arrived${n}.`
+          : `Llegó una carta distinta a la declarada${n}.`
+        : (params.note ?? '');
+  const priceOriginal = en ? `Original offer price: ${orig}` : `Precio original de tu oferta: ${orig}`;
+  const priceProposed = en ? `Price we propose: ${prop}` : `Precio que te proponemos: ${prop}`;
+  const termsLabel = en ? 'YOUR DECISION' : 'TU DECISIÓN';
+  const terms1 = en
+    ? `You have ${params.responseDays} days: until ${when}. Accept or reject from your request; we never pay a lower price without your yes.`
+    : `Tienes ${params.responseDays} días: hasta el ${when}. Acepta o rechaza desde tu solicitud; nunca pagamos un precio menor sin tu «sí».`;
+  const terms2 = en
+    ? "If you don't answer, we will not buy this card and it will be ready for you to pick up."
+    : 'Si no respondes, no compraremos esta carta y quedará lista para que la recojas.';
+  const noLink = en ? 'Answer from your sell request in your account.' : 'Responde desde tu solicitud, en tu cuenta.';
+  const labelAccept = en ? 'ACCEPT THE NEW PRICE' : 'ACEPTAR EL NUEVO PRECIO';
+  const labelReject = en ? 'REJECT' : 'RECHAZAR';
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}${en ? ',' : ':'}`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(16),
+    cardLineRows({
+      title: params.card.cardName,
+      meta: `${params.card.setName} · #${params.card.cardNumber} · ${FINISH_LABELS[params.card.finish] ?? params.card.finish}`,
+    }),
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(24),
+    ...(causeLine ? [proseRow(causeLine), spacerRow(16)] : []),
+    proseRow(priceOriginal),
+    spacerRow(8),
+    proseRow(priceProposed),
+    spacerRow(32),
+    termsBoxRows(termsLabel, [terms1, terms2]),
+    spacerRow(32),
+    ...(params.portalUrl
+      ? [ctaRows(params.portalUrl, labelAccept, 'accent'), spacerRow(8), ctaRows(params.portalUrl, labelReject, 'ink')]
+      : [smallPrintRow(noLink)]),
+  ];
+  const text =
+    `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${intro}\n${causeLine}\n\n` +
+    `${priceOriginal}\n${priceProposed}\n\n${termsLabel}\n- ${terms1}\n- ${terms2}\n\n` +
+    `${params.portalUrl ? `${labelAccept} / ${labelReject}: ${params.portalUrl}` : noLink}\n\n${BRAND}`;
+  return {
+    to: '',
+    subject,
     html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
     text,
   };

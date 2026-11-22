@@ -141,6 +141,23 @@ const RENDERS: Record<string, Render> = {
       'Ana',
       l,
     ),
+  sellItemRevisionTemplate: (l) =>
+    flujoTpl.sellItemRevisionTemplate(
+      {
+        folio: 'BL-1',
+        card: { cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo' },
+        offeredCents: 60000,
+        proposedCents: 45000,
+        cause: 'wrong_card',
+        note: null,
+        expiresAt: AT,
+        responseDays: 7,
+        portalUrl: PORTAL,
+        reminder: false,
+      },
+      'Ana',
+      l,
+    ),
   sellItemNotReceivedTemplate: (l) =>
     flujoTpl.sellItemNotReceivedTemplate(
       { folio: 'BL-1', card: { cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo' }, requestClosed: false, hasShippingFee: true },

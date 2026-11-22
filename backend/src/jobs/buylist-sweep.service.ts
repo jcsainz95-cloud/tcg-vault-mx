@@ -29,6 +29,7 @@ import {
 } from '../modules/buylist/guide-clock';
 import { SpendAlertsService } from '../modules/spend-alerts/spend-alerts.service';
 import { SpendMailService } from '../modules/spend-alerts/spend-mail.service';
+import { BuylistService } from '../modules/buylist/buylist.service';
 
 /** 💰 rev BSD-1 (§BSD.7.5): una cancelación de Skydropx sin confirmar pasada esta ventana abre la tarea (regla 10). */
 export const INBOUND_CANCEL_RECONCILE_MS = 60 * 60 * 1000;
@@ -105,6 +106,8 @@ export class BuylistSweepJobService {
     guideWarned: number;
     notContinued: number;
     cancelTasksOpened: number;
+    revisionsExpired: number;
+    revisionReminders: number;
   }> {
     const rule1 = await this.expireUnansweredOffers(now);
     const rule2 = await this.expireUnshippedPackages(now);
@@ -117,11 +120,16 @@ export class BuylistSweepJobService {
     const rule9 = dials ? await this.isolated('regla 9', () => this.warnUnguidedAccepted(now, dials)) : 0;
     const rule8 = dials ? await this.isolated('regla 8', () => this.closeUnguidedAccepted(now, dials)) : 0;
     const rule10 = await this.isolated('regla 10', () => this.reconcileInboundCancellations(now));
+    // §BUYLIST-FLUJO F2c — regla 11: la BAJA de precio sin respuesta a 7 d ⇒ `expired` + linea `rechazada` (el silencio NO acepta) y su
+    // recordatorio C4 (una vez, 1 dia habil antes). (El anexo la llama «regla 8»; ese numero ya es el cierre sin guia de BSD-1.)
+    const rule11 = await this.isolated('regla 11', () => this.expireUnansweredRevisions(now));
+    const rule11r = await this.isolated('regla 11 (recordatorio)', () => this.remindUnansweredRevisions(now));
 
     this.logger.log(
       `buylist-sweep: ${rule1} ofertas vencidas, ${rule2} envíos vencidos, ${reminders} recordatorios, ` +
         `${rule5} ajustes sin responder, ${rule6} abandonadas, ${rule7} sin oferta (no procederemos), ` +
-        `${rule9} avisos AG-23, ${rule8} sin guía (no continuamos), ${rule10} tareas de cancelación abiertas.`,
+        `${rule9} avisos AG-23, ${rule8} sin guía (no continuamos), ${rule10} tareas de cancelación abiertas, ` +
+        `${rule11} bajas de precio vencidas, ${rule11r} recordatorios de baja.`,
     );
     return {
       // `rejected` conserva su nombre y su significado histórico (la regla 5) para no romper a
@@ -135,7 +143,25 @@ export class BuylistSweepJobService {
       guideWarned: rule9,
       notContinued: rule8,
       cancelTasksOpened: rule10,
+      revisionsExpired: rule11,
+      revisionReminders: rule11r,
     };
+  }
+
+  /**
+   * Regla 11 (§BUYLIST-FLUJO F2c) — la baja de precio de UNA linea sin respuesta del vendedor a 7 d. La logica (y el `where` unico de
+   * lectura/escritura) vive en `BuylistService.sweepExpiredRevisions`: ahi estan el recalculo del total, el cierre automatico y el
+   * correo C1. Sin el servicio (unitarios que construyen el job a mano) la regla no corre.
+   */
+  private expireUnansweredRevisions(now: Date): Promise<number> {
+    const svc = this.moduleRef?.get(BuylistService, { strict: false });
+    return svc ? svc.sweepExpiredRevisions(now) : Promise.resolve(0);
+  }
+
+  /** Recordatorio C4 de la regla 11 (una sola vez, 1 dia habil antes del vencimiento). */
+  private remindUnansweredRevisions(now: Date): Promise<number> {
+    const svc = this.moduleRef?.get(BuylistService, { strict: false });
+    return svc ? svc.sweepRevisionReminders(now) : Promise.resolve(0);
   }
 
   // =========================================================================================

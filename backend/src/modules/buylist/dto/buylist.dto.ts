@@ -356,6 +356,26 @@ export class RejectRequestDto {
  * es la FORMA DEL DTO**, no una validación: no hay campo que manipular (el `ValidationPipe` con
  * whitelist descarta cualquier extra).
  */
+/**
+ * §BUYLIST-FLUJO F2c (anexo §3): `POST /admin/buylist/items/:itemId/revise-price`. `revisedPriceCents` es entero; que sea menor que
+ * lo ofertado y mayor que 0 lo decide el servicio (422 `REVISION_NOT_LOWER`). `note` obligatoria con `other` (el servicio, 400 `field:'note'`).
+ */
+export class ReviseItemPriceDto {
+  @IsInt() revisedPriceCents!: number;
+  @IsIn(['condition_mismatch', 'wrong_card', 'other']) reasonCode!: 'condition_mismatch' | 'wrong_card' | 'other';
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+/** §BUYLIST-FLUJO F2c (anexo §3): `POST /buylist/requests/:id/items/:itemId/revision-response`. Ningun monto viaja en el body. */
+export class RevisionResponseDto {
+  @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
+}
+
+/** §BUYLIST-FLUJO F2c (anexo §5): `POST /buylist/requests/:id/items/:itemId/pickup`. */
+export class PickupChoiceDto {
+  @IsIn(['in_person', 'ship_back']) method!: 'in_person' | 'ship_back';
+}
+
 /** §BUYLIST-FLUJO F2a: body de `POST /admin/buylist/:id/convert-all` (misma forma que el de una linea; `locationId` opcional). */
 export class ConvertAllDto {
   @IsOptional() @IsString() locationId?: string;

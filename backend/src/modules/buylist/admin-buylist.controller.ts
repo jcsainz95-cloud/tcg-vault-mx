@@ -24,6 +24,7 @@ import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
   ConvertAllDto,
+  ReviseItemPriceDto,
   ConvertToInventoryDto,
   DeclineDto,
   GuideCancellationDoneDto,
@@ -668,6 +669,42 @@ export class AdminBuylistController {
         dto.decision === 'reject'
           ? { reason: dto.reason, reasonCode: dto.reasonCode }
           : { approvedPriceCents: dto.approvedPriceCents },
+    });
+    return res;
+  }
+
+  /** §BUYLIST-FLUJO F2c: propone bajar el precio de una linea (con el «si» del vendedor); correo C3. */
+  @Post('items/:itemId/revise-price')
+  @HttpCode(HttpStatus.OK)
+  async revisePrice(
+    @Param('itemId') itemId: string,
+    @Body() dto: ReviseItemPriceDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.buylist.reviseItemPrice(itemId, dto, user);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.item.revise_price',
+      entityType: 'SellRequestItem',
+      entityId: itemId,
+      after: { revisedPriceCents: dto.revisedPriceCents, reasonCode: dto.reasonCode },
+    });
+    return res;
+  }
+
+  /** §BUYLIST-FLUJO F2c: atajo opcional «Entregada» de una carta no aceptada (el sistema no depende de el). */
+  @Post('items/:itemId/pickup-done')
+  @HttpCode(HttpStatus.OK)
+  async pickupDone(@Param('itemId') itemId: string, @CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.buylist.markPickupDone(itemId, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.item.pickup_done',
+      entityType: 'SellRequestItem',
+      entityId: itemId,
+      after: { pickupDoneAt: res.pickup?.doneAt ?? null },
     });
     return res;
   }

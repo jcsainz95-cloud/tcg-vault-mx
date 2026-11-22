@@ -554,6 +554,8 @@ describe('El job es UNO: mismo barrido, mismo cron', () => {
       guideWarned: 0,
       notContinued: 0,
       cancelTasksOpened: 0,
+      revisionsExpired: 0,
+      revisionReminders: 0,
     });
     expect(mail.send).not.toHaveBeenCalled();
   });
