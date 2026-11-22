@@ -37,6 +37,35 @@ describe('Ficha A · totales para el operador', () => {
   });
 });
 
+describe('Ficha A · nulos del servidor real', () => {
+  it('guía manual (trackingUrl null, sin paquetería): muestra el número sin enlace; bóveda sin precio ⇒ «—»', async () => {
+    const real = await notesApi.getAdminUserOverview('u-777');
+    vi.spyOn(notesApi, 'getAdminUserOverview').mockResolvedValue({
+      ...real,
+      vault: { piecesCount: 2, valueCents: null, pricedCount: 0, asOf: null },
+      shipments: { total: 1, items: [{ ...real.shipments.items[0], carrier: null, trackingNumber: 'GUIA-MANUAL-77', trackingUrl: null }] },
+    });
+    const dialog = await openFicha();
+    expect(await within(dialog).findByTestId('ship-tracking-number')).toHaveTextContent('GUIA-MANUAL-77');
+    expect(within(dialog).queryByRole('link', { name: 'Abrir rastreo' })).not.toBeInTheDocument();
+    expect(within(dialog).getByTestId('strip-vault')).toHaveTextContent('—');
+  });
+});
+
+describe('Ficha A · notas paginadas', () => {
+  it('sigue nextCursor: «Cargar más notas» pide la página 2 con el cursor del servidor', async () => {
+    const mk = (id: string) => ({ id, body: `nota ${id}`, pinned: false, authorId: 'x', authorName: 'Luis', createdAt: '2026-11-01T10:00:00Z', updatedAt: '2026-11-01T10:00:00Z', edited: false, canEdit: false });
+    const spy = vi
+      .spyOn(notesApi, 'getAdminUserNotes')
+      .mockImplementation(async (_id, p) => (p?.cursor === 'a' ? { items: [mk('b')], nextCursor: null } : { items: [mk('a')], nextCursor: 'a' }));
+    const dialog = await openFicha();
+    fireEvent.click(await within(dialog).findByTestId('notes-load-more'));
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith('u-777', { limit: 50, cursor: 'a' }));
+    await waitFor(() => expect(within(dialog).getAllByTestId('note-item')).toHaveLength(2));
+    expect(within(dialog).queryByTestId('notes-load-more')).not.toBeInTheDocument();
+  });
+});
+
 describe('Ficha A · NotesPanel', () => {
   it('sin canEdit no hay Editar/Borrar; con canEdit sí; fijar lo ve cualquiera', async () => {
     const dialog = await openFicha();

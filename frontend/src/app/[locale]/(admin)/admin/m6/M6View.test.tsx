@@ -212,6 +212,7 @@ describe('M6View · Usuarios / KYC', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Crear usuario' });
     fireEvent.change(within(dialog).getByLabelText('Correo'), { target: { value: 'nuevo@example.com' } });
     fireEvent.change(within(dialog).getByLabelText('Nombre'), { target: { value: 'Nuevo Usuario' } });
+    fireEvent.change(within(dialog).getByLabelText('Celular'), { target: { value: '5548214739' } });
     // Contraseña vacía → el backend la autogenera y la devuelve una vez.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear' }));
 

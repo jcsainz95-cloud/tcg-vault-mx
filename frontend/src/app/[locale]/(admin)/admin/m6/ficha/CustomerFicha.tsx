@@ -66,7 +66,7 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const overview = useQuery({ queryKey: ['admin-user-overview', d.id], queryFn: () => getAdminUserOverview(d.id) });
-  const notes = useQuery({ queryKey: ['admin-user-notes', d.id], queryFn: () => getAdminUserNotes(d.id, { limit: 50 }) });
+  const notes = useQuery({ queryKey: ['admin-user-notes', d.id, 'first'], queryFn: () => getAdminUserNotes(d.id, { limit: 50 }) });
   const ov = overview.data;
   const pinned = notes.data?.items.find((n) => n.pinned);
   const [openLists, setOpenLists] = useState<Record<string, boolean>>({});
@@ -402,7 +402,15 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
                 <Badge tone={SHIP_TONE[s.status]} shape="outline">{t(`shipment.status.${s.status}`)}</Badge>
                 <span className="text-sm">{t('shipment.items', { count: s.itemsCount })}</span>
                 <div className="flex flex-col gap-1 text-sm">
-                  {s.carrier ? <span><span>{s.carrier}</span> · <span className="tabular font-mono">{s.trackingNumber ?? '—'}</span></span> : <span className="text-muted">—</span>}
+                  {s.carrier || s.trackingNumber ? (
+                    <span>
+                      {s.carrier && <span>{s.carrier}</span>}
+                      {s.carrier && s.trackingNumber ? ' · ' : null}
+                      {s.trackingNumber && <span className="tabular font-mono" data-testid="ship-tracking-number">{s.trackingNumber}</span>}
+                    </span>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  )}
                   {trackBtns(s)}
                   {s.deliveredAt && <span className="text-xs text-muted">{t('shipment.deliveredOn', { date: formatDate(s.deliveredAt, locale) })}</span>}
                 </div>

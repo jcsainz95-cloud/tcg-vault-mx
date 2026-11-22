@@ -6,7 +6,9 @@ import { parseRefundsTab } from './tabs';
  * está; … se JUNTAN en UNA sola pestaña con dos cubetas»): `?tab=spei` (por defecto, también sin `tab`) |
  * `?tab=operadores`. Solo súper-admin. El parseo vive en `tabs.ts` (módulo sin `'use client'`).
  */
-export default async function RefundsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
-  const { tab } = await searchParams;
-  return <RefundsView initialTab={parseRefundsTab(tab)} />;
+export default async function RefundsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[]; userId?: string | string[] }> }) {
+  const { tab, userId } = await searchParams;
+  // §FICHA-CLIENTE: `?userId=` filtra ambas cubetas a un cliente (la ficha del M6 enlaza aquí).
+  const customerId = (Array.isArray(userId) ? userId[0] : userId)?.trim() || undefined;
+  return <RefundsView initialTab={parseRefundsTab(tab)} customerUserId={customerId} />;
 }

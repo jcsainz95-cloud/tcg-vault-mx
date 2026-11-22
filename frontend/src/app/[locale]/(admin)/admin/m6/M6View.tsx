@@ -1,5 +1,6 @@
 'use client';
 
+import { normalizeMxPhone } from '@/lib/phone';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Link } from '@/i18n/navigation';
@@ -65,6 +66,7 @@ interface CreateFormState {
   name: string;
   staffRole: StaffRole;
   password: string;
+  phone: string;
 }
 const EMPTY_CREATE_FORM: CreateFormState = {
   kind: 'customer',
@@ -73,6 +75,7 @@ const EMPTY_CREATE_FORM: CreateFormState = {
   name: '',
   staffRole: 'vault_operator',
   password: '',
+  phone: '',
 };
 
 /** Identificador visible de una cuenta (§42.5.1): `email ?? username`, ⛔ nunca `null`/vacío. */
@@ -217,8 +220,8 @@ export function M6View() {
       // ⛔ El cuerpo se arma POR TIPO (§42.3.1, UX-6): Equipo nunca lleva la clave `email` (sería
       // `422 staff_without_email`); Cliente nunca lleva `username`.
       return createForm.kind === 'staff'
-        ? createAdminUser({ username: createForm.username.trim(), name, role: createForm.staffRole, password })
-        : createAdminUser({ email: createForm.email.trim(), name, role: 'customer', password });
+        ? createAdminUser({ username: createForm.username.trim(), name, role: createForm.staffRole, password, phone: normalizeMxPhone(createForm.phone) ?? createForm.phone.trim() })
+        : createAdminUser({ email: createForm.email.trim(), name, role: 'customer', password, phone: normalizeMxPhone(createForm.phone) ?? createForm.phone.trim() });
     },
     onSuccess: (res) => {
       setCreateOpen(false);
@@ -262,6 +265,10 @@ export function M6View() {
   useEffect(() => {
     if (usernameError) usernameRef.current?.focus();
   }, [usernameError]);
+
+  // §CELULAR: obligatorio para todos los roles; el servidor es el juez (`422 PHONE_INVALID`), el front solo evita ir y volver.
+  const phoneServerRejected = createMutation.error instanceof ApiClientError && createMutation.error.code === 'PHONE_INVALID';
+  const phoneLocalError = createForm.phone.trim() !== '' && normalizeMxPhone(createForm.phone) === null;
 
   // Traduce el errorCode del contrato a copy claro (409 EMAIL_TAKEN / 422 VALIDATION_ERROR / 403).
   function createErrorMessage(err: unknown): string {
@@ -747,6 +754,17 @@ export function M6View() {
             />
           )}
           <Input
+            label={t('create.phone')}
+            type="tel"
+            inputMode="tel"
+            autoComplete="off"
+            prefix="+52"
+            hint={t('create.phoneHint')}
+            error={phoneLocalError ? t('create.phoneError') : phoneServerRejected ? t('create.phoneRejected') : undefined}
+            value={createForm.phone}
+            onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
+          />
+          <Input
             label={t('create.password')}
             type="text"
             autoComplete="off"
@@ -757,7 +775,7 @@ export function M6View() {
           {createForm.kind === 'staff' && createForm.staffRole === 'super_admin' && (
             <Banner variant="warning" role="status">{t('create.superAdminWarning')}</Banner>
           )}
-          {createMutation.isError && !usernameError && (
+          {createMutation.isError && !usernameError && !phoneServerRejected && (
             <Banner variant="danger" role="alert">{createErrorMessage(createMutation.error)}</Banner>
           )}
         </div>

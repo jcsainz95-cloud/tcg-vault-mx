@@ -10,7 +10,7 @@ describe('api · mocks del equipo sin correo', () => {
   beforeEach(() => window.localStorage.clear());
 
   it('TD-5 (techlead sobre da6d910e): `409 USERNAME_TAKEN` lleva `details.field = "username"`, como el servidor real', async () => {
-    const err = await createAdminUser({ name: 'Otro Luis', role: 'vault_operator', username: 'Luis.P' }).catch((e) => e);
+    const err = await createAdminUser({ name: 'Otro Luis', role: 'vault_operator', username: 'Luis.P', phone: '5548214739' }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiClientError);
     expect((err as ApiClientError).status).toBe(409);
     expect((err as ApiClientError).code).toBe('USERNAME_TAKEN');

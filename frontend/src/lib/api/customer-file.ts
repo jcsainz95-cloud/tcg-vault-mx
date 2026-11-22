@@ -159,8 +159,8 @@ export async function deleteAdminUserNote(id: string, noteId: string): Promise<v
 }
 
 /** §CELULAR · `PATCH /admin/users/:id/phone` (super_admin). Misma validación que el servidor; sin vaciar. */
-export async function updateAdminUserPhone(id: string, phone: string): Promise<{ id: string; phone: string }> {
-  if (!isMock()) return apiRequest<{ id: string; phone: string }>(`/admin/users/${enc(id)}/phone`, { method: 'PATCH', body: { phone } });
+export async function updateAdminUserPhone(id: string, phone: string): Promise<{ id: string; phone: string; phoneRequired?: boolean }> {
+  if (!isMock()) return apiRequest<{ id: string; phone: string; phoneRequired?: boolean }>(`/admin/users/${enc(id)}/phone`, { method: 'PATCH', body: { phone } });
   mockUserPhones[id] = phone.replace(/\D/g, '').slice(-10);
   return wait({ id, phone: mockUserPhones[id] });
 }

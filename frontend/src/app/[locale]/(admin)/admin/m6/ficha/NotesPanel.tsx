@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   NOTE_MAX_LENGTH,
@@ -38,8 +38,14 @@ export function NotesPanel({ userId }: { userId: string }) {
   const tf = useTranslations('admin.m6.ficha');
   const qc = useQueryClient();
   const locale = useLocale() as AppLocale;
-  const key = ['admin-user-notes', userId];
-  const notes = useQuery({ queryKey: key, queryFn: () => getAdminUserNotes(userId, { limit: 50 }) });
+  const key = ['admin-user-notes', userId, 'pages'];
+  // El servidor pagina con `cursor`/`limit` (máx. 50; tope 200 notas por cliente): se sigue `nextCursor` hasta agotarlo.
+  const notes = useInfiniteQuery({
+    queryKey: key,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => getAdminUserNotes(userId, { limit: 50, cursor: pageParam }),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
   const [showAll, setShowAll] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftPinned, setDraftPinned] = useState(false);
@@ -49,7 +55,7 @@ export function NotesPanel({ userId }: { userId: string }) {
   const [editText, setEditText] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const refresh = () => qc.invalidateQueries({ queryKey: key });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['admin-user-notes', userId] });
 
   const create = useMutation({
     mutationFn: () => {
@@ -79,7 +85,7 @@ export function NotesPanel({ userId }: { userId: string }) {
     },
   });
 
-  const all = notes.data?.items ?? [];
+  const all = notes.data?.pages.flatMap((pg) => pg.items) ?? [];
   const pinned = all.filter((n) => n.pinned);
   const rest = all.filter((n) => !n.pinned);
   const visible = showAll ? all : [...pinned, ...rest.slice(0, RECENT)];
@@ -243,6 +249,11 @@ export function NotesPanel({ userId }: { userId: string }) {
           {(hidden > 0 || showAll) && all.length > pinned.length + RECENT && (
             <Button size="sm" variant="ghost" className="self-start" onClick={() => setShowAll((v) => !v)}>
               {showAll ? t('seeLess') : t('seeAll', { count: all.length })}
+            </Button>
+          )}
+          {notes.hasNextPage && (
+            <Button size="sm" variant="secondary" className="self-start" loading={notes.isFetchingNextPage} onClick={() => void notes.fetchNextPage()} data-testid="notes-load-more">
+              {t('loadMore')}
             </Button>
           )}
         </>

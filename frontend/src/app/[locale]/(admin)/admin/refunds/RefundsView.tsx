@@ -30,15 +30,15 @@ import { REFUNDS_TABS, type RefundsTab } from './tabs';
  * `SuperAdminOnly` envuelve la página ENTERA: al operador no se le pinta ni el `tablist` (S6). Solo se monta la
  * cubeta activa. ⛔ No se comparten filtros entre cubetas: son dos dineros distintos.
  */
-export function RefundsView({ initialTab = 'spei' }: { initialTab?: RefundsTab }) {
+export function RefundsView({ initialTab = 'spei', customerUserId }: { initialTab?: RefundsTab; customerUserId?: string }) {
   return (
     <SuperAdminOnly>
-      <RefundsTabs initialTab={initialTab} />
+      <RefundsTabs initialTab={initialTab} customerUserId={customerUserId} />
     </SuperAdminOnly>
   );
 }
 
-function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
+function RefundsTabs({ initialTab, customerUserId }: { initialTab: RefundsTab; customerUserId?: string }) {
   const tModules = useTranslations('admin.modules'); // §37.2a-2: h1 = rótulo del menú (candado P66-2)
   const t = useTranslations('admin.refundsPage');
   const summary = usePickingSummary();
@@ -100,6 +100,15 @@ function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
         </div>
       </div>
 
+      {customerUserId && (
+        <div className="flex flex-wrap items-center gap-3 border border-border bg-surface-2 px-3 py-2 text-sm" data-testid="refunds-customer-filter">
+          <span>{t('customerFilter')}</span>
+          <Link href="/admin/refunds" className="text-accent underline underline-offset-2" data-testid="refunds-customer-filter-clear">
+            {t('customerFilterClear')}
+          </Link>
+        </div>
+      )}
+
       {wdDone && (
         <Banner key={wdDone.id} variant="info" role="status" dismissible>
           <p className="text-sm text-text" data-testid="refunds-withdrawal-delivered-done">
@@ -150,8 +159,8 @@ function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
       </div>
 
       <div role="tabpanel" id={`refunds-panel-${tab}`} aria-labelledby={`refunds-tab-${tab}`}>
-        {tab === 'spei' && <ManualRefundsView />}
-        {tab === 'operadores' && <OperatorRefundsView />}
+        {tab === 'spei' && <ManualRefundsView customerUserId={customerUserId} />}
+        {tab === 'operadores' && <OperatorRefundsView customerUserId={customerUserId} />}
       </div>
 
       <WithdrawalDeliveredRefundDialog

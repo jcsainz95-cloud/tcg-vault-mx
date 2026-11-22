@@ -5187,6 +5187,7 @@
           "edited": "edited",
           "unknownAuthor": "Team",
           "empty": "No notes yet",
+          "loadMore": "Load more notes",
           "seeAll": "See all ({count})",
           "seeLess": "See less",
           "loadError": "Notes could not be loaded.",
@@ -5322,6 +5323,10 @@
         },
         "errorUsernameTaken": "That username is already taken (case doesn't matter). Choose another one.",
         "errorValidationStaff": "Check the details: name, team role and a password of at least 8 characters.",
+        "phone": "Mobile phone",
+        "phoneHint": "10 digits, with or without +52. Required for everyone, staff included.",
+        "phoneError": "Enter a 10-digit mobile number.",
+        "phoneRejected": "The server rejected the phone number: check it is a valid 10-digit number.",
         "passwordHintStaff": "Leave it empty to generate a secure temporary one (shown only once). Either way, they'll have to change it the first time they sign in.",
         "successBodyStaff": "Team account created: username {username}, role {role}. They sign in on the usual “Sign in” page, with their username and password.",
         "providedPasswordNoteStaff": "Give them the password you set through a secure channel. They'll have to change it the first time they sign in."
@@ -7434,6 +7439,8 @@
       }
     },
     "refundsPage": {
+      "customerFilter": "Showing only one customer's refunds.",
+      "customerFilterClear": "Show all",
       "hint": "Transfers you pay by hand and refunds made by operators.",
       "tabs": {
         "spei": "SPEI transfers",

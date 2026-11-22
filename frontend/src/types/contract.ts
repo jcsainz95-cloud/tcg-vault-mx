@@ -2926,6 +2926,8 @@ export interface ManualRefundsFilters {
   status?: ManualRefundStatus;
   q?: string;
   page?: number;
+  /** §FICHA-CLIENTE: solo las devoluciones SPEI de ESTE cliente (`customerUserId`). */
+  userId?: string;
 }
 export interface ManualRefundsResponse extends Paginated<ManualRefundDTO> {
   pendingCents: number;
@@ -2980,6 +2982,8 @@ export type AdminRefundRowDTO = PaymentRefundDTO & {
 export interface AdminRefundsFilters {
   requestedByRole?: Role;
   actorUserId?: string;
+  /** §FICHA-CLIENTE: reembolsos de ESTE cliente (≠ `actorUserId`, quien los pidió). */
+  userId?: string;
   kind?: PaymentRefundKind;
   status?: PaymentRefundStatus;
   from?: string;

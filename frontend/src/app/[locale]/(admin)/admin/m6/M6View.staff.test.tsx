@@ -98,12 +98,13 @@ describe('UX-6 · alta Cliente/Equipo: el cuerpo se arma por tipo', () => {
     chooseKind(dialog, 'Equipo');
     fireEvent.change(within(dialog).getByLabelText('Nombre de usuario'), { target: { value: 'luis.p' } });
     fireEvent.change(within(dialog).getByLabelText('Nombre'), { target: { value: 'Luis' } });
+    fireEvent.change(within(dialog).getByLabelText('Celular'), { target: { value: '+52 55 4821 4739' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const body = spy.mock.calls[0][0] as unknown as Record<string, unknown>;
     expect('email' in body).toBe(false);
-    expect(body).toEqual({ username: 'luis.p', name: 'Luis', role: 'vault_operator', password: undefined });
+    expect(body).toEqual({ username: 'luis.p', name: 'Luis', role: 'vault_operator', password: undefined, phone: '5548214739' });
 
     // §42.3.5: el resultado dice el usuario y por dónde entra; la temporal UNA sola vez.
     expect(
@@ -112,6 +113,22 @@ describe('UX-6 · alta Cliente/Equipo: el cuerpo se arma por tipo', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Temp-Abc-123')).toBeInTheDocument();
+  });
+
+  it('§CELULAR: el alta de Equipo con celular inválido ⇒ 422 PHONE_INVALID se pinta bajo el campo', async () => {
+    vi.spyOn(api, 'createAdminUser').mockRejectedValue(
+      new ApiClientError(422, { code: 'PHONE_INVALID', message: 'Invalid phone', details: { field: 'phone' } }),
+    );
+    renderWithProviders(<M6View />, 'es');
+    const dialog = await openCreate();
+    chooseKind(dialog, 'Equipo');
+    fireEvent.change(within(dialog).getByLabelText('Nombre de usuario'), { target: { value: 'luis.p' } });
+    fireEvent.change(within(dialog).getByLabelText('Nombre'), { target: { value: 'Luis' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear' }));
+    expect(await within(dialog).findByText(/El servidor rechazó el celular/)).toBeInTheDocument();
+    // Un celular tecleado a medias avisa en el momento, sin ir al servidor.
+    fireEvent.change(within(dialog).getByLabelText('Celular'), { target: { value: '123' } });
+    expect(within(dialog).getByText('Escribe un celular de 10 dígitos.')).toBeInTheDocument();
   });
 
   it('Equipo con contraseña tecleada ⇒ nota de equipo (tendrá que cambiarla)', async () => {

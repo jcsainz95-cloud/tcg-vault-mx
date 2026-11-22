@@ -5187,6 +5187,7 @@
           "edited": "editada",
           "unknownAuthor": "Equipo",
           "empty": "Sin notas todavía",
+          "loadMore": "Cargar más notas",
           "seeAll": "Ver todas ({count})",
           "seeLess": "Ver menos",
           "loadError": "No se pudieron cargar las notas.",
@@ -5322,6 +5323,10 @@
         },
         "errorUsernameTaken": "Ese nombre de usuario ya existe (sin importar mayúsculas). Elige otro.",
         "errorValidationStaff": "Revisa los datos: nombre, rol de equipo y contraseña de al menos 8 caracteres.",
+        "phone": "Celular",
+        "phoneHint": "10 dígitos, con o sin +52. Obligatorio para todos, también para el equipo.",
+        "phoneError": "Escribe un celular de 10 dígitos.",
+        "phoneRejected": "El servidor rechazó el celular: revisa que sean 10 dígitos válidos.",
         "passwordHintStaff": "Déjala vacía para generar una temporal segura (se mostrará una sola vez). Sea cual sea, la tendrá que cambiar al entrar por primera vez.",
         "successBodyStaff": "Cuenta de equipo creada: usuario {username}, rol {role}. Entra por la pantalla de «Iniciar sesión» de siempre, con su usuario y su contraseña.",
         "providedPasswordNoteStaff": "Dale la contraseña que definiste por un canal seguro. Al entrar por primera vez tendrá que cambiarla."
@@ -7434,6 +7439,8 @@
       }
     },
     "refundsPage": {
+      "customerFilter": "Mostrando solo los reembolsos de un cliente.",
+      "customerFilterClear": "Ver todos",
       "hint": "Las transferencias que pagas a mano y los reembolsos que hicieron los operadores.",
       "tabs": {
         "spei": "Transferencias SPEI",
