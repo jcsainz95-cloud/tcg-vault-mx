@@ -3865,7 +3865,8 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     offerNetCents: 29000,
     shipmentCarrier: 'Estafeta',
     shipmentTrackingNumber: '8012 3456 7891',
-    seller: { id: 'u-782', name: 'Brock Harrison', email: 'brock@example.com' },
+    inboundShipment: { id: 'shp-in-mock', folio: 'ENV-000321', status: 'guia', labelSource: 'skydropx', labelProcessing: false, carrier: 'Estafeta', trackingNumber: '8012 3456 7891', trackingUrl: 'https://www.estafeta.com/rastreo/8012345678', costCents: 18000, costIvaCents: 2483, insuranceCostCents: 0, providerCanceledAt: null, cancelConfirmed: false },
+    seller: { id: 'u-782', name: 'Brock Harrison', email: 'brock@example.com', phone: '5512345678' },
     items: [
       { id: 'sri-cp-1', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 40000, offerDecision: 'buy', offeredPriceCents: 40000, approvedPriceCents: 40000, itemStatus: 'aprobada' },
       { id: 'sri-cp-2', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 7000, offerDecision: 'buy', offeredPriceCents: 7000, approvedPriceCents: 7000, itemStatus: 'aprobada' },

@@ -3554,6 +3554,28 @@
       "emptyTab": "No requests in this stage.",
       "emptySearch": "No request matches the search.",
       "seller": "Seller",
+      "sellerGuide": {
+        "title": "Seller's label",
+        "carrier": "Carrier",
+        "tracking": "Tracking",
+        "copy": "Copy tracking number",
+        "copied": "Copied",
+        "track": "Track shipment",
+        "pdf": "View / print label (PDF)",
+        "manual": "Label entered by hand",
+        "canceled": "Label canceled",
+        "canceling": "Cancellation in progress",
+        "notAvailable": "The PDF is not available for this label.",
+        "pdfError": "Could not open the PDF. Try again."
+      },
+      "sellerContact": {
+        "none": "No phone on file",
+        "email": "Email",
+        "fromAddress": "(from their address)",
+        "whatsapp": "WhatsApp",
+        "callLabel": "Call {name}",
+        "whatsappLabel": "WhatsApp {name}"
+      },
       "sellerLink": "View seller profile {id}",
       "created": "Created",
       "approvedTotal": "Approved total",

@@ -4838,6 +4838,8 @@ export interface AdminSellerRef {
   id: string;
   name: string;
   email: string;
+  /** BL-15 (D12): contacto de back-office tras el guard de rol; `null` en cuentas de Google/viejas. Nunca público. */
+  phone?: string | null;
 }
 
 /**

@@ -126,9 +126,10 @@ describe('BSD-F1 · «Generar guía con Skydropx»', () => {
   it('guía de Skydropx viva ⇒ resumen, costo tal cual, «Descargar PDF», sin captura a mano y sin campo de costo', async () => {
     await render(row({ inboundShipment: liveGuide(), shipmentCarrier: 'Paquetexpress', shipmentTrackingNumber: 'PQX123' }));
     const live = await within(card()).findByTestId('m5-inbound-live');
-    expect(live).toHaveTextContent('Guía de Skydropx: Paquetexpress · PQX123');
+    expect(live).toHaveTextContent('Paquetexpress');
+    expect(live).toHaveTextContent('PQX123');
     expect(live).toHaveTextContent('Costo de la guía: MX$250.00');
-    expect(within(live).getByRole('button', { name: 'Descargar PDF' })).toBeInTheDocument();
+    expect(within(live).getByRole('button', { name: 'Ver / imprimir guía (PDF)' })).toBeInTheDocument();
     expect(within(live).getByRole('button', { name: 'Cancelar guía y comprar otra' })).toBeInTheDocument();
     expect(within(card()).queryByLabelText('Número de guía')).toBeNull();
     expect(within(card()).getByTestId('m5-cost-from-provider')).toHaveTextContent('El costo de esta guía lo dio Skydropx (MX$250.00): no se captura aquí.');

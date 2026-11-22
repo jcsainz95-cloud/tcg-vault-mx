@@ -360,7 +360,7 @@ export function ReviewPhoto({ item }: { item: AdminSellItemDTO }) {
 /* ------------------------------------------------------------------------------------------------ Comprobantes */
 
 /** Comprobante de envío: guía + fecha de recepción. Solo con la solicitud ya recibida. */
-export function ShipmentReceipt({ req }: { req: AdminBuylistDTO }) {
+export function ShipmentReceipt({ req, withoutGuide = false }: { req: AdminBuylistDTO; withoutGuide?: boolean }) {
   const t = useTranslations('admin.m5.flow.receipt');
   const copied = useCopiedLabel();
   const locale = useLocale() as AppLocale;
@@ -374,13 +374,15 @@ export function ShipmentReceipt({ req }: { req: AdminBuylistDTO }) {
       data-testid={`ship-receipt-${req.id}`}
       className="flex flex-wrap items-center gap-x-6 gap-y-2 border border-border-strong bg-surface-2 px-4 py-3"
     >
-      <div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-muted">{t('shipTitle')}</p>
-        <div className="mt-1 flex items-center gap-3">
-          <span className="tabular font-mono text-sm">{guide ?? t('noGuide')}</span>
-          {number && <CopyButton text={number} label={t('copyGuide')} copiedLabel={copied} />}
+      {!withoutGuide && (
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-muted">{t('shipTitle')}</p>
+          <div className="mt-1 flex items-center gap-3">
+            <span className="tabular font-mono text-sm">{guide ?? t('noGuide')}</span>
+            {number && <CopyButton text={number} label={t('copyGuide')} copiedLabel={copied} />}
+          </div>
         </div>
-      </div>
+      )}
       {receivedAt && <p className="text-sm text-muted">{t('receivedOn', { date: formatDate(receivedAt, locale) })}</p>}
     </section>
   );

@@ -29,6 +29,9 @@ import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { AcceptedRequestPanel } from './AcceptedRequestPanel';
 import { GuideDueTag } from './GuideDueMark';
+import { SellerContact } from './SellerContact';
+import { SellerGuideBlock, hasSellerGuide, sellerGuideOf } from './SellerGuideBlock';
+import { liveSkydropxGuide } from './DeclineAcceptedDialog';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
 import {
   PayoutBar,
@@ -1019,6 +1022,7 @@ export function M5View() {
                           >
                             {t('seller')}: {sellerLabel(req)}
                           </Link>
+                          <SellerContact seller={req.seller} />
                           <span className="tabular text-xs text-muted">
                             {t('created')}: {formatDate(req.createdAt, locale)}
                           </span>
@@ -1226,6 +1230,7 @@ export function M5View() {
                   >
                     {t('seller')}: {sellerLabel(req)}
                   </Link>
+                  <SellerContact seller={req.seller} />
                   {/* Fecha de creación (orden createdAt desc lo aplica el server; no se re-ordena). */}
                   <span className="tabular text-xs text-muted">
                     {t('created')}: {formatDate(req.createdAt, locale)}
@@ -1250,8 +1255,13 @@ export function M5View() {
               {/* §BUYLIST-FLUJO F1c: cinta de estado (ofertado neto · vence · rastreo · lleva N días), todo del servidor. */}
               <RequestRibbon req={req} />
               {/* §BUYLIST-FLUJO F1b: comprobante de envío una vez recibida; de pago, en `pagada`. */}
+              {/* «Guía del vendedor»: desde que hay guía (comprada o a mano) y en todos los estados siguientes. En `aceptada`
+                  con guía viva de Skydropx la pinta `AcceptedRequestPanel` (misma pieza, sin duplicar). */}
+              {hasSellerGuide(req) && !(req.status === 'aceptada' && liveSkydropxGuide(req)) && (
+                <SellerGuideBlock requestId={req.id} {...sellerGuideOf(req)!} />
+              )}
               {(req.status === 'recibida' || req.status === 'verificacion' || req.status === 'aprobada' || req.status === 'pagada') && (
-                <ShipmentReceipt req={req} />
+                <ShipmentReceipt req={req} withoutGuide={hasSellerGuide(req)} />
               )}
               {req.status === 'pagada' && <PaymentReceipt req={req} />}
 
