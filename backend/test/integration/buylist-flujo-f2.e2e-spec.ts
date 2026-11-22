@@ -490,9 +490,80 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
       expect((await h.api('POST', `/admin/buylist/items/${ids[0]}/pickup-done`, { token: operatorToken })).status).toBe(200);
       expect((await rowOf(ids[0]))!.pickupDoneAt!.getTime()).toBe(doneAt);
       expect((await rowOf(ids[0]))!.pickupDoneBy).not.toBeNull();
-      expect((await pick(ids[0], 'in_person')).status).toBe(409); // ya entregada
+      const late = await pick(ids[0], 'in_person');
+      expect(late.status).toBe(409); // ya entregada
+      expect((late.body as any).error.code).toBe('PICKUP_ALREADY_DONE');
       expect((await h.api('POST', `/admin/buylist/items/${ids[1]}/pickup-done`, { token: operatorToken })).status).toBe(422);
       expect((await h.api('POST', `/admin/buylist/items/${ids[0]}/pickup-done`, { token: customerToken })).status).toBe(403);
+    });
+  
+    describe('vista previa del neto (GET revise-price/preview)', () => {
+      const preview = (itemId: string, q: string, token = operatorToken) =>
+        h.api('GET', `/admin/buylist/items/${itemId}/revise-price/preview${q}`, { token });
+      const snapshot = async (srId: string, itemId: string) => ({
+        item: await rowOf(itemId),
+        req: await h.prisma.sellRequest.findUnique({ where: { id: srId } }),
+        audits: await h.prisma.auditLog.count({ where: { entityId: itemId } }),
+      });
+
+      it('solo lectura (sin escritura, auditoria ni correo) y == revision.netIfAcceptedCents guardado == payout.netCents tras aceptar', async () => {
+        const { srId, ids } = await toVerificacion(2);
+        expect((await approve(ids[1])).status).toBe(200);
+        const offered = (await rowOf(ids[0]))!.offeredPriceCents!;
+        const revised = offered - 175;
+        const before = await snapshot(srId, ids[0]);
+        enviados = [];
+        const p = await preview(ids[0], `?revisedPriceCents=${revised}`);
+        expect(p.status).toBe(200);
+        const b = p.body as any;
+        expect(b).toMatchObject({ itemId: ids[0], offeredPriceCents: offered, revisedPriceCents: revised });
+        expect(Object.keys(b.payout).sort()).toEqual(['grossCents', 'netCents', 'shippingFeeCents']);
+        expect(await snapshot(srId, ids[0])).toEqual(before);
+        expect(enviados).toHaveLength(0);
+        // paridad con lo que deja revise-price y con el payout real tras aceptar.
+        expect((await revise(ids[0], { revisedPriceCents: revised, reasonCode: 'wrong_card' })).status).toBe(200);
+        expect((await itemOf(srId, ids[0])).revision.netIfAcceptedCents).toBe(b.payout.netCents);
+        expect((await respond(srId, ids[0], 'accept')).status).toBe(200);
+        const real = (await detail(srId)).payout;
+        expect({ grossCents: real.grossCents, shippingFeeCents: real.shippingFeeCents, netCents: real.netCents }).toEqual(b.payout);
+      });
+
+      it('otras bajas pendientes cuentan a su valor propuesto', async () => {
+        const { srId, ids } = await toVerificacion(2);
+        const o0 = (await rowOf(ids[0]))!.offeredPriceCents!;
+        const o1 = (await rowOf(ids[1]))!.offeredPriceCents!;
+        expect((await revise(ids[1], { revisedPriceCents: o1 - 300, reasonCode: 'wrong_card' })).status).toBe(200);
+        const solo = ((await preview(ids[0], `?revisedPriceCents=${o0 - 100}`)).body as any).payout;
+        expect(solo.grossCents).toBe((await detail(srId)).offerGrossCents - 100 - 300);
+        // al aceptar ambas, el payout real coincide.
+        expect((await revise(ids[0], { revisedPriceCents: o0 - 100, reasonCode: 'wrong_card' })).status).toBe(200);
+        expect((await respond(srId, ids[0], 'accept')).status).toBe(200);
+        expect((await respond(srId, ids[1], 'accept')).status).toBe(200);
+        expect((await detail(srId)).payout.netCents).toBe(solo.netCents);
+      });
+
+      it('mismas validaciones y errores que revise-price; solo staff', async () => {
+        const { ids } = await toVerificacion(2);
+        const o = (await rowOf(ids[0]))!.offeredPriceCents!;
+        for (const v of [o, o + 1, 0, -3]) {
+          const r = await preview(ids[0], `?revisedPriceCents=${v}`);
+          expect(r.status).toBe(422);
+          expect((r.body as any).error.code).toBe('REVISION_NOT_LOWER');
+        }
+        expect((await preview(ids[0], '')).status).toBe(400);
+        expect((await preview(ids[0], '?revisedPriceCents=10.5')).status).toBe(400);
+        expect((await preview(ids[0], `?revisedPriceCents=${o - 1}`, customerToken)).status).toBe(403);
+        expect((await approve(ids[1])).status).toBe(200);
+        const done = await preview(ids[1], '?revisedPriceCents=1');
+        expect(done.status).toBe(409);
+        expect((done.body as any).error.code).toBe('REVISION_ALREADY_RESOLVED');
+        const sr = await createRequest(1);
+        const i: string[] = (await detail(sr)).items.map((x: any) => x.id);
+        expect((await h.api('POST', `/admin/buylist/${sr}/offer`, { token: operatorToken, json: { lines: [{ itemId: i[0], decision: 'buy' }] } })).status).toBe(200);
+        const early = await preview(i[0], '?revisedPriceCents=1');
+        expect(early.status).toBe(422);
+        expect((early.body as any).error.code).toBe('REQUEST_NOT_RECEIVED');
+      });
     });
   });
 });

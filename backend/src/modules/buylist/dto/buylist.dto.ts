@@ -366,6 +366,11 @@ export class ReviseItemPriceDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 
+/** §BUYLIST-FLUJO F2c (anexo §3): query de la vista previa; entero obligatorio (falta/no entero ⇒ 400). */
+export class RevisePricePreviewQueryDto {
+  @Type(() => Number) @IsInt() revisedPriceCents!: number;
+}
+
 /** §BUYLIST-FLUJO F2c (anexo §3): `POST /buylist/requests/:id/items/:itemId/revision-response`. Ningun monto viaja en el body. */
 export class RevisionResponseDto {
   @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';

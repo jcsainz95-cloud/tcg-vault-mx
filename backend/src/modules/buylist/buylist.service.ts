@@ -155,7 +155,7 @@ import { resyncInboundAddress } from './inbound-address-sync';
 import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
 import { ShipmentLabelService } from '../shipments/label-purchase.service';
 import type { LabelOptionsDTO } from '../shipments/label-view';
-import { computePayoutNetCents, netIfRevisionAcceptedCents, payoutDTOOf, statusClockOf } from './buylist-payout';
+import { computePayoutNetCents, netIfRevisionAcceptedCents, payoutDTOOf, previewPayoutWithRevisions, statusClockOf } from './buylist-payout';
 import {
   INBOUND_SHIPMENT_SELECT,
   InboundShipmentRow,
@@ -8478,24 +8478,10 @@ export class BuylistService implements OnModuleInit {
   private static readonly REVISION_RESOLVED_ITEM_STATUSES = ['aprobada', 'rechazada', 'convertida_inventario', 'pagada'];
 
   /**
-   * `POST /admin/buylist/items/:itemId/revise-price` (anexo §3). Propone BAJAR el precio de UNA linea ofertada: `offeredPriceCents`
-   * jamas se muta (D2/D9), la baja vive en `revisedPriceCents` y solo cobra efecto con el «si» del vendedor
-   * (`respondRevision`). Orden: estado de la solicitud → linea ofertada → linea no resuelta → valor menor → escritura con CAS.
-   * Mismo valor ya pendiente ⇒ 200 sin escribir ni mandar correo; otro valor ⇒ reemplaza y reinicia el reloj de 7 d (correo C3).
+   * Las validaciones de `revise-price` (estado de la solicitud → linea ofertada → no resuelta → valor menor), UN cuerpo con la vista previa
+   * (`previewRevisedPayout`): la previa nunca acepta un valor que el verbo rechazaria.
    */
-  async reviseItemPrice(
-    itemId: string,
-    dto: { revisedPriceCents: number; reasonCode: 'condition_mismatch' | 'wrong_card' | 'other'; note?: string },
-    actor: { id: string; role: Role },
-  ) {
-    const note = (dto.note ?? '').trim();
-    if ((dto.reasonCode === 'other' || note.length > 0) && (note.length < 3 || note.length > 500)) {
-      throw BusinessException.badRequest(
-        'VALIDATION_ERROR',
-        dto.reasonCode === 'other' ? 'note is required for reasonCode "other" (3–500 chars)' : 'note, when present, must be 3–500 chars',
-        { field: 'note' },
-      );
-    }
+  private async loadRevisableItem(itemId: string, revised: number) {
     const item = await this.prisma.sellRequestItem.findUnique({
       where: { id: itemId },
       include: {
@@ -8517,13 +8503,57 @@ export class BuylistService implements OnModuleInit {
     if (BuylistService.REVISION_RESOLVED_ITEM_STATUSES.includes(item.itemStatus)) {
       throw BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This line was already resolved', { itemId, itemStatus: item.itemStatus });
     }
-    const revised = dto.revisedPriceCents;
     if (revised <= 0 || revised >= item.offeredPriceCents) {
       throw BusinessException.validation('REVISION_NOT_LOWER', 'The revised price must be lower than the offered price and above zero', {
         offeredPriceCents: item.offeredPriceCents,
         revisedPriceCents: revised,
       });
     }
+    return { item, req, revised };
+  }
+
+  /**
+   * `GET /admin/buylist/items/:itemId/revise-price/preview?revisedPriceCents=` (anexo §3): el `payout` que tendria la solicitud si el
+   * vendedor acepta, con `computePayoutNetCents`. SOLO LECTURA: ni escribe, ni audita, ni manda correo. Mismas validaciones que el verbo.
+   * Las OTRAS bajas pendientes cuentan a su valor propuesto.
+   */
+  async previewRevisedPayout(itemId: string, revisedPriceCents: number) {
+    const { item, revised } = await this.loadRevisableItem(itemId, revisedPriceCents);
+    const sr = await this.prisma.sellRequest.findUnique({
+      where: { id: item.sellRequestId },
+      select: {
+        approvedTotalCents: true,
+        offerGrossCents: true,
+        quotedTotalCents: true,
+        offerShippingFeeCents: true,
+        items: { where: { revisionState: 'pending', id: { not: itemId } }, select: { offeredPriceCents: true, revisedPriceCents: true } },
+      },
+    });
+    if (!sr) throw BusinessException.notFound();
+    const payout = previewPayoutWithRevisions(sr, [{ offeredPriceCents: item.offeredPriceCents, revisedPriceCents: revised }, ...sr.items]);
+    return { itemId, offeredPriceCents: item.offeredPriceCents as number, revisedPriceCents: revised, payout };
+  }
+
+  /**
+   * `POST /admin/buylist/items/:itemId/revise-price` (anexo §3). Propone BAJAR el precio de UNA linea ofertada: `offeredPriceCents`
+   * jamas se muta (D2/D9), la baja vive en `revisedPriceCents` y solo cobra efecto con el «si» del vendedor
+   * (`respondRevision`). Orden: estado de la solicitud → linea ofertada → linea no resuelta → valor menor → escritura con CAS.
+   * Mismo valor ya pendiente ⇒ 200 sin escribir ni mandar correo; otro valor ⇒ reemplaza y reinicia el reloj de 7 d (correo C3).
+   */
+  async reviseItemPrice(
+    itemId: string,
+    dto: { revisedPriceCents: number; reasonCode: 'condition_mismatch' | 'wrong_card' | 'other'; note?: string },
+    actor: { id: string; role: Role },
+  ) {
+    const note = (dto.note ?? '').trim();
+    if ((dto.reasonCode === 'other' || note.length > 0) && (note.length < 3 || note.length > 500)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        dto.reasonCode === 'other' ? 'note is required for reasonCode "other" (3–500 chars)' : 'note, when present, must be 3–500 chars',
+        { field: 'note' },
+      );
+    }
+    const { item, req, revised } = await this.loadRevisableItem(itemId, dto.revisedPriceCents);
     if (item.revisionState === 'pending' && item.revisedPriceCents === revised) {
       return this.adminGet(item.sellRequestId, actor); // idempotente: ni escritura ni correo nuevo.
     }
@@ -8839,7 +8869,7 @@ export class BuylistService implements OnModuleInit {
       throw BusinessException.validation('VALIDATION_ERROR', 'Only a rejected card that arrived can be picked up', { itemId, itemStatus: item.itemStatus });
     }
     if (item.pickupDoneAt != null) {
-      throw BusinessException.conflict('CONFLICT', 'This card was already handed over; the pickup method can no longer change', { itemId });
+      throw BusinessException.conflict('PICKUP_ALREADY_DONE', 'This card was already handed over; the pickup method can no longer change', { itemId });
     }
     if (item.pickupMethod !== method) {
       const res = await this.prisma.sellRequestItem.updateMany({

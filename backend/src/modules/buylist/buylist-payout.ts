@@ -135,3 +135,17 @@ export function netIfRevisionAcceptedCents(
       : (r.offerGrossCents ?? r.quotedTotalCents ?? 0) - line.offeredPriceCents + line.revisedPriceCents;
   return computePayoutNetCents({ ...r, approvedTotalCents: Math.max(0, gross) }).netCents;
 }
+
+/**
+ * §BUYLIST-FLUJO F2c — vista previa del `payout` si TODAS las bajas dadas se aceptan (la de la linea que se esta proponiendo y las demas
+ * pendientes, a su valor propuesto). Misma resta que lectura y sellado: solo cambia el bruto base (ver `netIfRevisionAcceptedCents`).
+ */
+export function previewPayoutWithRevisions(
+  r: { approvedTotalCents?: number | null; offerGrossCents?: number | null; quotedTotalCents?: number | null; offerShippingFeeCents?: number | null },
+  lines: { offeredPriceCents?: number | null; revisedPriceCents?: number | null }[],
+): PayoutAmounts {
+  const revised = lines.reduce((a, l) => a + (l.revisedPriceCents ?? 0), 0);
+  const offered = lines.reduce((a, l) => a + (l.offeredPriceCents ?? 0), 0);
+  const gross = r.approvedTotalCents != null ? r.approvedTotalCents + revised : (r.offerGrossCents ?? r.quotedTotalCents ?? 0) - offered + revised;
+  return computePayoutNetCents({ ...r, approvedTotalCents: Math.max(0, gross) });
+}

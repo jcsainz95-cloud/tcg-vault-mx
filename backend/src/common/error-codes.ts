@@ -391,6 +391,8 @@ export const ErrorCode = {
   REVISION_PENDING: 'REVISION_PENDING',
   REVISION_NOT_LOWER: 'REVISION_NOT_LOWER',
   REVISION_ALREADY_RESOLVED: 'REVISION_ALREADY_RESOLVED',
+  // §BUYLIST-FLUJO F2c (anexo §5): cambiar el metodo de recoger con `pickupDoneAt` ya puesto => 409.
+  PICKUP_ALREADY_DONE: 'PICKUP_ALREADY_DONE',
   // ===== v1.51.20 · LA PUERTA DEL CICLO — `POST /buylist/requests` (§6, D11/D18/D36/D37) =====
   // v1.51.3 (D36/D37, criterio 128) — **sin `addressId` en el body**. HERMANO EXACTO de
   // `CLABE_REQUIRED` en forma y en remedio: sin dirección de ORIGEN no se puede imprimir la etiqueta

@@ -24,6 +24,7 @@ import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
   ConvertAllDto,
+  RevisePricePreviewQueryDto,
   ReviseItemPriceDto,
   ConvertToInventoryDto,
   DeclineDto,
@@ -671,6 +672,12 @@ export class AdminBuylistController {
           : { approvedPriceCents: dto.approvedPriceCents },
     });
     return res;
+  }
+
+  /** §BUYLIST-FLUJO F2c: vista previa del neto de una baja (solo lectura: sin escritura, auditoria ni correo). */
+  @Get('items/:itemId/revise-price/preview')
+  previewRevise(@Param('itemId') itemId: string, @Query() q: RevisePricePreviewQueryDto) {
+    return this.buylist.previewRevisedPayout(itemId, q.revisedPriceCents);
   }
 
   /** §BUYLIST-FLUJO F2c: propone bajar el precio de una linea (con el «si» del vendedor); correo C3. */
