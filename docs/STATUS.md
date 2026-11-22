@@ -88,11 +88,9 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-21 · HEAP-INTEG-94 50916507 · APROBADO (B1 e IMP cerrados). BD nueva qa94b. (Texto de qa, transcrito por el orquestador.) Previos vigentes: §DECKS-TOP-FUENTE e6628568 y §BUYLIST-MESA a47ae35f APROBADOS (menores: «umbral 0.4» vs «≤ 40 %», formatCode null ⇒ «Standard», mesa chip/role/scroll/signo).
-- B1 'productType'→'tipo' (catalog.service.ts:1390) ⇒ ROJO 1/1 (D-EQ-3). IMP vacío⇒lista vacía en zone, disputes y shipments ⇒ ROJO 3/3 en `total` (spec:1912; total 46 vs 0).
-- Menores: tab-only en ownerType ⇒ ROJO 1/1; trim de condition ⇒ ROJO 1/1 (%20NM). Triple inválido solo exige 1 de 3 (MENOR, backend).
-- axes 868/868; unit 612/612 (10696) 2/2 limpias; tsc 0, eslint 0, doc-size VERDE. Roja intermitente = health.stripe-mode.spec.ts:48 (ConfigService({}) lee process.env; preexistente desde 659704f7; MENOR, backend).
-- STATUS.md 157 líneas, tope 150 (ya tenía 156 antes).
+## QA (qa) — 2026-11-22 · §DIR-TIENDA 695f7c5b · RECHAZADO (texto de qa, transcrito por el orquestador). Previos vigentes: HEAP-INTEG-94 APROBADO 50916507 (publicado #147); §DECKS-TOP-FUENTE y §BUYLIST-MESA APROBADOS (menores abiertos en PENDIENTES).
+- Ida y vuelta UI→PUT→GET con backend real y BD nueva 1/1; cotización de entrada 409 origin_snapshot→200 tras guardar 1/1; sin tocar el bloque 0/99 diales cambian. Paridad de 8 obligatorias = STORE_REQUIRED; mutación 3/4 rojos (sobrevive «sin trim», M-1). vitest m10 127/127, tsc 0, lint limpio, doc-size verde; e2e M10›Envíos no existe (NO MEDIDO).
+- B-1: la ayuda dice que no afecta envíos a clientes, pero el snapshot entra en address_from de toda guía de salida (label-purchase.service.ts:686, skydropx.adapter.ts:136) y company/reference vacíos viajan como ''. Dueños: arquitecto (decidir) y frontend (copy). MENOR (frontend): M-1 caso «solo espacios», M-2 paridad sin prueba, M-3 snapshot parcial bloquea guardar, M-4 CP sin 5 dígitos.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
