@@ -117,7 +117,7 @@ describe('💰 P&L (§19.11, §M10-IVA.8) — ajustes por `chargedAt`, seguro in
   });
 
   it('shippingCostCents = Σ neto de envíos + Σ neto de ajustes; las dos cifras nuevas; faltantes sin Skydropx', async () => {
-    const p: Record<string, number> = await service.pnl('2031-02-01', '2031-02-28');
+    const p: Record<string, number> = await service.pnl('2026-02-01', '2026-02-28');
     expect(p.shippingAdjustmentsCents).toBe(10000 + 5000);
     expect(p.shippingInsuranceCents).toBe(2500);
     expect(p.shippingCostCents).toBe(6935 + 9000 + 15000);
@@ -126,7 +126,7 @@ describe('💰 P&L (§19.11, §M10-IVA.8) — ajustes por `chargedAt`, seguro in
   });
 
   it('los ajustes se acotan por `chargedAt` (⛔ `observedAt`, ⛔ el `pickingAt` del envío)', async () => {
-    await service.pnl('2031-02-01', '2031-02-28');
+    await service.pnl('2026-02-01', '2026-02-28');
     const where = prisma.shipmentCostAdjustment.findMany.mock.calls[0][0].where;
     expect(Object.keys(where)).toEqual(['chargedAt']);
     expect(where.chargedAt).toEqual(expect.objectContaining({ gte: expect.any(Date) }));
@@ -138,9 +138,9 @@ describe('💰 P&L (§19.11, §M10-IVA.8) — ajustes por `chargedAt`, seguro in
   });
 
   it('CSV: las dos columnas nuevas en el MISMO orden que el objeto', async () => {
-    const csv = await service.exportCsv('pnl', '2031-02-01', '2031-02-28');
+    const csv = await service.exportCsv('pnl', '2026-02-01', '2026-02-28');
     const [head, row] = csv.trim().split('\n');
-    const p = await service.pnl('2031-02-01', '2031-02-28');
+    const p = await service.pnl('2026-02-01', '2026-02-28');
     expect(head.split(',')).toEqual(['report', ...Object.keys(p)]);
     expect(row.split(',')).toEqual(['pnl', ...Object.values(p).map(String)]);
   });

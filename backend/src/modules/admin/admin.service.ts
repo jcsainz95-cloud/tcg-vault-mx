@@ -480,6 +480,8 @@ function toAdminKycDTO(k: {
  * un error de servidor. También rechaza el rango invertido (`from > to`), que devolvía un reporte
  * vacío indistinguible de «no hubo operaciones» — peor que un error, porque se lee como un dato.
  */
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+
 function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   if (!from && !to) return undefined;
   // §REPORTES-CEO F1 (API_CONTRACT_REPORTES §2): `YYYY-MM-DD` = día civil de México, ambos incluidos ⇒ semiabierto
@@ -489,12 +491,13 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
       // Forma `YYYY-MM-DD`: inexistente (`2026-02-30`) o año fuera de 2020..año actual+1 ⇒ 422 con `details.field` (contrato §2, RC-1).
       const year = Number(raw.slice(0, 4));
       if (!isYmd(raw) || year < 2020 || year > new Date().getUTCFullYear() + 1) {
-        throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field });
+        throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field, value: raw });
       }
       return { at: field === 'from' ? mxRange(raw, raw).gte : mxRange(raw, raw).lt, ymd: true };
     }
+    // Ni `YYYY-MM-DD` ni ISO completo (p. ej. `2026-2-3`, que `new Date` aceptaría por lo heredado) ⇒ 422 (m-13).
     const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) {
+    if (!ISO_DATETIME_RE.test(raw) || Number.isNaN(d.getTime())) {
       throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field, value: raw });
     }
     return { at: d, ymd: false };

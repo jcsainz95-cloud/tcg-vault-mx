@@ -173,5 +173,11 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
       const adm: any = await service.dashboard('super_admin' as any);
       expect(adm.buylistPeriod.amountCents).toBe(5000);
     });
+
+    it('m-13: ni YYYY-MM-DD ni ISO completo (2026-2-3) ⇒ 422 con field y value; el ISO completo sigue valiendo', async () => {
+      await expect(service.pnl('2026-2-3', undefined)).rejects.toMatchObject({ response: { details: { field: 'from', value: '2026-2-3' } } });
+      await expect(service.pnl('2026-13-45', undefined)).rejects.toMatchObject({ response: { details: { field: 'from', value: '2026-13-45' } } });
+      await expect(service.pnl('2026-01-01T00:00:00.000Z', '2026-01-02T10:00:00Z')).resolves.toBeDefined();
+    });
   });
 });
