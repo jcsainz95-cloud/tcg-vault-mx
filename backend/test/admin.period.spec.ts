@@ -136,5 +136,42 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
     it('fecha basura sigue siendo VALIDATION_ERROR', async () => {
       await expect(service.pnl('2026-13-45', '2026-14-01')).rejects.toThrow();
     });
+
+    it.each(['2026-02-30', '2026-11-31', '2019-12-31', '9999-12-31', '2099-01-01'])('YYYY-MM-DD inexistente o fuera de 2020..año+1 (%s) ⇒ 422 con details.field, en range()', async (bad) => {
+      for (const call of [() => service.pnl(bad, undefined), () => service.ivaReport(undefined, bad), () => service.launchMetrics(bad, bad)]) {
+        await expect(call()).rejects.toMatchObject({ response: { details: { field: expect.stringMatching(/^(from|to)$/) } } });
+      }
+    });
+
+    it('I-6: la ganancia del dashboard usa el periodo del dashboard (explícito y por defecto)', async () => {
+      const spy = jest.spyOn(service, 'pnl');
+      await service.dashboard('super_admin' as any, '2026-01-01', '2026-01-31');
+      expect(spy.mock.calls[0].slice(0, 2)).toEqual(['2026-01-01', '2026-01-31']);
+      spy.mockClear();
+      await service.dashboard('super_admin' as any);
+      const [f, t] = spy.mock.calls[0];
+      expect(f).toMatch(/^\d{4}-\d{2}-01$/);
+      expect(t).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('I-4: el operador no recibe dinero del periodo: todo *Cents de la respuesta es null (clave conservada, conteos visibles)', async () => {
+      prisma.order.count.mockResolvedValue(3);
+      prisma.sellRequest.count.mockResolvedValue(2);
+      prisma.order.findMany.mockResolvedValue([{ priceConvention: 'IVA_EXCLUSIVE', items: [], accessoryLines: [], totalCents: 1000, subtotalCents: 800, ivaCents: 100, processingFeeCents: 10, shippingCents: 0 }]);
+      prisma.sellRequest.aggregate.mockResolvedValue({ _sum: { approvedTotalCents: 5000 } });
+      const res: any = await service.dashboard('vault_operator' as any);
+      const bad: string[] = [];
+      const walk = (v: any, path: string) => {
+        if (v && typeof v === 'object' && !(v instanceof Date)) {
+          for (const [k, x] of Object.entries(v)) walk(x, `${path}.${k}`);
+        } else if (/Cents$/.test(path.split('.').pop()!) && v !== null) bad.push(path);
+      };
+      walk(res, 'dashboard');
+      expect(bad).toEqual([]);
+      expect(res.salesPeriod).toEqual({ count: 3, grossAmountCents: null });
+      expect(res.buylistPeriod).toEqual({ count: 2, amountCents: null });
+      const adm: any = await service.dashboard('super_admin' as any);
+      expect(adm.buylistPeriod.amountCents).toBe(5000);
+    });
   });
 });

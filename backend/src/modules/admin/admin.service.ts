@@ -485,7 +485,12 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   // §REPORTES-CEO F1 (API_CONTRACT_REPORTES §2): `YYYY-MM-DD` = día civil de México, ambos incluidos ⇒ semiabierto
   // `[mxDayStart(from), mxDayStart(to+1))` (el mismo `mxRange` de la analítica de ventas). Con ISO sigue como siempre (`gte`/`lte`).
   const parse = (raw: string, field: 'from' | 'to'): { at: Date; ymd: boolean } => {
-    if (isYmd(raw)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      // Forma `YYYY-MM-DD`: inexistente (`2026-02-30`) o año fuera de 2020..año actual+1 ⇒ 422 con `details.field` (contrato §2, RC-1).
+      const year = Number(raw.slice(0, 4));
+      if (!isYmd(raw) || year < 2020 || year > new Date().getUTCFullYear() + 1) {
+        throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field });
+      }
       return { at: field === 'from' ? mxRange(raw, raw).gte : mxRange(raw, raw).lt, ymd: true };
     }
     const d = new Date(raw);
@@ -2241,7 +2246,7 @@ export class AdminService {
         // ⛔ `amountCents` DESAPARECE del DTO (se renombra). **Rompe al front — y debe romperlo**:
         // la tarjeta pasa de una cifra a dos. *Un «amount» conviviendo con otro «amount» distinto es
         // la ambigüedad que este pase entero existe para matar* (`IVA-10(c)`).
-        grossAmountCents: salesPeriod.grossAmountCents,
+        grossAmountCents: isSuperAdmin ? salesPeriod.grossAmountCents : null,
       },
       workQueue: {
         // ⛔ `shipments` NO cambia de cifra (envíos vivos, no «por preparar»).
@@ -2253,7 +2258,8 @@ export class AdminService {
         ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
         ...(await this.workQueueAdditions(role)),
       },
-      buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },
+      // §REPORTES-CEO F1 (contrato §2): para el operador todo `*Cents` del periodo va `null` (clave conservada; conteos visibles).
+      buylistPeriod: { count: buylistPeriodCount, amountCents: isSuperAdmin ? (buylistPeriodAgg._sum.approvedTotalCents ?? 0) : null },
       dataHealth: {
         pendingPriceCount: pendingPrices,
         lastPriceSyncAt: lastSync?.createdAt ?? null,
