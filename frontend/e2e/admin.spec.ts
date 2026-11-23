@@ -22,10 +22,8 @@ test.describe('admin · dashboard', () => {
     for (const key of ['workQueue', 'dataHealth', 'launch'] as const) {
       await expect(page.getByText(t('es', `admin.dashboard.${key}`)).first()).toBeVisible();
     }
-    // §REPORTES-CEO CR-2: ganancia, ventas, inventario y buylist del periodo YA NO están en Inicio…
-    for (const gone of ['Ganancia del periodo', 'Ventas del periodo', 'Valor de inventario', 'Valor en bóveda', 'Buylist del periodo']) {
-      await expect(page.getByText(gone)).toHaveCount(0);
-    }
+    // §REPORTES-CEO CR-2: la ganancia del periodo YA NO está en Inicio (rótulo vigente de la Junta, que sí existe en es.json)…
+    await expect(page.getByText(t('es', 'admin.reports.board.areas.finance.profit'), { exact: true })).toHaveCount(0);
     // …sino en su casa: el súper-admin las ve en la Junta de dirección.
     await page.goto('/es/admin/reportes');
     await expect(page.getByRole('heading', { name: t('es', 'admin.modules.reportsBoard') })).toBeVisible();
@@ -49,7 +47,8 @@ test.describe('admin · dashboard', () => {
     await expect(page.getByTestId('franja-finance')).toHaveCount(0);
     await page.goto('/es/admin');
     await expect(page.getByText(t('es', 'admin.dashboard.workQueue')).first()).toBeVisible();
-    await expect(page.getByText('Ganancia del periodo')).toHaveCount(0);
+    // CR-4: el operador no ve NINGÚN importe en Inicio.
+    await expect(page.getByText(/MX\$/)).toHaveCount(0);
   });
 });
 

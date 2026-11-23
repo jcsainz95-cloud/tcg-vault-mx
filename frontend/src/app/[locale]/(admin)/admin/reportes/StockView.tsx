@@ -17,7 +17,7 @@ import { formatCount, formatMoneyCents } from '@/lib/format';
 import { QueryState } from '@/components/ui/QueryState';
 import { StatCard } from '@/components/ui/StatCard';
 import { BuyListTab, type BuyListUrlState } from '../m9/BuyListTab';
-import { periodFor, todayMx, type ReportPeriod } from '@/lib/reports/period';
+import { todayMx, type ReportPeriod } from '@/lib/reports/period';
 import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { Figure } from './Figure';
 
@@ -26,7 +26,7 @@ import { Figure } from './Figure';
  * Finanzas) y «Qué reponer» (antes «Lista de compra» de Reportes). Operador: solo unidades (piezas por reponer), sin dinero;
  * las consultas de dinero y de la lista de compra NO se piden para él.
  */
-export function StockView({ initialBuyList = { dir: 'desc' }, initialPeriod = periodFor('month') }: { initialBuyList?: BuyListUrlState; initialPeriod?: ReportPeriod }) {
+export function StockView({ initialBuyList = { dir: 'desc' }, initialPeriod }: { initialBuyList?: BuyListUrlState; initialPeriod?: ReportPeriod }) {
   const t = useTranslations('admin.reports.stock');
   const tm = useTranslations('admin.modules');
   const tp = useTranslations('admin.reports.period');
@@ -36,8 +36,10 @@ export function StockView({ initialBuyList = { dir: 'desc' }, initialPeriod = pe
   const inv = useQuery({ queryKey: ['finance-inventory-value'], queryFn: getInventoryValue, enabled: isSuperAdmin });
   const custody = useQuery({ queryKey: ['finance-custody-value'], queryFn: getCustodyValue, enabled: isSuperAdmin });
   const picking = usePickingSummary();
-  // El inventario es la foto de hoy (no depende del periodo); solo se conserva el periodo vigente para el menú.
-  useEffect(() => setCurrentPeriod(initialPeriod), [initialPeriod]);
+  // El inventario es la foto de hoy (no depende del periodo): conserva el periodo vigente del menú, nunca lo cambia ni lo pierde.
+  useEffect(() => {
+    if (initialPeriod) setCurrentPeriod(initialPeriod); // sin periodo en la URL NO se pisa el vigente
+  }, [initialPeriod]);
   // m-4: la exportación de inventario vive aquí (una exportación por área); Finanzas conserva las de dinero (P&L e IVA).
   const exportCsv = useMutation({
     mutationFn: async () => {

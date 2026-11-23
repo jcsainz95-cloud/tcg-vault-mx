@@ -132,7 +132,7 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
         id="stock"
         title={tm('reportsStock')}
         ask={t('areas.stock.ask')}
-        href="/admin/reportes/inventario"
+        href={`/admin/reportes/inventario${search}`}
         seeFull={t('seeFull')}
         queries={[inv, custody]}
       >

@@ -214,7 +214,7 @@ export function AdminDashboard() {
               sub={
                 <span className="flex flex-wrap gap-x-3 gap-y-1">
                   <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
-                  <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
+                  <QueueLink href="/admin/m5" label={t('buylistQueue')} count={query.data.workQueue.buylist} />
                   <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
                   {/* 💰 rev BSD-1 (§BSD-UX.6c, BSD-1.1 C-3): el contador lo da el SERVIDOR (hermano de `buylist`, que sigue
                       siendo un número). ⛔ Con 0 (o ausente: servidor anterior) no hay nodo. Texto completo, ⛔ un número solo. */}

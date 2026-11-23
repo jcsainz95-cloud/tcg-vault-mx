@@ -1787,6 +1787,7 @@
       "users": "Usuarios",
       "withdrawals": "Retiros sin disputa",
       "buylistPaid": "Compras a vendedores pagadas",
+      "buylistQueue": "Compras a vendedores",
       "toPrepare": {
         "title": "Pedidos por preparar",
         "detail": "{ship} envíos · {vault} bóveda · {toReplace} por reponer",
@@ -6864,7 +6865,7 @@
             "paid": "Pagado a vendedores",
             "paidCount": "{count, plural, one {# solicitud pagada} other {# solicitudes pagadas}}",
             "fee": "Tarifa de envío descontada",
-            "guides": "Guías para recibir cartas"
+            "guides": "Costo de guías de compra"
           },
           "stock": {
             "ask": "¿Cuánto vale lo que tengo?",

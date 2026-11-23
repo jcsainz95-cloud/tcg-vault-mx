@@ -91,7 +91,7 @@ function parseRaw(sp: Record<string, string | string[] | undefined>, today: stri
   const preset = one(sp.preset);
   const from = one(sp.from);
   const to = one(sp.to);
-  if (preset === 'custom' && isRealYmd(from, today) && isRealYmd(to, today) && from <= to) return { preset: 'custom', from, to };
+  if (preset === 'custom' && isRealYmd(from, today) && isRealYmd(to, today) && from <= to && to <= today) return { preset: 'custom', from, to };
   if (preset && (REPORT_PRESETS as readonly string[]).includes(preset) && preset !== 'custom') {
     return periodFor(preset as Exclude<ReportPreset, 'custom'>, today);
   }

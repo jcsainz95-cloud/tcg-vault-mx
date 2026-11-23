@@ -9,5 +9,5 @@ export default async function StockPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = (await searchParams) ?? {};
-  return <StockView initialBuyList={parseBuyListUrl(sp)} initialPeriod={parsePeriod(sp)} />;
+  return <StockView initialBuyList={parseBuyListUrl(sp)} initialPeriod={sp.preset ? parsePeriod(sp) : undefined} />;
 }

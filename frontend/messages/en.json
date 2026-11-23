@@ -1787,6 +1787,7 @@
       "users": "Users",
       "withdrawals": "Withdrawals no dispute",
       "buylistPaid": "Seller purchases paid",
+      "buylistQueue": "Seller purchases",
       "toPrepare": {
         "title": "Orders to prepare",
         "detail": "{ship} shipping · {vault} vault · {toReplace} to replace",
@@ -6864,7 +6865,7 @@
             "paid": "Paid to sellers",
             "paidCount": "{count, plural, one {# request paid} other {# requests paid}}",
             "fee": "Shipping fee withheld",
-            "guides": "Labels to receive cards"
+            "guides": "Purchase label cost"
           },
           "stock": {
             "ask": "What is what I have worth?",

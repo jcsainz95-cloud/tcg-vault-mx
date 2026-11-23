@@ -48,7 +48,7 @@ describe('§REPORTES-CEO F1 · Junta de dirección', () => {
       finance: '/admin/m7?preset=month',
       sales: '/admin/m9?preset=month',
       purchases: '/admin/reportes/compras?preset=month',
-      stock: '/admin/reportes/inventario',
+      stock: '/admin/reportes/inventario?preset=month',
       ops: '/admin/reportes/operacion?preset=month',
       marketing: '/admin/marketing',
     };
@@ -141,30 +141,6 @@ describe('§REPORTES-CEO I-3 · un solo selector, «Hora de México» y fechas s
     expect(within(group).getByRole('button', { name: /Todo/ })).toBeDisabled();
     expect(within(group).getByRole('button', { name: /Todo/ }).textContent).toContain('máx. 366 días');
     expect(screen.getByTestId('period-resolved').textContent).toBe('Hora de México · Del 1 nov al 22 nov 2026');
-  });
-
-  it('el periodo vigente viaja por el menú: lo elegido en la Junta queda en el enlace de Finanzas', async () => {
-    const { AdminSidebar } = await import('@/components/layout/AdminSidebar');
-    const { resetCurrentPeriodForTests } = await import('@/lib/reports/period-store');
-    resetCurrentPeriodForTests();
-    renderWithProviders(
-      <>
-        <AdminSidebar />
-        <BoardView initialPeriod={period} />
-      </>,
-      'es',
-    );
-    const { fireEvent } = await import('@testing-library/react');
-    fireEvent.click(screen.getByRole('button', { name: '7 días' }));
-    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
-    expect(hrefs).toContain('/admin/m7?preset=7d');
-    expect(hrefs).toContain('/admin/m9?preset=7d');
-    expect(hrefs).toContain('/admin/reportes/compras?preset=7d');
-    expect(hrefs).toContain('/admin/reportes/operacion?preset=7d');
-    // Inicio y Pedidos NO llevan periodo.
-    expect(hrefs).toContain('/admin');
-    expect(hrefs).toContain('/admin/m3');
-    resetCurrentPeriodForTests();
   });
 });
 

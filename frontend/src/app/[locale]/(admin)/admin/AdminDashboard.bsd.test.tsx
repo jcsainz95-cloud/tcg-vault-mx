@@ -39,7 +39,7 @@ describe('UX-BSD-8 · tablero: «se cierran solas pronto» y guías de entrada c
     expect(alert).toHaveTextContent('1 solicitud de venta con alerta en su guía');
     expect(alert.getAttribute('href')).toBe('/admin/m5');
     // `workQueue.buylist` sigue siendo el número de siempre.
-    expect(screen.getByRole('link', { name: /^Buylist/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Compras a vendedores/ })).toBeInTheDocument();
   });
 
   it('singular', async () => {
@@ -54,7 +54,7 @@ describe('UX-BSD-8 · tablero: «se cierran solas pronto» y guías de entrada c
   ])('contadores %s ⇒ ningún nodo', async (_n, wq) => {
     serve(wq);
     renderWithProviders(<AdminDashboard />, 'es');
-    await screen.findByRole('link', { name: /^Buylist/ });
+    await screen.findByRole('link', { name: /^Compras a vendedores/ });
     expect(screen.queryByTestId('dashboard-buylist-guide-due')).toBeNull();
     expect(screen.queryByTestId('dashboard-buylist-inbound-alert')).toBeNull();
     expect(document.body.textContent).not.toMatch(/se cierran? solas? pronto|alerta en su guía/);

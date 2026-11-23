@@ -15,8 +15,13 @@ const SHORTCUTS = REPORT_PRESETS.filter((p): p is Exclude<ReportPreset, 'custom'
 /** Estado del periodo de una pantalla + su reflejo en la URL y en el menú. `initial` viene del servidor (`parsePeriod`). */
 export function useReportPeriod(initial: ReportPeriod) {
   const [period, setPeriod] = useState<ReportPeriod>(initial);
+  // Al abrir: menú y URL reflejan lo que la pantalla muestra (un `?preset=all` que aquí no cabe cae al defecto y la URL lo dice).
   useEffect(() => {
     setCurrentPeriod(initial);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const want = periodSearch(initial);
+    if (url.search !== want) window.history.replaceState(window.history.state, '', url.pathname + want + url.hash);
   }, [initial]);
   const change = useCallback((p: ReportPeriod) => {
     setPeriod(p);

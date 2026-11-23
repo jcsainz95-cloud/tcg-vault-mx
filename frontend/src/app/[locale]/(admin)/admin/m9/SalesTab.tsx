@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { DownloadCloud } from 'lucide-react';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/cn';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { SalesPeriodLabel, SalesPeriodPicker } from './SalesPeriodPicker';
 import { SALES_GRID, SalesSummary } from './SalesSummary';
 import { SalesBarChart } from './SalesBarChart';
@@ -67,7 +68,13 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
     const next = { ...state, ...patch };
     setState(next);
     writeSalesUrl(next);
+    setCurrentPeriod({ preset: next.preset, from: next.from, to: next.to }); // el menú lleva el periodo vigente (I-3b)
   }
+  // Al abrir: URL y menú reflejan lo que la pantalla muestra (p. ej. «Todo» desde Finanzas cae a «Este mes» aquí).
+  useEffect(() => {
+    writeSalesUrl(initial);
+    setCurrentPeriod({ preset: initial.preset, from: initial.from, to: initial.to });
+  }, [initial]);
 
   const csv = useMutation({
     mutationFn: (p: SalesReportParams) => exportSalesCsv(p),

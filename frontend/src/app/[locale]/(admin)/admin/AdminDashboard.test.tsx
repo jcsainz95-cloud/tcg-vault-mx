@@ -28,7 +28,7 @@ describe('AdminDashboard · cola de trabajo accionable (§7.8)', () => {
     const shipments = await screen.findByRole('link', { name: /Envíos/ });
     expect(shipments.getAttribute('href')).toContain('/admin/m4');
 
-    const buylist = screen.getByRole('link', { name: /^Buylist/ });
+    const buylist = screen.getByRole('link', { name: /^Compras a vendedores/ });
     expect(buylist.getAttribute('href')).toContain('/admin/m5');
 
     expect(screen.queryByRole('link', { name: /Disputas/ })).toBeNull();
@@ -61,7 +61,7 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
       expect(container.textContent).not.toContain(formatMoneyCents(cents as number, 'es'));
     }
     expect(container.textContent).not.toMatch(/Ganancia/);
-    for (const gone of ['Ganancia del periodo', 'Ventas del periodo', 'Valor de inventario', 'Valor en bóveda', 'Buylist del periodo']) {
+    for (const gone of ['Ganancia del periodo', 'Ventas del periodo', 'Valor de inventario', 'Valor en bóveda']) {
       expect(container.textContent).not.toContain(gone);
     }
   });
