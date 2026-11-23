@@ -28,8 +28,8 @@
  * 18:00Z (`settledAt` de O3 = 03-01 12:00 MX); los otros 3 rangos y los campos `iva`/`byOrder`/`launch` NO se movieron
  * (O3 es `refunded`, luego nunca entra en `launch.salesSettled`).
  *
- * Rangos: los que M7/M9 reciben de verdad — fechas crudas `YYYY-MM-DD` (D-AN-2: `range()` las toma como medianoche UTC con
- * `lte`), instantes ISO y un rango que cubre toda la ventana. ⛔ Sin el «sin rango»: barrería las filas de otras suites.
+ * Rangos: los que M7/M9 reciben de verdad — fechas crudas `YYYY-MM-DD` (§REPORTES-CEO F1: días civiles de México, semiabierto;
+ * ANTES D-AN-2 las tomaba como medianoche UTC con `lte`), instantes ISO y un rango que cubre toda la ventana. ⛔ Sin el «sin rango»: barrería las filas de otras suites.
  * Determinista (Postgres real, fixture fija): N=1 por corrida, dicho así.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
@@ -39,6 +39,14 @@ import { cleanupSales, seedSales } from './helpers/sales-db';
 import { AdminService } from '../../src/modules/admin/admin.service';
 
 const SNAPSHOT = join(__dirname, 'fixtures', 'an-b-13-pnl-snapshot.json');
+// §REPORTES-CEO F1 — la instantánea se RE-TOMÓ a propósito para los 3 rangos `YYYY-MM-DD` (los 3 ISO no cambiaron). Cada delta se
+// explica con la fixture (`helpers/sales-db.ts`), al centavo, y es exactamente el día «hasta» que antes quedaba fuera (`lte` = 00:00Z):
+//  · 03-01..03-07: + O8 (…0107, liquidado dom 03-07 20:00 MX = 03-08 02:00Z; subtotal 3 000, IVA 480, comisión 200, costo 1 000) y
+//    + SR4 (costo de guía manual 7 000, `shipmentConfirmedAt` dom 03-07 11:00 MX). Ingreso 60 001→63 001 (+3 000), costo 35 000→36 000
+//    (+1 000), comisión 4 200→4 400 (+200), guía de entrada 36 552→43 552 (+7 000), IVA 9 600→10 080 (+480); ganancia −6 942→−12 142 =
+//    +3 000 −1 000 −200 −7 000 = −5 200. 02-01..03-31 no cambia (todo cae dentro).
+//  · 03-02..03-02: antes vacío (`gte = lte` = 00:00Z); ahora el día 03-02 de México = O4 (…0105, 00:10 MX) + envío S2 (costo 8 000, seguro 580)
+//    + guía SR1 (15 000): −15 900. Es idéntico, bit a bit, a su gemelo ISO de México (prueba de abajo), que no cambió.
 const RANGES: Array<[string, string]> = [
   ['2021-02-01', '2021-03-31'],
   ['2021-03-01', '2021-03-07'],
@@ -87,6 +95,17 @@ describe('AN-B-13 💰 — M7 da lo mismo antes y después de pnl-core (Postgres
     }
     expect(existsSync(SNAPSHOT)).toBe(true);
     expect(now).toEqual(JSON.parse(readFileSync(SNAPSHOT, 'utf8')));
+  });
+
+  it('F1: cada rango `YYYY-MM-DD` da lo mismo que su gemelo ISO de México (semiabierto, día «hasta» incluido)', async () => {
+    const twins: Array<[[string, string], [string, string]]> = [
+      [['2021-03-01', '2021-03-07'], ['2021-03-01T06:00:00.000Z', '2021-03-08T05:59:59.999Z']],
+      [['2021-03-02', '2021-03-02'], ['2021-03-02T06:00:00.000Z', '2021-03-03T05:59:59.999Z']],
+    ];
+    for (const [[f, t], [isoF, isoT]] of twins) {
+      expect(await admin.exportCsv('pnl', f, t)).toBe(await admin.exportCsv('pnl', isoF, isoT));
+      expect(await admin.ivaReport(f, t)).toEqual(await admin.ivaReport(isoF, isoT));
+    }
   });
 
   it('CONTROL: la fixture mueve las cifras (una instantánea de ceros no probaría nada)', async () => {

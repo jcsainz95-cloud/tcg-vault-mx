@@ -488,9 +488,9 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   // `[mxDayStart(from), mxDayStart(to+1))` (el mismo `mxRange` de la analítica de ventas). Con ISO sigue como siempre (`gte`/`lte`).
   const parse = (raw: string, field: 'from' | 'to'): { at: Date; ymd: boolean } => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      // Forma `YYYY-MM-DD`: inexistente (`2026-02-30`) o año fuera de 2020..año actual+1 ⇒ 422 con `details.field` (contrato §2, RC-1).
+      // Forma `YYYY-MM-DD`: inexistente (`2026-02-30`) o año fuera de 2020..2100 ⇒ 422 con `details.field` (contrato §2, RC-1).
       const year = Number(raw.slice(0, 4));
-      if (!isYmd(raw) || year < 2020 || year > new Date().getUTCFullYear() + 1) {
+      if (!isYmd(raw) || year < 2020 || year > 2100) {
         throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field, value: raw });
       }
       return { at: field === 'from' ? mxRange(raw, raw).gte : mxRange(raw, raw).lt, ymd: true };

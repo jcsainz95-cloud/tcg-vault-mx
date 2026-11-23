@@ -137,7 +137,7 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
       await expect(service.pnl('2026-13-45', '2026-14-01')).rejects.toThrow();
     });
 
-    it.each(['2026-02-30', '2026-11-31', '2019-12-31', '9999-12-31', '2099-01-01'])('YYYY-MM-DD inexistente o fuera de 2020..año+1 (%s) ⇒ 422 con details.field, en range()', async (bad) => {
+    it.each(['2026-02-30', '2026-11-31', '2019-12-31', '9999-12-31', '2101-01-01'])('YYYY-MM-DD inexistente o fuera de 2020..2100 (%s) ⇒ 422 con details.field, en range()', async (bad) => {
       for (const call of [() => service.pnl(bad, undefined), () => service.ivaReport(undefined, bad), () => service.launchMetrics(bad, bad)]) {
         await expect(call()).rejects.toMatchObject({ response: { details: { field: expect.stringMatching(/^(from|to)$/) } } });
       }
