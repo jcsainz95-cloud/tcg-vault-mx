@@ -9,7 +9,7 @@
   Healthcheck `GET /api/v1/health`. No hay staging (blanco de seguridad = local).
 - **Local con Docker**: `./scripts/dev-up.sh` (infra) · `./scripts/dev-up.sh --apps` (+ apps) · `./scripts/dev-down.sh`.
   Genera secretos locales; nunca usa valores del repo.
-- **Local sin Docker** (ruta nativa, la de los gates): `./scripts/stack-native.sh up` (`--gate` fija el sha servido).
+- **Local sin Docker** (ruta nativa, la de los gates): `./scripts/stack-native.sh up` (`--gate` fija el sha servido). I-7 de qa CERRADO 2026-11-23: la paridad del cliente Prisma ya no depende de la variante de awk ni de líneas vacías seguidas (`_prisma_sin_formato`; canario `check-stack-prisma-client.sh` caso 13, VERDE 28/28 con mawk 1.3.4, rojo sobre e6d731fa; `up --seed` ⇒ health 200). NO MEDIDO: gawk y busybox awk (no instalados aquí).
 - **Puertos**: frontend 3000 · backend 3001 · Postgres 5432 · Redis 6379 · S3 local/MinIO 9000.
 - **Pruebas**: `cd backend && npm test` (jest) · `npm run test:integration` (Postgres real) ·
   `cd frontend && npm test` (vitest) · `npm run test:e2e` (Playwright).

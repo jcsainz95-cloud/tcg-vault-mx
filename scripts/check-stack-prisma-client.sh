@@ -31,8 +31,13 @@
 #      ⇒ arranca al día y AVISA de que la diferencia es solo de comentarios (antes: «sigue sin coincidir»)
 #  11. generate que corrompe CÓDIGO (un nombre de campo)          ⇒ NO arranca (ignorar comentarios no tapa código)
 #  12. generate que cambia lo que va tras `//` DENTRO de una cadena ⇒ NO arranca (`"https://…"` no es comentario)
+#  13. (I-7, qa 2026-11-23) schema con DOS líneas vacías seguidas y una de solo espacios, que generate
+#      colapsa en una (lo que hace Prisma con schema.prisma:4064-4065) ⇒ arranca al día, sin el aviso de
+#      «solo en comentarios». Se repite con CADA awk instalado (mawk, gawk, busybox awk) puesto como `awk`
+#      en el PATH: con mawk 1.3.4 el modismo `{ $1 = $1 } NF` no quitaba las vacías y todo `up` moría en
+#      «sigue sin coincidir». El awk que no esté instalado se dice NO MEDIDO (no se da por verde).
 # Ablación: STACK_UNDER_TEST=<otro stack-native.sh> mide esa versión (la de 96cda136, con `cmp`, ⇒ rojo;
-# la de 283bb760, huella sin ignorar comentarios, ⇒ rojo en 10).
+# la de 283bb760, huella sin ignorar comentarios, ⇒ rojo en 10; la de e6d731fa ⇒ rojo en 13 con mawk).
 # Uso: ./scripts/check-stack-prisma-client.sh [N]
 # =============================================================================
 set -uo pipefail
@@ -51,8 +56,10 @@ cat > "$BIN/npx" <<'EOF'
 #!/usr/bin/env bash
 # npx de mentira del canario: solo entiende lo que stack-native.sh le pide al backend.
 S="$PWD/prisma/schema.prisma"; C="$PWD/node_modules/.prisma/client/schema.prisma"
-# Como Prisma 5.22: la copia del cliente lleva las columnas de cada campo realineadas (solo espacios).
-reformatea() { awk '/^  [A-Za-z]/ && NF>=2 { n=$1; $1=""; sub(/^ +/, ""); printf "  %-14s %s\n", n, $0; next } { print }' "$1"; }
+# Como Prisma 5.22: la copia del cliente lleva las columnas de cada campo realineadas (solo espacios)
+# y las líneas vacías consecutivas (o de solo espacios) colapsadas en UNA (caso 13).
+reformatea() { awk '/^  [A-Za-z]/ && NF>=2 { n=$1; $1=""; sub(/^ +/, ""); printf "  %-14s %s\n", n, $0; next } { print }' "$1" \
+  | awk '/^[ \t]*$/ { if (v) next; v = 1; print ""; next } { v = 0; print }'; }
 case "$1 $2" in
   "prisma generate")
     echo "GENERATE" >> "$CANARY_LOG"
@@ -68,7 +75,7 @@ case "$1 $2" in
   "ts-node --transpile-only")
     # «Al día» = mismo schema salvo formato y comentarios (los comentarios no cambian el cliente).
     sc() { sed 's#[[:space:]]*//[^"]*$##' "$1"; }
-    if [ -f "$C" ] && diff -w -q <(sc "$S") <(sc "$C") >/dev/null; then echo "ARRANQUE cliente=al-dia" >> "$CANARY_LOG"
+    if [ -f "$C" ] && diff -w -B -q <(sc "$S") <(sc "$C") >/dev/null; then echo "ARRANQUE cliente=al-dia" >> "$CANARY_LOG"
     else echo "ARRANQUE cliente=viejo" >> "$CANARY_LOG"
          echo "TypeError: Cannot convert undefined or null to object" >&2; fi
     exit 1 ;;
@@ -103,7 +110,7 @@ arbol() {
 # corre <raíz> <FAKE_GEN> ⇒ deja salida en $R/salida.txt, log en $R/log.txt, rc en $RC
 corre() {
   local R="$1"; : > "$R/log.txt"
-  env -i PATH="$BIN:$PATH" HOME="$BASE" BACKEND_PORT=1 FRONTEND_PORT=2 S3_LOCAL_PORT=3 \
+  env -i PATH="${AWKDIR:+$AWKDIR:}$BIN:$PATH" HOME="$BASE" BACKEND_PORT=1 FRONTEND_PORT=2 S3_LOCAL_PORT=3 \
     STACK_EXPECTED_SHA=0123456789abcdef0123456789abcdef01234567 FAKE_GEN="$2" CANARY_LOG="$R/log.txt" \
     bash "$R/scripts/stack-native.sh" restart:backend > "$R/salida.txt" 2>&1
   RC=$?
@@ -114,6 +121,17 @@ espera() {  # espera <raíz> <log esperado> <descripción>
   else bad "$3 — log: $(log_de "$1") (esperaba $2)"; tail -5 "$1/salida.txt" | sed 's/^/      /'; fi
 }
 G="GENERATE|ARRANQUE cliente=al-dia|"; A="ARRANQUE cliente=al-dia|"
+# Variantes de awk instaladas, cada una como `awk` en un directorio propio (caso 13).
+AWKS=()
+for v in mawk gawk busybox; do
+  command -v "$v" >/dev/null 2>&1 || continue
+  mkdir -p "$BASE/awk-$v"
+  if [ "$v" = busybox ]; then
+    busybox awk 'BEGIN{exit 0}' >/dev/null 2>&1 || continue
+    printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$BASE/awk-$v/awk"; chmod +x "$BASE/awk-$v/awk"
+  else ln -s "$(command -v "$v")" "$BASE/awk-$v/awk"; fi
+  AWKS+=("$v")
+done
 
 for ((r=1;r<=N;r++)); do
   printf '\n\033[1m== stack-native · cliente Prisma, ronda %s/%s ==\033[0m\n' "$r" "$N"
@@ -153,6 +171,17 @@ for ((r=1;r<=N;r++)); do
   if [ "$RC" -ne 0 ] && ! grep -q ARRANQUE "$R/log.txt" && grep -q 'sigue sin coincidir' "$R/salida.txt"; then
     ok "12. generate que cambia una cadena con // ⇒ no arranca (rc=$RC)"
   else bad "12. generate que cambia una cadena con // ⇒ rc=$RC log: $(log_de "$R")"; fi
+  for v in "${AWKS[@]}"; do
+    arbol viejo
+    printf '\n\n   \t\nenum Otro {\n  a\n\n\n  b\n}\n' >> "$R/backend/prisma/schema.prisma"
+    AWKDIR="$BASE/awk-$v" corre "$R" ok
+    LS="$(wc -l < "$R/backend/prisma/schema.prisma")"; LC="$(wc -l < "$R/backend/node_modules/.prisma/client/schema.prisma" 2>/dev/null || echo 0)"
+    if [ "$(log_de "$R")" = "$G" ] && [ "$LC" -lt "$LS" ] && grep -q 'sellado' "$R/salida.txt" \
+       && ! grep -q 'SOLO en comentarios' "$R/salida.txt"; then
+      ok "13. [$v] líneas vacías seguidas que generate colapsa ($LS ⇒ $LC líneas) ⇒ arranca al día, sin aviso falso"
+    else bad "13. [$v] líneas vacías seguidas que generate colapsa ($LS ⇒ $LC líneas) ⇒ rc=$RC log: $(log_de "$R")"; grep -E 'sigue sin coincidir|SOLO en comentarios' "$R/salida.txt" | sed 's/^/      /'; fi
+  done
+  [ "${#AWKS[@]}" -gt 0 ] || bad "13. no hay mawk, gawk ni busybox awk instalados: el caso de líneas vacías no se midió"
 done
 
 # --- 9. Estáticos (dichos como tales: el camino `up` necesita Postgres) ---------------
@@ -165,6 +194,7 @@ if [ -n "$GEN" ] && ! grep -qE '^\s*output\s*=' <<<"$GEN"; then
   ok "9. schema real: el generador usa la ruta por defecto (sin output)"
 else bad "9. schema real: el generador declara output o no se encontró — la comparación de stack-native.sh mira otra ruta"; fi
 
+for v in mawk gawk busybox; do case " ${AWKS[*]} " in *" $v "*) ;; *) printf '  · 13 con %s: NO MEDIDO (no instalado aquí)\n' "$v" ;; esac; done
 printf '\n'
 if [ "$FALLOS" -gt 0 ]; then printf '\033[1;31mROJO: %s/%s casos fallaron.\033[0m\n' "$FALLOS" "$((FALLOS+PASADAS))"; exit 1; fi
 printf '\033[1;32mVERDE: %s/%s casos (N=%s): el backend nunca arranca con un cliente Prisma de otro schema.\033[0m\n' "$PASADAS" "$PASADAS" "$N"
