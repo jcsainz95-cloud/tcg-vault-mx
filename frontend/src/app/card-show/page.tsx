@@ -367,7 +367,32 @@ export default async function CardShowPage() {
                   {g.pill}
                 </p>
                 <h3 className="mt-3 font-brand text-h2 font-bold text-on-ink">{g.nombre}</h3>
+                {'magic' in g && g.magic && (
+                  <p className="mt-2 font-mono text-[11px] uppercase tracking-label text-on-ink">{g.magic.formato}</p>
+                )}
                 <p className="mt-3 min-h-[4.5em] text-sm text-on-ink-muted">{g.linea}</p>
+                {'magic' in g && g.magic && (
+                  <div className="space-y-2 text-sm text-on-ink-muted">
+                    <p>
+                      <span className="font-bold text-on-ink">Premios: </span>
+                      {g.magic.premio}. {g.magic.premioNota}
+                    </p>
+                    <p>
+                      {g.magic.inscripcion.antes}
+                      <a href={g.magic.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-on-ink">
+                        bracket3.net
+                      </a>
+                      {g.magic.inscripcion.despues}
+                    </p>
+                    <p>
+                      {g.magic.patrocinio.antes}
+                      <a href={g.magic.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-on-ink">
+                        {g.magic.patrocinio.enlace}
+                      </a>
+                      {g.magic.patrocinio.y}
+                    </p>
+                  </div>
+                )}
                 {/* Contador vivo SOLO del torneo Pokémon (§CARDSHOW.12-bis); se oculta si la API falla. */}
                 {g.id === 'pokemon' && <TournamentCounter />}
                 <div className="mt-5 flex items-baseline justify-between gap-3 border-t border-on-ink-rule pt-4">
@@ -398,6 +423,7 @@ export default async function CardShowPage() {
                           <span className="font-brand text-lg font-bold text-on-ink">{t.nombre}</span>
                           <span className="tabular font-mono text-sm text-on-ink">{t.horas}</span>
                         </div>
+                        {t.formato && <p className="mt-1 font-mono text-[11px] uppercase tracking-label text-on-ink">{t.formato}</p>}
                         <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
                           <span className="text-on-ink-muted">{`Cupo ${t.cupo} jugadores`}</span>
                           <span className="font-bold text-[color:var(--hunt-red-up)]">{t.precio}</span>

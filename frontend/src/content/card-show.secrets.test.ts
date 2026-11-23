@@ -91,9 +91,10 @@ describe('secreto · patrocinadores ocultos en el código del Card Show', () => 
     expect('niveles' in CARD_SHOW.patrocinios).toBe(false);
     const blob = JSON.stringify(CARD_SHOW);
     expect(/Oro|Plata|Producto/.test(blob)).toBe(false);
-    // El ÚNICO monto admitido es el precio público del torneo (MX$200).
+    // Montos admitidos: el precio público del torneo (MX$200) y el premio del torneo de Magic del sábado 5
+    // (MX$8,000 en sellado, dueño JC 2026-11-23): premio del torneo, no monto de patrocinio.
     const amounts = (blob.match(/\$\s?\d[\d,]*/g) ?? []).map((a) => a.replace(/\s/g, ''));
-    expect(amounts.every((a) => a === '$200')).toBe(true);
+    expect(amounts.every((a) => a === '$200' || a === '$8,000')).toBe(true);
   });
 
   it('las únicas marcas nombradas en el contenido son TCG HUNT y Jakomi', () => {

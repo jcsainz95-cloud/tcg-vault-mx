@@ -40,6 +40,8 @@ export function cardShowGameLabel(id: string): string {
 export interface TorneoProgramado {
   id: CardShowGame;
   nombre: string;
+  /** Formato de juego, si el torneo lo declara (hoy solo Magic). */
+  formato?: string;
   horas: string;
   cupo: number;
   precio: string;
@@ -199,7 +201,16 @@ export const CARD_SHOW = {
         pill: 'Sábado 11:00–14:00',
         principal: false,
         precio: 'Gratis',
-        linea: '32 jugadores. Premios por anunciar. Preinscríbete aquí; registro final en el lugar.',
+        linea: '32 jugadores. Preinscríbete aquí; registro final en el lugar.',
+        /** Dueño JC 2026-11-23 (HECHOS «tarjeta de Magic del sábado 5»). Sin número de mesa. */
+        magic: {
+          formato: 'Commander Bracket 3 · 1v1',
+          premio: 'MX$8,000 en producto sellado de Magic',
+          premioNota: 'El reparto se define en el torneo.',
+          inscripcion: { antes: 'Revisa tu deck e inscríbete en ', despues: '.' },
+          patrocinio: { antes: 'Patrocinado por ', enlace: 'bracket3.net', y: ' y TCG Wolf' },
+          url: 'https://bracket3.net',
+        },
       },
       {
         id: 'shardbugs' as CardShowGame,
@@ -232,7 +243,15 @@ export const CARD_SHOW = {
         id: 'sat' as CardShowDayId,
         titulo: 'Sábado 5 de diciembre',
         torneos: [
-          { id: 'magic', nombre: 'Magic: The Gathering', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
+          {
+            id: 'magic',
+            nombre: 'Magic: The Gathering',
+            formato: 'Commander Bracket 3 · 1v1',
+            horas: '11:00–14:00',
+            cupo: 32,
+            precio: 'Gratis',
+            premios: ['MX$8,000 en producto sellado de Magic (el reparto se define en el torneo)'],
+          },
           { id: 'shardbugs', nombre: 'Shard Bugs', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
           {
             id: 'pokemon',
