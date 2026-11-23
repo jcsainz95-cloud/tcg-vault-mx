@@ -132,6 +132,22 @@ describe('F1b · fila de revisión', () => {
   });
 });
 
+describe('F1b · ofertado original en revisión', () => {
+  const base = () => ({ ...reqOf('sr-3003').items[0], id: 'it-1', quotedPriceCents: 2000000, offeredPriceCents: 1850000 });
+  beforeEach(() => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue({ sellRequestId: 'x', lines: [] } as never);
+  });
+  it('baja aceptada: pactado y ofertado original', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1500000 }} />, 'es');
+    expect(screen.getByTestId('agreed-it-1')).toHaveTextContent(formatMoneyCents(1500000, 'es'));
+    expect(screen.getByTestId('offered-original-it-1')).toHaveTextContent(`Ofertado: ${formatMoneyCents(1850000, 'es')}`);
+  });
+  it('iguales o sin pactado: sin línea extra', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'es');
+    expect(screen.queryByTestId('offered-original-it-1')).toBeNull();
+  });
+});
+
 describe('comprobantes y cinta', () => {
   it('comprobante de pago SPEI: referencia, fecha y neto', () => {
     const req = reqOf('sr-3003', { status: 'pagada', speiReference: 'MBAN-9', paidAt: '2026-11-20T18:00:00Z', payout: PAYOUT });

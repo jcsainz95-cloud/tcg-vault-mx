@@ -3787,6 +3787,7 @@
         "line": {
           "agreed": "Precio pactado",
           "agreedCaption": "lo que ofrecimos",
+          "offeredOriginal": "Ofertado: {amount}",
           "market": "Mercado hoy",
           "marketUnknown": "sin dato",
           "chipUp": "Mercado {pct} % arriba del pactado",
