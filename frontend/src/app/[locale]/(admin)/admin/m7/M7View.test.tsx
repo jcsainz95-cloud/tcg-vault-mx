@@ -24,10 +24,8 @@ describe('M7View · Finanzas (P&L)', () => {
     expect(await screen.findByText('MX$5,304.48')).toBeInTheDocument();
   });
 
-  it('muestra valor de inventario, custodia e IVA acumulado', async () => {
+  it('muestra el IVA acumulado y su desglose (el inventario y la custodia viven en Reportes › Inventario)', async () => {
     renderWithProviders(<M7View />, 'es');
-    expect(await screen.findByText('Inventario (a referencia)')).toBeInTheDocument();
-    expect(await screen.findByText('Valor en custodia de clientes')).toBeInTheDocument();
     expect(await screen.findByText('IVA acumulado')).toBeInTheDocument();
     // Desglose de IVA por orden (DataTable pinta vista desktop + móvil).
     expect((await screen.findAllByText('ord-9001')).length).toBeGreaterThan(0);

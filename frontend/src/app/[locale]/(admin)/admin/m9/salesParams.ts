@@ -1,14 +1,10 @@
 import type { SalesGroupBy, SalesPreset, SalesReportParams, SalesTopSort } from '@/types/contract';
 
 /**
- * Estado en la URL de Reportes (`DESIGN_SYSTEM §AN-UX.1`): `tab`, `preset`, `from`, `to`, `groupBy`, `topSort` (van al
+ * Estado en la URL de Reportes › Ventas (`DESIGN_SYSTEM §AN-UX.1`): `preset`, `from`, `to`, `groupBy`, `topSort` (van al
  * servidor) y los locales `chart`, `cols`, `top`. Valores fuera de dominio ⇒ se ignoran y se usa el default (⛔ no se
  * manda basura al servidor para recibir un `400`). Módulo sin `'use client'`: lo usa también `page.tsx`.
  */
-// ⭐ §WSH-UX.7: `compra` = «Lista de compra» (lista de deseos sin piezas a la venta, `super_admin`).
-export const M9_TABS = ['ventas', 'actividad', 'compra'] as const;
-export type M9Tab = (typeof M9_TABS)[number];
-
 export const SALES_PRESETS = ['today', 'yesterday', 'last7', 'last30', 'this_month', 'last_month'] as const;
 export const SALES_GROUP_BYS: readonly SalesGroupBy[] = ['day', 'week', 'month'];
 export const SALES_TOP_SORTS: readonly SalesTopSort[] = ['net', 'pieces'];
@@ -75,10 +71,6 @@ export function validateRange(from: string, to: string, today: string = todayMx(
   return null;
 }
 
-export function parseM9Tab(v: Raw): M9Tab {
-  return pick(v, M9_TABS, 'ventas');
-}
-
 export function parseSalesUrl(sp: Record<string, Raw>, today: string = todayMx()): SalesUrlState {
   const base: SalesUrlState = {
     preset: pick<SalesPreset>(sp.preset, SALES_PRESETS, SALES_DEFAULTS.preset),
@@ -110,7 +102,6 @@ export function writeSalesUrl(s: SalesUrlState): void {
     if (v === undefined || v === def) url.searchParams.delete(k);
     else url.searchParams.set(k, v);
   };
-  url.searchParams.set('tab', 'ventas');
   set('preset', s.preset === 'custom' ? undefined : s.preset, SALES_DEFAULTS.preset);
   set('from', s.preset === 'custom' ? s.from : undefined);
   set('to', s.preset === 'custom' ? s.to : undefined);

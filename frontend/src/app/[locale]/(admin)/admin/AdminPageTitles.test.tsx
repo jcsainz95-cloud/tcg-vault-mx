@@ -55,9 +55,14 @@ import M5Page from './m5/page';
 // eslint-disable-next-line import/first
 import M6Page from './m6/page';
 // eslint-disable-next-line import/first
-import M7Page from './m7/page';
+import { M7View } from './m7/M7View';
 // eslint-disable-next-line import/first
 import { M9View } from './m9/M9View';
+import { BoardView } from './reportes/BoardView';
+import { PurchasesView } from './reportes/PurchasesView';
+import { StockView } from './reportes/StockView';
+import { OpsView } from './reportes/OpsView';
+import { periodFor } from '@/lib/reports/period';
 // eslint-disable-next-line import/first
 import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 // eslint-disable-next-line import/first
@@ -124,13 +129,44 @@ function M3Page() {
   return <M3View initialRefundReview={parseRefundReview(undefined)} />;
 }
 
-/** §AN-UX.1: `m9/page.tsx` también es de servidor asíncrono (lee `?tab=` y el estado de «Ventas»); se mide sin ellos. */
+/** §AN-UX.1: `m9/page.tsx` también es de servidor asíncrono (lee el estado de «Ventas»); se mide sin él. */
 function M9Page() {
   return (
     <SuperAdminOnly>
       <M9View />
     </SuperAdminOnly>
   );
+}
+
+/** §REPORTES-CEO F1: `m7/page.tsx` ahora es de servidor asíncrono (lee `?from=&to=`); se mide la vista sin rango. */
+function M7Page() {
+  return (
+    <SuperAdminOnly>
+      <M7View />
+    </SuperAdminOnly>
+  );
+}
+
+/** §REPORTES-CEO F1: las páginas de `reportes/*` son de servidor (leen `?preset=`); se mide la vista con el periodo por defecto. */
+function BoardPage() {
+  return (
+    <SuperAdminOnly>
+      <BoardView initialPeriod={periodFor('month')} />
+    </SuperAdminOnly>
+  );
+}
+function PurchasesPage() {
+  return (
+    <SuperAdminOnly>
+      <PurchasesView initialPeriod={periodFor('month')} />
+    </SuperAdminOnly>
+  );
+}
+function StockPage() {
+  return <StockView />;
+}
+function OpsPage() {
+  return <OpsView initialPeriod={periodFor('month')} />;
 }
 
 /** La página que sirve cada `href` del menú (la misma que monta el App Router). */
@@ -145,6 +181,10 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/m6': M6Page,
   '/admin/m7': M7Page,
   '/admin/m9': M9Page,
+  '/admin/reportes': BoardPage,
+  '/admin/reportes/compras': PurchasesPage,
+  '/admin/reportes/inventario': StockPage,
+  '/admin/reportes/operacion': OpsPage,
   '/admin/m10': M10Page,
   '/admin/m11': M11Page,
   '/admin/accessories': AccessoriesPage,
@@ -186,20 +226,27 @@ describe('§37.2 · P66-3 — barrido de copy: ningún texto cita un código «M
 
 describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
   const EXPECTED: Array<[group: string | null, href: string, es: string, en: string, superTag: boolean]> = [
-    [null, '/admin', 'Resumen', 'Overview', false],
+    // §REPORTES-CEO F1: «Resumen» → «Inicio» y «Ventas» (m3) → «Pedidos», solos arriba (sin rótulo de grupo).
+    [null, '/admin', 'Inicio', 'Home', false],
+    [null, '/admin/m3', 'Pedidos', 'Orders', false],
     ['Día a día', '/admin/m5', 'Solicitudes de venta', 'Sell requests', false],
-    ['Día a día', '/admin/m3', 'Ventas', 'Sales', false],
-    // RF-1 (§37.20, HECHOS 2026-10-02 «Menú del panel: se queda como está; … se JUNTAN en UNA sola
-    // pestaña con dos cubetas»): UNA entrada «Reembolsos», en el mismo hueco tras «Ventas», SÚPER.
-    // ⛔ ninguna entrada a `/admin/manual-refunds` (la lista vive en la cubeta SPEI; el detalle sigue en su ruta).
+    // RF-1 (§37.20): UNA entrada «Reembolsos», SÚPER; ⛔ ninguna entrada a `/admin/manual-refunds`.
     ['Día a día', '/admin/refunds', 'Reembolsos', 'Refunds', true],
     // v4.20 (§43.19.8, GAS-1): «Avisos de gasto», SÚPER, justo tras «Reembolsos».
     ['Día a día', '/admin/spend-alerts', 'Avisos de gasto', 'Spending alerts', true],
-    // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29) sobre el «Preparar y
-    // enviar» que proponía §37.2b. Menú y `h1` salen de la MISMA clave (`admin.modules.m4`).
+    // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29). Menú y `h1` salen de `admin.modules.m4`.
     ['Día a día', '/admin/m4', 'Pedidos por preparar', 'Orders to prepare', false],
+    // §REPORTES-CEO F1: el grupo «Reportes», en el orden de la junta. Dinero = SÚPER; Inventario y Operación también los ve el operador.
+    ['Reportes', '/admin/reportes', 'Junta de dirección', 'Executive board', true],
+    ['Reportes', '/admin/m7', 'Finanzas', 'Finance', true],
+    ['Reportes', '/admin/m9', 'Ventas', 'Sales', true],
+    ['Reportes', '/admin/reportes/compras', 'Compras a vendedores', 'Buying from sellers', true],
+    ['Reportes', '/admin/reportes/inventario', 'Inventario', 'Inventory', false],
+    ['Reportes', '/admin/reportes/operacion', 'Operación', 'Operations', false],
+    // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin.
+    ['Reportes', '/admin/marketing', 'Marketing', 'Marketing', true],
     // F-26 (§PNL.10.7 · §60.8): «Disputas» sale del menú; su fila sale de este candado en el MISMO commit.
-    ['Existencias', '/admin/m1', 'Inventario', 'Inventory', false],
+    ['Existencias', '/admin/m1', 'Inventario (editar)', 'Inventory (edit)', false],
     ['Existencias', '/admin/m11', 'Sellado', 'Sealed', false],
     // §AC-UX.9 (accesorios): justo tras «Sellado», operador+ (sin SÚPER).
     ['Existencias', '/admin/accessories', 'Accesorios', 'Accessories', false],
@@ -209,23 +256,19 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     ['Tienda', '/admin/m12', 'Meta Battle Decks', 'Meta Battle Decks', false],
     // §DSC-UX.5: «Códigos de descuento», SÚPER, al final de «Tienda» (solo el dueño crea códigos, [D6]).
     ['Tienda', '/admin/codes', 'Códigos de descuento', 'Discount codes', true],
-    ['Administración', '/admin/m7', 'Finanzas', 'Finance', true],
-    ['Administración', '/admin/m9', 'Reportes', 'Reports', true],
     // §FICHA-CLIENTE.13: el operador abre Usuarios (clientes y su ficha, sin acciones de gestión): ya no es SÚPER.
     ['Administración', '/admin/m6', 'Usuarios', 'Users', false],
     ['Administración', '/admin/m10', 'Configuración', 'Settings', true],
-    // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración» (captura de leads/preinscritos, PII).
+    // §CARDSHOW.15: «Card Show», súper-admin (captura de leads/preinscritos, PII).
     ['Administración', '/admin/card-show', 'Card Show', 'Card Show', true],
     ['Administración', '/admin/proveedores', 'Proveedores', 'Suppliers', false],
-    // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin, tras «Card Show».
-    ['Administración', '/admin/marketing', 'Marketing', 'Marketing', true],
   ];
 
   it('el orden de las entradas es el de la tabla de §37.2b', () => {
     expect(ADMIN_MENU_ITEMS.map((i) => i.href)).toEqual(EXPECTED.map((e) => e[1]));
   });
 
-  it('en el DOM: «Resumen» sin rótulo de grupo, luego los cuatro grupos en orden, cada entrada con su nombre y SÚPER donde toca', () => {
+  it('en el DOM: «Inicio» y «Pedidos» sin rótulo de grupo, luego los cinco grupos en orden, cada entrada con su nombre y SÚPER donde toca', () => {
     pathState.pathname = '/admin';
     renderWithProviders(<AdminSidebar />, 'es');
     const links = screen.getAllByRole('link');
@@ -237,26 +280,26 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
       expect(link.firstElementChild?.textContent).toBe(label);
       expect(link.textContent?.includes('Súper')).toBe(superTag);
     });
-    // Cabeceras de grupo: exactamente las cuatro, en orden, y ninguna encima de «Resumen».
+    // Cabeceras de grupo: exactamente las cinco, en orden, y ninguna encima de «Inicio».
     const nav = screen.getByRole('navigation');
     const groupLabels = Array.from(nav.querySelectorAll(':scope > div > p')).map((p) => p.textContent);
-    expect(groupLabels).toEqual(['Día a día', 'Existencias', 'Tienda', 'Administración']);
+    expect(groupLabels).toEqual(['Día a día', 'Reportes', 'Existencias', 'Tienda', 'Administración']);
     expect(nav.querySelector(':scope > div:first-child > p')).toBeNull();
   });
 
-  it('RF-1 (§37.20): una sola entrada de reembolsos, entre «Ventas» y «Avisos de gasto» (v4.20); ninguna a la lista vieja', () => {
+  it('RF-1 (§37.20): una sola entrada de reembolsos, entre «Solicitudes de venta» y «Avisos de gasto» (v4.20); ninguna a la lista vieja', () => {
     pathState.pathname = '/admin';
     renderWithProviders(<AdminSidebar />, 'es');
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
     // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15; v4.20 añade «Avisos de gasto» ⇒ 16
     // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17. §CARDSHOW.15 añade «Card Show» ⇒ 18.
     // §MKT-UX.1 añade «Marketing» ⇒ 19. §DSC-UX.5 añade «Códigos de descuento» ⇒ 20.
-    expect(hrefs).toHaveLength(21);
+    expect(hrefs).toHaveLength(25); // §REPORTES-CEO F1: +4 (Junta, Compras, Inventario, Operación; m3, m7, m9 y Marketing ya estaban)
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);
     const i = hrefs.indexOf('/admin/refunds');
-    expect([hrefs[i - 1], hrefs[i + 1]]).toEqual(['/admin/m3', '/admin/spend-alerts']);
+    expect([hrefs[i - 1], hrefs[i + 1]]).toEqual(['/admin/m5', '/admin/spend-alerts']);
   });
 
   it('en inglés, los mismos nombres de la tabla', () => {
@@ -283,15 +326,10 @@ describe('§37.2 · P66-2 — el `h1` de cada página es su rótulo del menú, c
   });
 });
 
-describe('§37.2d — Reportes: «Actividad de la tienda», sin «beta cerrada» ni metas N/X/Y/Z', () => {
-  it('los tres textos de la tabla, en es y en', () => {
-    expect(es.admin.m9.metrics.title).toBe('Actividad de la tienda');
-    expect(es.admin.m9.metrics.subtitle).toBe('Conteos en el rango de fechas elegido.');
-    expect(es.admin.m9.goalsUnset).toBe('Todavía no hay metas fijadas: se muestran solo los conteos.');
-    expect(en.admin.m9.metrics.title).toBe('Store activity');
-    expect(en.admin.m9.metrics.subtitle).toBe('Counts for the selected date range.');
-    expect(en.admin.m9.goalsUnset).toBe('No goals set yet: showing counts only.');
-    const all = JSON.stringify(es.admin.m9) + JSON.stringify(en.admin.m9);
+describe('§37.2d — Reportes: sin «beta cerrada» ni metas N/X/Y/Z', () => {
+  // §REPORTES-CEO F1: la pestaña «Actividad» (y con ella `admin.m9.metrics`) desapareció; el barrido sigue vigente.
+  it('ningún texto de Reportes (ventas ni reportes) habla de beta cerrada ni de metas N/X/Y/Z', () => {
+    const all = JSON.stringify(es.admin.m9) + JSON.stringify(en.admin.m9) + JSON.stringify(es.admin.reports) + JSON.stringify(en.admin.reports);
     expect(all).not.toMatch(/beta cerrada|closed.beta|N\/X\/Y\/Z/i);
   });
 });

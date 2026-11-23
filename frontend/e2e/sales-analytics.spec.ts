@@ -12,8 +12,8 @@ test.describe('admin · Reportes › Ventas', () => {
   test('pestaña «Ventas» por defecto: una barra por fila, presets del servidor y CSV del mismo periodo', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m9');
-    const tab = page.getByRole('tab', { name: t('es', 'admin.m9.tabs.sales') });
-    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    // §REPORTES-CEO F1: Ventas es la única vista de /admin/m9 (sin pestañas).
+    await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.m9') })).toBeVisible();
     await expect(page.getByTestId('sales-period-label')).toBeVisible();
 
     // criterio 605/609: últimos 7 días ⇒ 7 filas y 7 barras, también las de cero.
@@ -29,18 +29,18 @@ test.describe('admin · Reportes › Ventas', () => {
     await page.getByTestId('sales-csv').click();
     expect((await download).suggestedFilename()).toMatch(/^ventas_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}_day\.csv$/);
 
-    // «Actividad» sigue ahí, idéntica.
-    await page.getByRole('tab', { name: t('es', 'admin.m9.tabs.activity') }).click();
-    await expect(page.getByText(t('es', 'admin.m9.metrics.title'), { exact: true })).toBeVisible();
+    // §REPORTES-CEO F1: el enlace guardado de «Actividad» ya no da 404: aterriza en Finanzas.
+    await page.goto('/es/admin/m9?tab=actividad');
+    await expect(page).toHaveURL(/\/admin\/m7/);
   });
 
-  test('tablero: «Ventas de hoy» para súper-admin enlaza a la pestaña con `preset=today`', async ({ page }) => {
+  test('Reportes › Ventas: «Ventas de hoy» para súper-admin enlaza al informe con `preset=today`', async ({ page }) => {
     await loginAs(page, 'admin');
-    await page.goto('/es/admin');
+    await page.goto('/es/admin/m9');
     const card = page.getByTestId('sales-today-card');
     await expect(card).toContainText(t('es', 'admin.dashboard.salesToday.title'));
     await card.getByRole('link', { name: t('es', 'admin.dashboard.salesToday.link') }).click();
-    await expect(page).toHaveURL(/\/admin\/m9\?tab=ventas&preset=today/);
+    await expect(page).toHaveURL(/\/admin\/m9\?preset=today/);
     await expect(page.getByTestId('sales-row')).toHaveCount(1);
   });
 

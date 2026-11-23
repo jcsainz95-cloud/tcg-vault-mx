@@ -105,9 +105,9 @@ describe('WSH-UX-12 · paridad es/en con los mismos placeholders', () => {
     });
   }
 
-  it('sueltas: pestaña de M9 y el dial de M11', () => {
-    expect(typeof es.admin.m9.tabs.buyList).toBe('string');
-    expect(typeof en.admin.m9.tabs.buyList).toBe('string');
+  it('sueltas: «Qué reponer» (antes pestaña de M9) y el dial de M11', () => {
+    expect(es.admin.m9.buyList.title).toBe('Qué reponer');
+    expect(en.admin.m9.buyList.title).toBe('What to restock');
     for (const k of ['sealedRestockMaxPendingPerEmail', 'sealedRestockMaxPendingPerEmailHelp'] as const) {
       expect(typeof es.admin.m11.dialsPanel.settings[k]).toBe('string');
       expect(typeof en.admin.m11.dialsPanel.settings[k]).toBe('string');

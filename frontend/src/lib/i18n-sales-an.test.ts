@@ -24,6 +24,9 @@ const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m
   const key = m[1].startsWith('sales.') ? `admin.m9.${m[1]}` : m[1];
   return { key, es: D9_TEXT[key]?.es ?? m[2], en: D9_TEXT[key]?.en ?? m[3] };
 });
+// §REPORTES-CEO F1: las pestañas de M9 desaparecieron (Ventas es la única vista; Actividad y Lista de compra se movieron).
+// El archivo congelado las sigue listando, así que se excluyen aquí y se asierta que ya no existen.
+const RETIRED = (key: string) => key.startsWith('admin.m9.tabs.');
 const ES = flatten(es);
 const EN = flatten(en);
 
@@ -38,7 +41,7 @@ describe('UX-AN-15 · paridad ES/EN con la tabla de §AN-UX.14', () => {
     expect(ROWS.length).toBeGreaterThan(150);
     expect(ROWS.some((r) => r.key === 'admin.dashboard.salesToday.title')).toBe(true);
   });
-  it.each(ROWS.map((r) => [r.key, r] as const))('%s', (key, r) => {
+  it.each(ROWS.filter((r) => !RETIRED(r.key)).map((r) => [r.key, r] as const))('%s', (key, r) => {
     expect(ES[key], `es: ${key}`).toBe(r.es);
     expect(EN[key], `en: ${key}`).toBe(r.en);
   });
@@ -50,10 +53,12 @@ describe('UX-AN-15 · paridad ES/EN con la tabla de §AN-UX.14', () => {
       expect(AN_RE.test(v), `${k}: ${v}`).toBe(false);
     }
   });
-  it('lo de antes de `admin.m9.*` no cambió', () => {
-    expect(es.admin.m9.metrics.title).toBe('Actividad de la tienda');
-    expect(es.admin.m9.range.title).toBe('Rango de fechas');
-    expect(en.admin.m9.export.pnl).toBe('Export P&L (CSV)');
+  it('§REPORTES-CEO F1: las pestañas y la actividad de `admin.m9.*` se retiraron sin dejar claves muertas', () => {
+    const m9 = es.admin.m9 as Record<string, unknown>;
+    for (const gone of ['tabs', 'metrics', 'range', 'export', 'goalPending', 'goalProgress', 'goalsUnset']) {
+      expect(m9[gone], `es admin.m9.${gone}`).toBeUndefined();
+      expect((en.admin.m9 as Record<string, unknown>)[gone], `en admin.m9.${gone}`).toBeUndefined();
+    }
   });
 });
 

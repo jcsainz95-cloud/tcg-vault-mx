@@ -101,7 +101,7 @@ export function SalesTodayCard() {
               })}
             </span>
             {comparison !== null && <span data-testid="sales-today-delta">{comparison}</span>}
-            <Link href="/admin/m9?tab=ventas&preset=today" className={`self-start ${LINK_CLASS}`} data-testid="sales-today-link">
+            <Link href="/admin/m9?preset=today" className={`self-start ${LINK_CLASS}`} data-testid="sales-today-link">
               {t('link')}
             </Link>
           </span>

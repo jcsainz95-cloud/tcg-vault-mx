@@ -16,7 +16,7 @@ import { SALES_GRID, SalesSummary } from './SalesSummary';
 import { SalesBarChart } from './SalesBarChart';
 import { SalesDailyTable } from './SalesDailyTable';
 import { SalesTopLists } from './SalesTopLists';
-import { SalesMix, SalesP2Totals, SalesWhen } from './SalesP2';
+import { SalesMix, SalesWhen } from './SalesP2';
 import { toReportParams, todayMx, writeSalesUrl, type SalesUrlState } from './salesParams';
 
 function triggerBlobDownload(blob: Blob, filename: string) {
@@ -174,7 +174,6 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
             onWeek={() => update({ groupBy: 'week' })}
           />
           <SalesDailyTable data={shown} cols={state.cols} today={today} onCols={(c) => update({ cols: c })} csv={csvBlock} />
-          <SalesP2Totals data={shown} />
           <SalesTopLists top={shown.top} tab={state.top} onTab={(k) => update({ top: k })} onSort={(s) => update({ topSort: s })} />
           {shown.bestDays && <SalesWhen bestDays={shown.bestDays} totalOrders={shown.totals.orders} />}
           {shown.mix && <SalesMix mix={shown.mix} totalOrders={shown.totals.orders} totalPieces={shown.totals.pieces} />}

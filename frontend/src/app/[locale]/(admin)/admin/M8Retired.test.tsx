@@ -61,10 +61,10 @@ describe('F-26 · FE-M8-1 — el menú no tiene «Disputas»', () => {
     const links = screen.getAllByRole('link');
     expect(links.map((a) => a.getAttribute('href'))).not.toContain('/admin/m8');
     expect(links.filter((a) => /Disputas|Disputes/.test(a.textContent ?? ''))).toEqual([]);
-    // «Día a día» queda: Solicitudes de venta · Ventas · Reembolsos · Pedidos por preparar (§60.8).
+    // «Día a día» queda: Solicitudes de venta · Reembolsos · Avisos de gasto · Pedidos por preparar (§60.8); sigue «Reportes» (§REPORTES-CEO F1).
     const hrefs = links.map((a) => a.getAttribute('href'));
     const i = hrefs.indexOf('/admin/m4');
-    expect(hrefs[i + 1]).toBe('/admin/m1');
+    expect(hrefs[i + 1]).toBe('/admin/reportes');
   });
 
   it('los textos de M8 salen: `admin.modules.m8`, `admin.m8.*`, `admin.dashboard.disputes` y `dispute.*` (es y en)', () => {

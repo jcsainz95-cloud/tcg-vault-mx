@@ -409,7 +409,7 @@ test.describe('§WSH · lista de deseos', () => {
     await expect(page.getByText(W('mailAction.paused'))).toBeVisible();
   });
 
-  test('@real WSH-F4 / WSH-F8 · M9 «Lista de compra»: orden, sin datos personales, filtro en pantalla y CSV completo con su cabecera', async ({ page }) => {
+  test('@real WSH-F4 / WSH-F8 · Inventario › «Qué reponer»: orden, sin datos personales, filtro en pantalla y CSV completo con su cabecera', async ({ page }) => {
     // Demanda: `customer2` busca dos cartas sin piezas, una con mercado y otra sin él (en mock: las filas del fixture).
     await loginAs(page, 'admin');
     await arrange(page, {
@@ -428,7 +428,7 @@ test.describe('§WSH · lista de deseos', () => {
     const needle = IS_REAL ? CARDS.two.name : 'Classic';
     const needleCell = IS_REAL ? `"${CARDS.two.name}"` : '"Classic Collection #3"';
 
-    await page.goto('/es/admin/m9?tab=compra');
+    await page.goto('/es/admin/reportes/inventario'); // §REPORTES-CEO F1: antes /admin/m9?tab=compra (esa ruta redirige aquí)
     await expect(page.getByRole('heading', { level: 2, name: B('title') })).toBeVisible();
     const articles = page.locator('article');
     await expect(articles).toHaveCount(total);
@@ -464,10 +464,9 @@ test.describe('§WSH · lista de deseos', () => {
     await expect(page).toHaveURL(/sort=wanted/);
   });
 
-  test('@real WSH-F4 · el operador no ve «Lista de compra» (M9 es solo súper-admin)', async ({ page }) => {
+  test('@real WSH-F4 · el operador no ve «Qué reponer» (solo súper-admin)', async ({ page }) => {
     await loginAs(page, 'operator');
-    await page.goto('/es/admin/m9?tab=compra');
-    await expect(page.getByRole('tab', { name: t('es', 'admin.m9.tabs.buyList') })).toHaveCount(0);
+    await page.goto('/es/admin/reportes/inventario');
     await expect(page.getByRole('heading', { level: 2, name: B('title') })).toHaveCount(0);
   });
 
