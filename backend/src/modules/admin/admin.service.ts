@@ -53,6 +53,8 @@ import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 import { FeaturedHealth, FeaturedService } from '../catalog/featured.service';
 import { ListingPriceService, ListingPricesHealth } from '../pricing/listing-price.service';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
+import { isYmd } from '../spend-alerts/mx-day';
+import { mxRange, todayMx } from '../sales-analytics/sales-period';
 import { withAccountGate } from '../auth/account-gate';
 
 /**
@@ -480,23 +482,28 @@ function toAdminKycDTO(k: {
  */
 function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   if (!from && !to) return undefined;
-  const parse = (raw: string, field: 'from' | 'to'): Date => {
+  // §REPORTES-CEO F1 (API_CONTRACT_REPORTES §2): `YYYY-MM-DD` = día civil de México, ambos incluidos ⇒ semiabierto
+  // `[mxDayStart(from), mxDayStart(to+1))` (el mismo `mxRange` de la analítica de ventas). Con ISO sigue como siempre (`gte`/`lte`).
+  const parse = (raw: string, field: 'from' | 'to'): { at: Date; ymd: boolean } => {
+    if (isYmd(raw)) {
+      return { at: field === 'from' ? mxRange(raw, raw).gte : mxRange(raw, raw).lt, ymd: true };
+    }
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) {
       throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field, value: raw });
     }
-    return d;
+    return { at: d, ymd: false };
   };
-  const gte = from ? parse(from, 'from') : undefined;
-  const lte = to ? parse(to, 'to') : undefined;
-  if (gte && lte && gte.getTime() > lte.getTime()) {
+  const g = from ? parse(from, 'from') : undefined;
+  const l = to ? parse(to, 'to') : undefined;
+  if (g && l && (l.ymd ? g.at.getTime() >= l.at.getTime() : g.at.getTime() > l.at.getTime())) {
     throw BusinessException.validation('VALIDATION_ERROR', 'from must be earlier than or equal to to', {
       field: 'from',
       from,
       to,
     });
   }
-  return { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) };
+  return { ...(g ? { gte: g.at } : {}), ...(l ? (l.ymd ? { lt: l.at } : { lte: l.at }) : {}) };
 }
 
 /**
@@ -2100,17 +2107,16 @@ export class AdminService {
     return out;
   }
 
-  private resolvePeriod(from?: string, to?: string): { gte: Date; lte: Date } {
-    if (from || to) {
-      const now = new Date();
-      return { gte: from ? new Date(from) : new Date(0), lte: to ? new Date(to) : now };
-    }
-    const start = new Date();
-    start.setUTCDate(1);
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCMonth(end.getUTCMonth() + 1);
-    return { gte: start, lte: end };
+  /**
+   * §REPORTES-CEO F1 — el periodo del dashboard. Sin `from/to` = el MES CALENDARIO en curso **en México** (antes UTC).
+   * Devuelve `{from,to}` listos para `range()` (que entiende `YYYY-MM-DD` MX semiabierto y el ISO de siempre).
+   */
+  private resolvePeriod(from?: string, to?: string): { from: string; to: string } {
+    if (from || to) return { from: from || new Date(0).toISOString(), to: to || new Date().toISOString() };
+    const today = todayMx(new Date());
+    const first = `${today.slice(0, 7)}-01`;
+    const [y, m] = first.split('-').map(Number);
+    return { from: first, to: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) };
   }
 
   /**
@@ -2122,7 +2128,8 @@ export class AdminService {
    */
   async dashboard(role: Role, from?: string, to?: string) {
     const isSuperAdmin = role === Role.super_admin;
-    const period = this.resolvePeriod(from, to);
+    const periodArgs = this.resolvePeriod(from, to);
+    const period = range(periodArgs.from, periodArgs.to);
 
     const [salesCount, settledOfPeriod, shipmentsQueue, buylistQueue, disputesQueue, pendingPrices, buylistPeriodAgg, buylistPeriodCount, lastSync, lastFx, users, salesSettled, buylistPaid, withdrawals] =
       await Promise.all([
@@ -2187,9 +2194,7 @@ export class AdminService {
         this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'entregado' } }),
       ]);
 
-    const periodFrom = period.gte?.toISOString();
-    const periodTo = period.lte?.toISOString();
-    const pnl = isSuperAdmin ? await this.pnl(periodFrom, periodTo) : null;
+    const pnl = isSuperAdmin ? await this.pnl(periodArgs.from, periodArgs.to) : null;
     const invValue = isSuperAdmin ? await this.inventoryValue() : null;
     const custody = isSuperAdmin ? await this.custodyValue() : null;
 

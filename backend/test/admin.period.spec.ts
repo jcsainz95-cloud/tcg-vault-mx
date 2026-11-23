@@ -46,24 +46,24 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
   });
 
   it('pnl scopes BOTH orders (settledAt) and shipments (pickingAt) by the period', async () => {
-    await service.pnl('2026-01-01', '2026-02-01');
+    await service.pnl('2026-01-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z');
     const orderWhere = prisma.order.findMany.mock.calls[0][0].where;
     const shipWhere = prisma.shipmentRequest.findMany.mock.calls[0][0].where;
-    expect(orderWhere.settledAt).toEqual({ gte: new Date('2026-01-01'), lte: new Date('2026-02-01') });
+    expect(orderWhere.settledAt).toEqual({ gte: new Date('2026-01-01T00:00:00.000Z'), lte: new Date('2026-02-01T00:00:00.000Z') });
     // Antes el filtro de envíos NO tenía rango: ahora usa pickingAt.
-    expect(shipWhere.pickingAt).toEqual({ gte: new Date('2026-01-01'), lte: new Date('2026-02-01') });
+    expect(shipWhere.pickingAt).toEqual({ gte: new Date('2026-01-01T00:00:00.000Z'), lte: new Date('2026-02-01T00:00:00.000Z') });
   });
 
   it('launchMetrics scopes sales/buylist/withdrawals (not only users)', async () => {
-    await service.launchMetrics('2026-01-01', '2026-02-01');
-    const range = { gte: new Date('2026-01-01'), lte: new Date('2026-02-01') };
+    await service.launchMetrics('2026-01-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z');
+    const range = { gte: new Date('2026-01-01T00:00:00.000Z'), lte: new Date('2026-02-01T00:00:00.000Z') };
     expect(prisma.user.count.mock.calls[0][0].where.createdAt).toEqual(range);
     expect(prisma.order.count.mock.calls[0][0].where.settledAt).toEqual(range);
     expect(prisma.sellRequest.count.mock.calls[0][0].where.paidAt).toEqual(range);
     expect(prisma.shipmentRequest.count.mock.calls[0][0].where.deliveredAt).toEqual(range);
   });
 
-  it('dashboard period cards (sales/buylist) are scoped; default = current UTC month', async () => {
+  it('dashboard period cards (sales/buylist) are scoped; default = current MX month', async () => {
     await service.dashboard('super_admin' as any);
     // La primera consulta de order.count del dashboard lleva settledAt con rango.
     const settledWhere = prisma.order.count.mock.calls[0][0].where;
@@ -76,9 +76,65 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
   });
 
   it('dashboard honors explicit from/to', async () => {
-    await service.dashboard('super_admin' as any, '2026-03-01', '2026-03-31');
+    await service.dashboard('super_admin' as any, '2026-03-01T00:00:00.000Z', '2026-03-31T00:00:00.000Z');
     const settledWhere = prisma.order.count.mock.calls[0][0].where;
-    expect(settledWhere.settledAt.gte).toEqual(new Date('2026-03-01'));
-    expect(settledWhere.settledAt.lte).toEqual(new Date('2026-03-31'));
+    expect(settledWhere.settledAt.gte).toEqual(new Date('2026-03-01T00:00:00.000Z'));
+    expect(settledWhere.settledAt.lte).toEqual(new Date('2026-03-31T00:00:00.000Z'));
+  });
+
+  // §REPORTES-CEO F1 (CR-3): `YYYY-MM-DD` = días civiles de México, semiabierto [00:00 MX de from, 00:00 MX del día siguiente a to).
+  describe('F1 — periodo en hora de México', () => {
+    const MX = { gte: new Date('2026-01-01T06:00:00.000Z'), lt: new Date('2026-02-01T06:00:00.000Z') };
+
+    it('pnl con YYYY-MM-DD: el 31-ene 23:30 MX (=01-feb 05:30Z) cae en enero; el 1-feb 00:00 MX no', async () => {
+      await service.pnl('2026-01-01', '2026-01-31');
+      expect(prisma.order.findMany.mock.calls[0][0].where.settledAt).toEqual(MX);
+      expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where.pickingAt).toEqual(MX);
+      expect(new Date('2026-02-01T05:30:00.000Z') < MX.lt).toBe(true);
+      expect(new Date('2026-02-01T06:00:00.000Z') < MX.lt).toBe(false);
+    });
+
+    it('cambio de año: 31-dic 23:59 MX queda en diciembre', async () => {
+      await service.launchMetrics('2026-12-01', '2026-12-31');
+      expect(prisma.order.count.mock.calls[0][0].where.settledAt).toEqual({
+        gte: new Date('2026-12-01T06:00:00.000Z'),
+        lt: new Date('2027-01-01T06:00:00.000Z'),
+      });
+    });
+
+    it('un solo día (from = to) y rango invertido', async () => {
+      await service.pnl('2026-03-05', '2026-03-05');
+      expect(prisma.order.findMany.mock.calls[0][0].where.settledAt).toEqual({
+        gte: new Date('2026-03-05T06:00:00.000Z'),
+        lt: new Date('2026-03-06T06:00:00.000Z'),
+      });
+      await expect(service.pnl('2026-03-06', '2026-03-05')).rejects.toThrow();
+    });
+
+    it('IVA acepta YYYY-MM-DD con el mismo filtro', async () => {
+      await service.ivaReport('2026-01-01', '2026-01-31');
+      expect(prisma.order.findMany.mock.calls[0][0].where.settledAt).toEqual(MX);
+    });
+
+    it('dashboard con YYYY-MM-DD usa el semiabierto de México', async () => {
+      await service.dashboard('super_admin' as any, '2026-01-01', '2026-01-31');
+      expect(prisma.order.count.mock.calls[0][0].where.settledAt).toEqual(MX);
+      expect(prisma.sellRequest.aggregate.mock.calls[0][0].where.paidAt).toEqual(MX);
+      expect(prisma.order.findMany.mock.calls[0][0].where.settledAt).toEqual(MX);
+    });
+
+    it('dashboard sin from/to: mes en curso de México (reloj en 1-feb 03:00Z = 31-ene 21:00 MX sigue siendo enero)', async () => {
+      jest.useFakeTimers({ now: new Date('2026-02-01T03:00:00.000Z'), doNotFake: ['nextTick', 'setImmediate', 'setTimeout'] });
+      try {
+        await service.dashboard('super_admin' as any);
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(prisma.order.count.mock.calls[0][0].where.settledAt).toEqual(MX);
+    });
+
+    it('fecha basura sigue siendo VALIDATION_ERROR', async () => {
+      await expect(service.pnl('2026-13-45', '2026-14-01')).rejects.toThrow();
+    });
   });
 });
