@@ -5,7 +5,7 @@
  * ESTADO (decisión JC 2026-10-16): el evento SALE con datos reales. Fecha, sede, precios y mesas YA
  * SON PÚBLICOS y viven en el código (ya no son marcadores). El ÚNICO secreto que queda son los
  * NOMBRES DE PATROCINADORES: no pueden aparecer en ningún fuente del Card Show y el bloque de logos
- * va oculto (`patrocinios.showSponsors === false`). Solo se nombran TCG HUNT y Jakomi.
+ * va oculto (`patrocinios.showSponsors === false`). Se nombran TCG HUNT, Jakomi y, en la tarjeta de Magic, bracket3.net y TCG Wolf (publicados por el dueño 2026-11-23).
  *
  * Los términos prohibidos (nombres de patrocinador) NO viven en este archivo: se leen en RUNTIME de
  * la variable de entorno `CARDSHOW_SECRET_TERMS` (secreto de CI que cablea devops). Sin la env, ese
@@ -97,11 +97,14 @@ describe('secreto · patrocinadores ocultos en el código del Card Show', () => 
     expect(amounts.every((a) => a === '$200' || a === '$8,000')).toBe(true);
   });
 
-  it('las únicas marcas nombradas en el contenido son TCG HUNT y Jakomi', () => {
+  it('las marcas nombradas son TCG HUNT, Jakomi y las dos publicadas en la tarjeta de Magic', () => {
     // Serializa TODO el objeto de contenido y comprueba que no quedó ninguna otra marca evidente.
     const blob = JSON.stringify(CARD_SHOW);
     // Marcas permitidas (públicas). Cualquier otra se escanea vía CARDSHOW_SECRET_TERMS en CI.
     expect(blob).toContain('TCG HUNT');
     expect(blob).toContain('Jakomi');
+    // Patrocinio de Magic publicado por el dueño (2026-11-23): únicas marcas extra permitidas.
+    expect(blob).toContain('TCG Wolf');
+    expect(blob).toContain('bracket3.net');
   });
 });

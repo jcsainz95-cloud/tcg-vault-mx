@@ -336,7 +336,7 @@ export function ReviewLineFacts({ requestId, item }: { requestId: string; item: 
             {formatMoneyCents(agreed, locale)}
           </span>
           <span className="text-xs text-muted">
-            {t('agreed')} · {t('agreedCaption')}
+            {item.offeredPriceCents != null && item.offeredPriceCents !== agreed ? t('agreed') : `${t('agreed')} · ${t('agreedCaption')}`}
           </span>
           <OfferedOriginal item={item} />
         </div>

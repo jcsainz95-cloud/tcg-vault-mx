@@ -380,7 +380,7 @@ export default async function CardShowPage() {
                     <p>
                       {g.magic.inscripcion.antes}
                       <a href={g.magic.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-on-ink">
-                        bracket3.net
+                        {g.magic.inscripcion.enlace}
                       </a>
                       {g.magic.inscripcion.despues}
                     </p>

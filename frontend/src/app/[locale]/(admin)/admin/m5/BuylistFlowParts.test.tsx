@@ -141,6 +141,22 @@ describe('F1b · ofertado original en revisión', () => {
     renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1500000 }} />, 'es');
     expect(screen.getByTestId('agreed-it-1')).toHaveTextContent(formatMoneyCents(1500000, 'es'));
     expect(screen.getByTestId('offered-original-it-1')).toHaveTextContent(`Ofertado: ${formatMoneyCents(1850000, 'es')}`);
+    // m-29: con baja aceptada el rótulo NO dice «lo que ofrecimos» (contradiría al ofertado original).
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('lo que ofrecimos');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Precio pactado');
+  });
+  it('sin baja: el rótulo sigue «Precio pactado · lo que ofrecimos»', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'es');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Precio pactado · lo que ofrecimos');
+  });
+  it('m-27: sin ofertado (null) no pinta «MX$0.00» ni línea extra', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), offeredPriceCents: null, agreedPriceCents: 1500000 }} />, 'es');
+    expect(screen.queryByTestId('offered-original-it-1')).toBeNull();
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('MX$0.00');
+  });
+  it('m-27: sin pactado (null) no pinta el ofertado original', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: null }} />, 'es');
+    expect(screen.queryByTestId('offered-original-it-1')).toBeNull();
   });
   it('iguales o sin pactado: sin línea extra', () => {
     renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'es');
