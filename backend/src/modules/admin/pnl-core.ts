@@ -508,3 +508,13 @@ export async function buylistRowsInPeriod(db: Db, period?: Prisma.DateTimeFilter
   ]);
   return { skydropxGuides, manualGuides, paid };
 }
+
+/** §REPORTES-CEO F2a — `Delta` de los reportes nuevos: enteros en centavos; `deltaBps` = round(Δ×10000/|anterior|) (mitad lejos de cero), `null` si el anterior es 0. */
+export type CentsDelta = { cents: number; previousCents: number; deltaCents: number; deltaBps: number | null };
+export function deltaOf(cents: number, previousCents: number): CentsDelta {
+  const deltaCents = cents - previousCents;
+  if (previousCents === 0) return { cents, previousCents, deltaCents, deltaBps: null };
+  const den = Math.abs(previousCents);
+  const q = Math.floor((2 * Math.abs(deltaCents) * 10000 + den) / (2 * den));
+  return { cents, previousCents, deltaCents, deltaBps: deltaCents < 0 ? -q : q };
+}

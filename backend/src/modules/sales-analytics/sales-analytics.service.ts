@@ -17,12 +17,14 @@
 import { Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { firstDataDay } from './first-data-day';
 import { ivaIsIncluded, netRevenueCents, taxBaseCentsOf } from '../../common/money';
 import { pnlBuckets, refundRowsInPeriod, zeroPnl, PnlComponents } from '../admin/pnl-core';
 import {
   addDays,
   bucketKeyOf,
   bucketsOf,
+  comparisonBasis,
   isoWeekday,
   mxHour,
   mxRange,
@@ -202,10 +204,12 @@ export class SalesAnalyticsService {
 
   async report(q: SalesQuery, now: Date): Promise<SalesReportDTO> {
     const period = resolvePeriod(q, now);
-    const [cur, prev] = await Promise.all([
+    const [cur, prev, firstDay] = await Promise.all([
       this.bucketFigures(period.from, period.to, period.groupBy),
       this.bucketFigures(period.prev.from, period.prev.to, 'day'),
+      firstDataDay(this.prisma),
     ]);
+    const basis = comparisonBasis(firstDay, period.prev);
     const t = cur.totals;
     const p = prev.totals;
     const [items, customers] = await Promise.all([this.itemsOf(cur.orders), this.customers(cur.orders, period.from)]);
@@ -213,11 +217,14 @@ export class SalesAnalyticsService {
     const ppoDelta = delta(t.piecesPerOrder, p.piecesPerOrder);
     return {
       period: { preset: period.preset, from: period.from, to: period.to, days: period.days, timezone: 'America/Mexico_City' },
-      previousPeriod: { from: period.prev.from, to: period.prev.to },
+      previousPeriod: { from: period.prev.from, to: period.prev.to, clamped: period.prevClamped },
+      firstDataDay: firstDay,
       groupBy: period.groupBy,
       totals: t,
       previousTotals: p,
       comparison: {
+        basis: basis.basis,
+        dataSince: basis.dataSince,
         orders: delta(t.orders, p.orders),
         chargedCents: delta(t.chargedCents, p.chargedCents),
         netSalesCents: delta(t.netSalesCents, p.netSalesCents),

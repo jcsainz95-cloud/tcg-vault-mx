@@ -46,11 +46,14 @@ const delta = (diff: number | null, pct: number | null): Delta => ({ diff, pct }
 function reportDto(p: { totals: SalesFigures; previousTotals: SalesFigures; comparison: Partial<SalesReportDTO['comparison']> }): SalesReportDTO {
   return {
     period: { preset: 'custom', from: '2026-10-05', to: '2026-10-11', days: 7, timezone: 'America/Mexico_City' },
-    previousPeriod: { from: '2026-09-28', to: '2026-10-04' },
+    previousPeriod: { from: '2026-09-28', to: '2026-10-04', clamped: false },
+    firstDataDay: '2026-01-01',
     groupBy: 'day',
     totals: p.totals,
     previousTotals: p.previousTotals,
     comparison: {
+      basis: 'complete',
+      dataSince: null,
       orders: delta(null, null),
       chargedCents: delta(null, null),
       netSalesCents: delta(null, null),

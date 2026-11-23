@@ -45,11 +45,16 @@ export interface PieceCell {
 
 export interface SalesReportDTO {
   period: { preset: SalesPreset; from: Ymd; to: Ymd; days: number; timezone: 'America/Mexico_City' };
-  previousPeriod: { from: Ymd; to: Ymd };
+  previousPeriod: { from: Ymd; to: Ymd; clamped: boolean };
+  /** F2a: día MX del primer pedido liquidado; `null` sin pedidos (⇒ `basis:'none'`). */
+  firstDataDay: Ymd | null;
   groupBy: SalesGroupBy;
   totals: SalesFigures;
   previousTotals: SalesFigures;
   comparison: {
+    /** F2a: contra qué se compara (`partial` ⇒ `dataSince` = `firstDataDay`; nunca un delta sin `basis`). */
+    basis: 'complete' | 'partial' | 'none';
+    dataSince: Ymd | null;
     orders: Delta;
     chargedCents: Delta;
     netSalesCents: Delta;
