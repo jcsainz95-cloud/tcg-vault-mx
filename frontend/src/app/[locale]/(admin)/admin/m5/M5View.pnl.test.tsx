@@ -216,7 +216,12 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
     await render('verificacion', [item('it-s', 'Squirtle', 'skip')]);
     const r = screen.getByTestId('m5-item-it-s');
     expect(within(r).getByText('NO COMPRADA')).toBeInTheDocument();
-    expect(within(r).getByText('Se marcó como no comprada al ofertar: no se aprueba ni se rechaza.')).toBeInTheDocument();
+    // Lista única: la frase explicativa sale UNA vez, en el grupo plegable «No compradas», no en cada fila.
+    expect(within(r).queryByText(/no se aprueban ni se rechazan/)).not.toBeInTheDocument();
+    const group = screen.getByTestId('m5-notbought-group-sr-pnl');
+    expect(within(group).getByText('No compradas (1)')).toBeInTheDocument();
+    expect(screen.getAllByText(/no se aprueban ni se rechazan/)).toHaveLength(1);
+    expect(r).toBeInTheDocument();
     for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).queryByRole('button', { name })).not.toBeInTheDocument();
     }

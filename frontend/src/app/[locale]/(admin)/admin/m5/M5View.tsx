@@ -34,10 +34,11 @@ import { SellerContact } from './SellerContact';
 import { SellerGuideBlock, hasSellerGuide, sellerGuideOf } from './SellerGuideBlock';
 import { liveSkydropxGuide } from './DeclineAcceptedDialog';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
+import { CardPhotoLightbox } from './CardPhotoLightbox';
+import { ITEM_GRID, ItemListHeader, NotBoughtGroup } from './BuylistItemList';
 import {
   PayoutBar,
   PaymentReceipt,
-  ReadonlyMesa,
   RequestRibbon,
   ReviewLineFacts,
   ReviewPhoto,
@@ -240,6 +241,9 @@ export function M5View() {
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tDesk = useTranslations('admin.m5.desk');
   const tf2 = useTranslations('admin.m5.flow.f2');
+  const tItems = useTranslations('admin.m5.items');
+  /** La mesa abierta YA cargó bien: solo entonces la mesa sustituye a la lista de cartas (si carga o falla, la lista sigue). */
+  const [deskReady, setDeskReady] = useState(false);
   const tCauses = useTranslations('admin.m5.flow.f2.rejectPanel.causes');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
@@ -1359,18 +1363,14 @@ export function M5View() {
                 <BuylistDecisionDesk
                   sellRequestId={req.id}
                   onClose={() => setDeskFor(null)}
+                  onReady={setDeskReady}
                   // §60.5 d: «Declinar» DENTRO de la mesa abre el MISMO diálogo y verbo que el de la fila.
                   onDecline={req.status === 'cotizada' && req.isTerminal === false ? () => openCloseAction('decline', req.id) : undefined}
                 />
               )}
 
-              {/* §BUYLIST-FLUJO F1c: tras emitir la oferta, la mesa queda en SOLO LECTURA y plegable (lo pactado al ofertar). */}
-              {req.status !== 'cotizada' && req.offerNet != null && (
-                <ReadonlyMesa
-                  requestId={req.id}
-                  defaultOpen={req.status === 'ofertada' || req.status === 'aceptada' || req.status === 'en_transito'}
-                />
-              )}
+              {/* Dueño 2026-11-22: ya NO hay «mesa de solo lectura» aparte; lo pactado al ofertar (`offeredPriceCents`) vive
+                  en la lista única de cartas de más abajo. */}
 
               {/* Guía + confirmación: solo en `aceptada`, que es el único estado donde las dos
                   acciones existen. Capturar la guía NO mueve el estado; confirmar sí — y son dos
@@ -1459,36 +1459,116 @@ export function M5View() {
                 );
               })()}
 
-              <div className="flex flex-col divide-y divide-border">
-                {req.items.map((it) => {
+              {(() => {
+                const isNotBought = (it: (typeof req.items)[number]) => it.offerDecision === 'skip' || notOfferedIds.has(it.id);
+                const boughtItems = req.items.filter((it) => !isNotBought(it));
+                const skippedItems = req.items.filter(isNotBought);
+                const renderItem = (it: (typeof req.items)[number]) => {
                   const decisionPending =
                     decisionMutation.isPending && decisionMutation.variables?.itemId === it.id;
                   const decidable = !ITEM_TERMINAL.has(it.itemStatus);
                   const isRejected = it.itemStatus === 'rechazada';
                   // §60.7 a / §E2E-ADM.2 (F-4): la decisión por carta va por `offerDecision`. `skip` ⇒ «NO COMPRADA»
                   // y ningún botón ni casilla; `buy` ⇒ Aprobar y Rechazar (⛔ Ajustar); `null` (pre-ciclo) ⇒ los tres.
-                  const notBought = it.offerDecision === 'skip' || notOfferedIds.has(it.id);
+                  const notBought = isNotBought(it);
                   const canAdjust = it.offerDecision !== 'buy' && it.offerDecision !== 'skip';
                   const bulkable = isBulkRejectable(req.status, it) && !notOfferedIds.has(it.id);
                   const checked = (bulkSelected[req.id] ?? []).includes(it.id);
+                  // Detalle del rechazo (motivo + plazos del servidor) y «recoger»: se pinta en fila normal y en la compacta.
+                  const rejectedDetail = (
+                    <>
+                                        {isRejected && (
+                      <div className="flex flex-col gap-0.5 pl-14 text-xs text-muted">
+                        {it.rejectionReason && (
+                          <p>
+                            {t('rejected.reasonLabel')}: {it.rejectionReason}
+                          </p>
+                        )}
+                        {it.rejectedAt && (
+                          <p>
+                            {t('rejected.rejectedAtLabel')}:{' '}
+                            <span className="tabular">{formatDate(it.rejectedAt, locale)}</span>
+                          </p>
+                        )}
+                        {it.returnDeadlineAt && it.abandonDeadlineAt && (
+                          <p>
+                            {t('rejected.returnUntil', { date: formatDate(it.returnDeadlineAt, locale) })}
+                            {' · '}
+                            {t('rejected.abandonAt', { date: formatDate(it.abandonDeadlineAt, locale) })}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {isRejected && (
+                      <div className="pl-14">
+                        <PickupLine
+                          itemId={it.id}
+                          cardName={it.card.name}
+                          pickup={it.pickup}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                            refresh();
+                            ok(req.id, msg);
+                          }}
+                          onError={(e) => fail(req.id, e)}
+                        />
+                      </div>
+                    )}
+                    </>
+                  );
+                  // Lista ÚNICA (dueño 2026-11-22): las NO compradas van en una fila compacta dentro del grupo plegable.
+                  if (notBought) {
+                    return (
+                      <div key={it.id} className="flex flex-col gap-1 py-2" data-testid={`m5-item-${it.id}`}>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <CardPhotoLightbox card={it.card} width={28} height={40} />
+                        <span className="min-w-[8rem] flex-1 text-sm" lang="en">
+                          {it.card.name}
+                        </span>
+                        <span className="tabular font-mono text-xs text-muted">{it.card.number}</span>
+                        <FinishBadge finish={it.finish} productType={it.productType} />
+                        <span className="tabular text-xs text-muted">
+                          {it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—'}
+                        </span>
+                        {it.itemStatus !== 'cotizada' && <StatusBadge domain="sellItem" value={it.itemStatus} />}
+                        <span className={cn('font-mono text-[11px] uppercase tracking-[0.06em]', notOfferedIds.has(it.id) ? 'text-accent' : 'text-muted')} data-testid={`m5-not-bought-${it.id}`}>
+                          {t('notBought.tag')}
+                        </span>
+                        {it.approvedPriceCents != null && (
+                          <span className="tabular text-xs text-success">
+                            {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                          </span>
+                        )}
+                        {it.revision?.state === 'cancelled' && (
+                          <Badge tone="neutral" shape="outline">
+                            <span data-testid={`f2-retired-${it.id}`}>{tf2('status.retired')}</span>
+                          </Badge>
+                        )}
+                      </div>
+                      {rejectedDetail}
+                      </div>
+                    );
+                  }
                   const cardBlock = (
                     <>
-                      {/* Imagen de catálogo por ítem: único referente visual para verificar
-                          la carta física contra la que llegó a la bóveda. */}
-                      {reviewMode ? (
-                        <ReviewPhoto item={it} />
-                      ) : (
-                        <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
-                      )}
-                      <span className="text-sm font-medium" lang="en">
-                        {it.card.name}
+                      {/* Foto ampliable (visor): único referente visual para verificar la carta física contra el catálogo. */}
+                      {reviewMode ? <ReviewPhoto item={it} /> : <CardPhotoLightbox card={it.card} width={40} height={56} />}
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-sm font-medium" lang="en">
+                          {it.card.name}
+                        </span>
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="tabular font-mono text-xs text-muted">{it.card.number}</span>
+                          <FinishBadge finish={it.finish} productType={it.productType} />
+                        </span>
                       </span>
                     </>
                   );
+                  const pactado = it.agreedPriceCents ?? it.offeredPriceCents ?? null;
                   return (
                     <div key={it.id} className="flex flex-col gap-1 py-3" data-testid={`m5-item-${it.id}`}>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-3">
+                    <div className={`flex flex-col gap-3 ${ITEM_GRID}`}>
+                      <div className="flex items-center gap-3">
                         {bulkable ? (
                           <label className="flex min-h-[44px] items-center gap-3">
                             <input
@@ -1510,29 +1590,33 @@ export function M5View() {
                         ) : (
                           cardBlock
                         )}
-                        <FinishBadge finish={it.finish} productType={it.productType} />
-                        {reviewMode && !notBought ? (
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="eyebrow lg:hidden">{tItems('colQuoted')}</span>
+                        {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
+                        <span className={cn('tabular text-sm text-muted', isRejected && 'line-through')}>
+                          {it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="eyebrow lg:hidden">{tItems('colAgreed')}</span>
+                        {reviewMode ? (
                           /* F1b: el PACTADO (lo ofertado, o la baja aceptada), no el cotizado; mercado de hoy con chip ±%. */
                           <ReviewLineFacts requestId={req.id} item={it} />
                         ) : (
-                          <>
-                            {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
-                            <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
-                              {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
-                            </span>
-                            {it.approvedPriceCents != null && (
-                              <span className="tabular text-xs text-success">
-                                {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
-                              </span>
-                            )}
-                          </>
-                        )}
-                        <StatusBadge domain="sellItem" value={it.itemStatus} />
-                        {notBought && (
-                          <span className={cn('font-mono text-[11px] uppercase tracking-[0.06em]', notOfferedIds.has(it.id) ? 'text-accent' : 'text-muted')} data-testid={`m5-not-bought-${it.id}`}>
-                            {t('notBought.tag')}
+                          <span className="tabular font-serif text-xl leading-none" data-testid={`m5-agreed-${it.id}`}>
+                            {pactado != null ? formatMoneyCents(pactado, locale) : '—'}
                           </span>
                         )}
+                        {it.approvedPriceCents != null && it.approvedPriceCents !== pactado && (
+                          <span className="tabular text-xs text-success">
+                            {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="eyebrow lg:hidden">{tItems('colStatus')}</span>
+                        <StatusBadge domain="sellItem" value={it.itemStatus} />
                         {isRejected && (
                           <Badge tone="danger" shape="outline">
                             {t('rejectedOutOfTotal')}
@@ -1624,51 +1708,24 @@ export function M5View() {
                         }}
                       />
                     )}
-                    {notBought && (
-                      <p className="pl-14 text-xs text-muted">{t('notBought.note')}</p>
-                    )}
-                    {/* Detalle del rechazo dentro de la solicitud: motivo + plazos (server). */}
-                    {isRejected && (
-                      <div className="flex flex-col gap-0.5 pl-14 text-xs text-muted">
-                        {it.rejectionReason && (
-                          <p>
-                            {t('rejected.reasonLabel')}: {it.rejectionReason}
-                          </p>
-                        )}
-                        {it.rejectedAt && (
-                          <p>
-                            {t('rejected.rejectedAtLabel')}:{' '}
-                            <span className="tabular">{formatDate(it.rejectedAt, locale)}</span>
-                          </p>
-                        )}
-                        {it.returnDeadlineAt && it.abandonDeadlineAt && (
-                          <p>
-                            {t('rejected.returnUntil', { date: formatDate(it.returnDeadlineAt, locale) })}
-                            {' · '}
-                            {t('rejected.abandonAt', { date: formatDate(it.abandonDeadlineAt, locale) })}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {isRejected && (
-                      <div className="pl-14">
-                        <PickupLine
-                          itemId={it.id}
-                          cardName={it.card.name}
-                          pickup={it.pickup}
-                          onDone={(msg) => {
-                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
-                            refresh();
-                            ok(req.id, msg);
-                          }}
-                          onError={(e) => fail(req.id, e)}
-                        />
-                      </div>
-                    )}
+                    {rejectedDetail}
                     </div>
                   );
-                })}
-              </div>
+                };
+                // Dueño 2026-11-22: con la mesa de decisión abierta (`cotizada`) la mesa YA ES la lista de cartas.
+                if (req.status === 'cotizada' && deskFor === req.id && deskReady) return null;
+                return (
+                  <div className="flex flex-col gap-3" data-testid={`m5-items-${req.id}`}>
+                    <ItemListHeader requestId={req.id} buy={boughtItems.length} skip={skippedItems.length} />
+                    <div className="flex flex-col divide-y divide-border">{boughtItems.map(renderItem)}</div>
+                    {skippedItems.length > 0 && (
+                      <NotBoughtGroup requestId={req.id} count={skippedItems.length}>
+                        {skippedItems.map(renderItem)}
+                      </NotBoughtGroup>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* §BUYLIST-FLUJO F2a: «Convertir todas» (diálogo con ubicación y la lista de lo que se da de alta). */}
               <div className="flex justify-end">

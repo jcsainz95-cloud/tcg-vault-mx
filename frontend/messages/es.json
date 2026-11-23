@@ -3831,16 +3831,6 @@
           "inStateDays": "{count, plural, one {# día en este estado} other {# días en este estado}}",
           "dueAt": "Límite: {date}",
           "overdue": "Vencido"
-        },
-        "mesa": {
-          "title": "Mesa de decisiones",
-          "readonly": "Solo lectura",
-          "fold": "Plegar",
-          "unfold": "Desplegar",
-          "offeredAt": "pactado al ofertar",
-          "skip": "No entró en la oferta",
-          "loading": "Cargando la mesa…",
-          "error": "No se pudo cargar la mesa."
         }
       },
       "feedback": {
@@ -4115,8 +4105,18 @@
       },
       "acceptedNote": "Aceptada. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.",
       "notBought": {
-        "tag": "NO COMPRADA",
-        "note": "Se marcó como no comprada al ofertar: no se aprueba ni se rechaza."
+        "tag": "NO COMPRADA"
+      },
+      "items": {
+        "title": "Cartas de la solicitud",
+        "summarySplit": "Se compran {buy} · No entraron en la oferta {skip}",
+        "summaryAll": "{count, plural, one {# carta} other {# cartas}}",
+        "colCard": "Carta",
+        "colQuoted": "Cotizado",
+        "colAgreed": "Pactado",
+        "colStatus": "Estado",
+        "notBoughtGroup": "No compradas ({count})",
+        "notBoughtNote": "Se marcaron como no compradas al ofertar: no se aprueban ni se rechazan. Pulsa para verlas."
       },
       "bulkReject": {
         "all": "Todas las que se pueden rechazar ({n})",

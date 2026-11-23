@@ -3831,16 +3831,6 @@
           "inStateDays": "{count, plural, one {# day in this state} other {# days in this state}}",
           "dueAt": "Deadline: {date}",
           "overdue": "Overdue"
-        },
-        "mesa": {
-          "title": "Decision table",
-          "readonly": "Read only",
-          "fold": "Collapse",
-          "unfold": "Expand",
-          "offeredAt": "agreed at offer",
-          "skip": "Not part of the offer",
-          "loading": "Loading the table…",
-          "error": "The table could not be loaded."
         }
       },
       "feedback": {
@@ -4115,8 +4105,18 @@
       },
       "acceptedNote": "Accepted. If a card arrives in bad condition, you reject it during review, stating the reason.",
       "notBought": {
-        "tag": "NOT BOUGHT",
-        "note": "It was marked as not bought when the offer went out: it isn't approved or rejected."
+        "tag": "NOT BOUGHT"
+      },
+      "items": {
+        "title": "Cards in this request",
+        "summarySplit": "Buying {buy} · Not in the offer {skip}",
+        "summaryAll": "{count, plural, one {# card} other {# cards}}",
+        "colCard": "Card",
+        "colQuoted": "Quoted",
+        "colAgreed": "Agreed",
+        "colStatus": "Status",
+        "notBoughtGroup": "Not bought ({count})",
+        "notBoughtNote": "They were marked as not bought when the offer went out: they aren't approved or rejected. Click to see them."
       },
       "bulkReject": {
         "all": "All that can be rejected ({n})",
