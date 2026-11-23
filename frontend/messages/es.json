@@ -6827,8 +6827,9 @@
         "complete": "{range} comparado con {prev}",
         "partial": "{range} comparado con {prev}, contra lo que hay (datos desde {since})",
         "none": "Sin periodo anterior para comparar",
+        "noSales": "Sin ventas en el periodo anterior ({prev})",
         "clamped": "El periodo anterior es más corto y se usó completo.",
-        "noBase": "Sin periodo anterior para comparar",
+        "noBase": "Sin ventas en el periodo anterior",
         "noPrevious": "El periodo anterior estaba en cero: no hay con qué calcular el porcentaje",
         "cols": {
           "current": "Este periodo",
@@ -6853,7 +6854,7 @@
           "pct": "{pct} %",
           "vsPrevious": "vs periodo anterior",
           "vsPartial": "vs lo que hay",
-          "noBase": "Sin periodo anterior para comparar",
+          "noBase": "Sin ventas en el periodo anterior",
           "noPrevious": "Sin ventas en el periodo anterior con qué comparar"
         },
         "launch": {

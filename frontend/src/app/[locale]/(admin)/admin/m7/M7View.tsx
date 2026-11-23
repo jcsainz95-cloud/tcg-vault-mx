@@ -179,7 +179,7 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
         </Banner>
       )}
       {pnl.data && (
-        <ComparisonNote preset={period.preset} period={pnl.data.period ?? period} previous={pnl.data.previousPeriod} comparison={pnl.data.comparison} testId="pnl-compare" />
+        <ComparisonNote preset={period.preset} period={pnl.data.period ?? period} previous={pnl.data.previousPeriod} comparison={pnl.data.comparison} kind={pnl.data.period?.kind} testId="pnl-compare" />
       )}
 
       {/* P&L con el desglose de la fórmula */}

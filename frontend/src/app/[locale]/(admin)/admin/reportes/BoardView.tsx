@@ -87,6 +87,7 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
           period={sales.data.period}
           previous={sales.data.previousPeriod}
           comparison={sales.data.comparison}
+          kind={sales.data.period.kind}
           testId="board-period"
         />
       )}

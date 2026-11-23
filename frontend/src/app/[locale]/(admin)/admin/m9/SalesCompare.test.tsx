@@ -41,6 +41,25 @@ describe('§2 F2a · Ventas', () => {
     expect((await screen.findByTestId('sales-delta-orders')).textContent).toContain('+200 %');
   });
 
+  it('m-3: si el servidor cayó a `span`, NO dice «a la fecha»: da el rango tal cual; con kind=month sí', async () => {
+    serve('complete', { period: { preset: 'custom', from: '2026-11-05', to: '2026-11-23', days: 19, timezone: 'America/Mexico_City', kind: 'span' }, previousPeriod: { from: '2026-10-17', to: '2026-11-04', clamped: false } });
+    const a = renderWithProviders(<SalesTab initial={{ ...SALES_DEFAULTS, ...MONTH, from: '2026-11-05' }} />, 'es');
+    const note = await screen.findByTestId('sales-compare');
+    expect(note).not.toHaveTextContent('a la fecha');
+    expect(note).toHaveTextContent('5–23 nov comparado con 17 oct – 4 nov');
+    a.unmount();
+    serve('complete', { period: { preset: 'custom', from: '2026-11-01', to: '2026-11-23', days: 23, timezone: 'America/Mexico_City', kind: 'month' } });
+    mount();
+    expect(await screen.findByTestId('sales-compare')).toHaveTextContent('Mes a la fecha');
+  });
+
+  it('m-2: «El periodo anterior es más corto» solo con clamped:true (mes cerrado vs febrero completo va sin aviso)', async () => {
+    serve('complete', { previousPeriod: { from: '2027-02-01', to: '2027-02-28', clamped: false } });
+    mount();
+    await screen.findByTestId('sales-compare');
+    expect(screen.queryByTestId('sales-compare-clamped')).toBeNull();
+  });
+
   it('contra lo que hay, periodo anterior más corto y sin comparación', async () => {
     serve('partial', { previousPeriod: { from: '2026-10-01', to: '2026-10-23', clamped: true } }, '2026-10-12');
     const a = mount();
@@ -53,7 +72,7 @@ describe('§2 F2a · Ventas', () => {
     mount();
     const none = await screen.findByTestId('sales-compare');
     expect(none).toHaveAttribute('data-basis', 'none');
-    expect(none).toHaveTextContent('Sin periodo anterior para comparar');
+    expect(none).toHaveTextContent('Sin ventas en el periodo anterior (1–23 oct)');
     expect(document.body.textContent).not.toMatch(/MTD|YTD|basis|clamped/);
   });
 });

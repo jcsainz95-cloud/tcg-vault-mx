@@ -34,6 +34,20 @@ describe('§2 F2a · qué se rotula de la comparación (compareInfo)', () => {
   });
 });
 
+describe('§2 F2a · period.kind efectivo (m-3) y sin ventas (m-5)', () => {
+  it('«a la fecha» solo si el kind efectivo coincide con el del atajo; span ⇒ rango tal cual; sin kind (servidor viejo) ⇒ por atajo', () => {
+    expect(compareInfo('month', prev, { basis: 'complete' }, 'month').toDate).toBe('month');
+    expect(compareInfo('month', prev, { basis: 'complete' }, 'span').toDate).toBeNull();
+    expect(compareInfo('quarter', prev, { basis: 'complete' }, 'span').toDate).toBeNull();
+    expect(compareInfo('year', prev, { basis: 'complete' }, 'year').toDate).toBe('year');
+    expect(compareInfo('month', prev, { basis: 'complete' }, undefined).toDate).toBe('month');
+  });
+  it('basis none CON previous conserva el periodo anterior (rótulo «sin ventas en el periodo anterior»); sin previous no', () => {
+    expect(compareInfo('month', prev, { basis: 'none' }).previous).toEqual({ from: '2026-10-01', to: '2026-10-23' });
+    expect(compareInfo('month', null, null).previous).toBeNull();
+  });
+});
+
 describe('§2 F2a · formato de rango y de variación', () => {
   it('«1–23 nov» / «Nov 1–23», otro mes con ambos meses y un día con día de la semana', () => {
     const today = '2026-11-23';

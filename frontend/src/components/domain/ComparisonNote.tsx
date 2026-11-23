@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
-import type { ComparisonBasis } from '@/types/contract';
+import type { ComparisonBasis, PeriodKind } from '@/types/contract';
 import type { ReportPreset } from '@/lib/reports/period';
 import { compareInfo, fmtCompact } from '@/lib/reports/comparison';
 import { fmtDay } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
@@ -18,6 +18,7 @@ export function ComparisonNote({
   period,
   previous,
   comparison,
+  kind,
   testId = 'compare-note',
   className,
 }: {
@@ -25,12 +26,14 @@ export function ComparisonNote({
   period: { from: string; to: string };
   previous: { from: string; to: string; clamped?: boolean } | null | undefined;
   comparison: { basis?: ComparisonBasis; dataSince?: string | null } | null | undefined;
+  /** `period.kind` efectivo de la respuesta (m-3). */
+  kind?: PeriodKind | null;
   testId?: string;
   className?: string;
 }) {
   const t = useTranslations('admin.reports.compare');
   const locale = useLocale() as AppLocale;
-  const info = compareInfo(preset, previous, comparison);
+  const info = compareInfo(preset, previous, comparison, kind);
   const range = fmtCompact(period.from, period.to, locale);
 
   if (info.mode === 'none') {
@@ -38,7 +41,7 @@ export function ComparisonNote({
       <p className={className ?? 'text-sm text-muted'} data-testid={testId} data-basis="none">
         {info.toDate && <span className="font-medium text-text">{t(`toDate.${info.toDate}`)} · </span>}
         <span aria-hidden>— </span>
-        {t('none')}
+        {info.previous ? t('noSales', { prev: fmtCompact(info.previous.from, info.previous.to, locale) }) : t('none')}
       </p>
     );
   }

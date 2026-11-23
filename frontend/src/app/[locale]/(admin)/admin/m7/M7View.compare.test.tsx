@@ -88,7 +88,7 @@ describe('§2 F2a · Finanzas: estado de resultados contra el periodo anterior',
       expect(within(c).getByTestId('cmp-var').textContent).not.toContain('%');
     }
     expect(screen.getByTestId('pnl-compare')).toHaveAttribute('data-basis', 'none');
-    expect(screen.getByTestId('pnl-compare')).toHaveTextContent('Sin periodo anterior para comparar');
+    expect(screen.getByTestId('pnl-compare')).toHaveTextContent('Sin ventas en el periodo anterior (1–23 oct)');
   });
 
   it('rótulos: «Mes a la fecha · 1–23 nov comparado con 1–23 oct»; partial ⇒ «contra lo que hay (datos desde …)»; clamped ⇒ aviso', async () => {

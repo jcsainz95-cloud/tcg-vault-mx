@@ -149,6 +149,15 @@ describe('F1b · ofertado original en revisión', () => {
     renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'es');
     expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Precio pactado · lo que ofrecimos');
   });
+  it('m-34: en inglés el rótulo es «Agreed price» (con baja) y «Agreed price · what we offered» (sin baja)', () => {
+    const a = renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1500000 }} />, 'en');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Agreed price');
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('what we offered');
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('Precio pactado');
+    a.unmount();
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'en');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Agreed price · what we offered');
+  });
   it('m-27: sin ofertado (null) no pinta «MX$0.00» ni línea extra', () => {
     renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), offeredPriceCents: null, agreedPriceCents: 1500000 }} />, 'es');
     expect(screen.queryByTestId('offered-original-it-1')).toBeNull();

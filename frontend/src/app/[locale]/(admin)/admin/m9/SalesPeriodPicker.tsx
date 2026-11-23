@@ -75,6 +75,7 @@ export function SalesPeriodLabel({ data, preset }: { data: SalesReportDTO; prese
         period={period}
         previous={previousPeriod}
         comparison={data.comparison}
+        kind={period.kind}
         testId="sales-compare"
       />
     </div>

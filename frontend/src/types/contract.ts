@@ -7713,7 +7713,8 @@ export interface SalesMixDTO {
 export type SalesRowDTO = { from: SalesYmd; to: SalesYmd } & SalesFiguresDTO;
 
 export interface SalesReportDTO {
-  period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City' };
+  /** F2a (m-3): `kind` EFECTIVO (cae a `span` si el pedido no cuadra con la unidad); léelo de aquí, no lo dedulzcas por fechas. Opcional: servidor anterior. */
+  period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City'; kind?: PeriodKind };
   /** F2a: `clamped` ⇒ el tramo anterior es más corto que lo transcurrido y se usó COMPLETO (31-mar vs febrero). Opcional: servidor anterior. */
   previousPeriod: { from: SalesYmd; to: SalesYmd; clamped?: boolean };
   /** F2a: día MX del primer pedido liquidado (`null` sin pedidos). Opcional: servidor anterior. */

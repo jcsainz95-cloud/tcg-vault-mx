@@ -542,7 +542,7 @@ export function mockSalesReport(params: SalesReportParams, now: Date = new Date(
   const prev = figuresOf(prevFrom, prevTo);
   const rows: SalesRowDTO[] = buckets(r.from, r.to, r.groupBy).map((b) => ({ from: b.from, to: b.to, ...stripP2(figuresOf(b.from, b.to), phase) }));
   const report: SalesReportDTO = {
-    period: { preset: r.preset, from: r.from, to: r.to, days, timezone: 'America/Mexico_City' },
+    period: { preset: r.preset, from: r.from, to: r.to, days, timezone: 'America/Mexico_City', kind: pr.kind },
     previousPeriod: { from: prevFrom, to: prevTo, clamped: pr.clamped },
     firstDataDay: mockFirstDataDay(),
     groupBy: r.groupBy,

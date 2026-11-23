@@ -7,10 +7,19 @@ describe('§2 F2a · servidor falso = regla del contrato', () => {
     expect(mockPreviousRange('month', '2026-11-01', '2026-11-23')).toMatchObject({ from: '2026-10-01', to: '2026-10-23', clamped: false });
     expect(mockPreviousRange('month', '2026-10-01', '2026-10-31')).toMatchObject({ from: '2026-09-01', to: '2026-09-30', clamped: false });
   });
-  it('31-mar contra febrero: febrero completo y `clamped` (también bisiesto)', () => {
+  it('m-4 · mismo día un mes antes: 31-mar cerrado ⇒ febrero completo SIN rótulo; 30-mar-2027 ⇒ 28-feb con clamped; 29-mar-2028 ⇒ 29-feb sin rótulo', () => {
     expect(mockPreviousRange('month', '2027-03-01', '2027-03-31')).toMatchObject({ from: '2027-02-01', to: '2027-02-28', clamped: false });
     expect(mockPreviousRange('month', '2027-03-01', '2027-03-30')).toMatchObject({ from: '2027-02-01', to: '2027-02-28', clamped: true });
     expect(mockPreviousRange('month', '2028-03-01', '2028-03-29')).toMatchObject({ to: '2028-02-29', clamped: false });
+    expect(mockPreviousRange('month', '2028-03-01', '2028-03-01')).toMatchObject({ from: '2028-02-01', to: '2028-02-01', clamped: false });
+    // un `to` que es último día de mes (pero no el fin de la unidad) va al último día del mes destino sin rótulo
+    expect(mockPreviousRange('quarter', '2026-10-01', '2026-11-30')).toMatchObject({ from: '2026-07-01', to: '2026-08-31', clamped: false });
+    expect(mockPreviousRange('quarter', '2026-10-01', '2026-11-30')).not.toMatchObject({ clamped: true });
+    expect(mockPreviousRange('year', '2026-01-01', '2026-02-28')).toMatchObject({ from: '2025-01-01', to: '2025-02-28', clamped: false });
+    expect(mockPreviousRange('quarter', '2026-07-01', '2026-09-29')).toMatchObject({ from: '2026-04-01', to: '2026-06-29' });
+  });
+  it('`kind=day` solo con un día; con más de uno cae a span', () => {
+    expect(mockPreviousRange('day', '2026-11-20', '2026-11-23')).toMatchObject({ kind: 'span', from: '2026-11-16', to: '2026-11-19' });
   });
   it('trimestre y año a la fecha; day = misma semana −7; rolling y span = misma duración inmediatamente antes', () => {
     expect(mockPreviousRange('quarter', '2026-10-01', '2026-11-23')).toMatchObject({ from: '2026-07-01', to: '2026-08-23' });

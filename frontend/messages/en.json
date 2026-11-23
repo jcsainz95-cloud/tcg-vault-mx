@@ -6827,8 +6827,9 @@
         "complete": "{range} compared with {prev}",
         "partial": "{range} compared with {prev}, against what we have (data since {since})",
         "none": "No previous period to compare with",
+        "noSales": "No sales in the previous period ({prev})",
         "clamped": "The previous period is shorter and was used in full.",
-        "noBase": "No previous period to compare with",
+        "noBase": "No sales in the previous period",
         "noPrevious": "The previous period was zero: there is no base for a percentage",
         "cols": {
           "current": "This period",
@@ -6853,7 +6854,7 @@
           "pct": "{pct} %",
           "vsPrevious": "vs previous period",
           "vsPartial": "vs what we have",
-          "noBase": "No previous period to compare with",
+          "noBase": "No sales in the previous period",
           "noPrevious": "No sales in the previous period to compare with"
         },
         "launch": {

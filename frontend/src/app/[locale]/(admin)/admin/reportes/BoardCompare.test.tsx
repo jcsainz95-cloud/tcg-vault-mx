@@ -98,7 +98,8 @@ describe('§2 F2a · Junta de dirección con comparación de mismo tramo', () =>
     renderWithProviders(<BoardView initialPeriod={month} />, 'es');
     const note = await screen.findByTestId('board-period');
     expect(note).toHaveAttribute('data-basis', 'none');
-    expect(note).toHaveTextContent('Sin periodo anterior para comparar');
+    expect(note).toHaveTextContent('Sin ventas en el periodo anterior (1–23 oct)');
+    expect(note).not.toHaveTextContent('Sin periodo anterior para comparar');
     await screen.findByTestId('franja-finance');
     await within(screen.getByTestId('franja-finance')).findByText('Ganancia');
     expect(screen.queryAllByTestId('delta')).toHaveLength(0);

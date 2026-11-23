@@ -42,6 +42,8 @@ export interface MockPrev {
   kind: PeriodKind;
 }
 
+const lastDayOf = (day: string) => lastDay(Number(day.slice(0, 4)), Number(day.slice(5, 7)));
+
 function unitOf(kind: keyof typeof MONTHS, day: string): { from: string; to: string } {
   const [y, m] = day.split('-').map(Number);
   const n = MONTHS[kind];
@@ -50,18 +52,30 @@ function unitOf(kind: keyof typeof MONTHS, day: string): { from: string; to: str
   return { from: ymd(y, sm, 1), to: ymd(y, em, lastDay(y, em)) };
 }
 
+/** Misma fecha de calendario `n` meses atrás; recorta al fin del mes destino (`clamped`); último día de mes ⇒ último día destino sin rótulo. */
+function shiftMonths(day: string, n: number): { day: string; clamped: boolean } {
+  const [y, m, d] = day.split('-').map(Number);
+  const t = y * 12 + (m - 1) - n;
+  const ty = Math.floor(t / 12);
+  const tm = (t % 12) + 1;
+  const max = lastDay(ty, tm);
+  if (d === lastDayOf(day)) return { day: ymd(ty, tm, max), clamped: false };
+  return d > max ? { day: ymd(ty, tm, max), clamped: true } : { day: ymd(ty, tm, d), clamped: false };
+}
+
+/** Espejo de `previousRange` del servidor (§2 F2a, m-4: «el mismo día, un mes/trimestre/semestre/año antes»). */
 export function mockPreviousRange(kind: PeriodKind | undefined, from: string, to: string): MockPrev {
   const days = span(from, to);
   const asSpan = (): MockPrev => ({ from: mockAddDays(from, -days), to: mockAddDays(from, -1), clamped: false, kind: 'span' });
   if (!kind || kind === 'span') return asSpan();
-  if (kind === 'day') return { from: mockAddDays(from, -7), to: mockAddDays(to, -7), clamped: false, kind };
+  if (kind === 'day') return from === to ? { from: mockAddDays(from, -7), to: mockAddDays(to, -7), clamped: false, kind } : asSpan();
   if (kind === 'rolling') return { from: mockAddDays(from, -days), to: mockAddDays(from, -1), clamped: false, kind };
   const unit = unitOf(kind, from);
   if (unit.from !== from || to > unit.to) return asSpan();
   const prev = unitOf(kind, mockAddDays(unit.from, -1));
   if (to === unit.to) return { ...prev, clamped: false, kind };
-  const end = mockAddDays(prev.from, days - 1);
-  return end > prev.to ? { ...prev, clamped: true, kind } : { from: prev.from, to: end, clamped: false, kind };
+  const t = shiftMonths(to, MONTHS[kind]);
+  return { from: prev.from, to: t.day, clamped: t.clamped, kind };
 }
 
 export function mockBasis(first: string | null, prev: { from: string; to: string }): { basis: ComparisonBasis; dataSince: string | null } {

@@ -1,5 +1,5 @@
 import type { AppLocale } from '@/i18n/routing';
-import type { ComparisonBasis, MoneyDeltaDTO } from '@/types/contract';
+import type { ComparisonBasis, MoneyDeltaDTO, PeriodKind } from '@/types/contract';
 import { fmtDay } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
 import { todayMx, type ReportPreset } from './period';
 
@@ -33,8 +33,11 @@ export function compareInfo(
   preset: ReportPreset,
   previous: { from: string; to: string; clamped?: boolean } | null | undefined,
   comparison: { basis?: ComparisonBasis; dataSince?: string | null } | null | undefined,
+  /** `period.kind` EFECTIVO de la respuesta (m-3): si el servidor cayó a `span`, NO es «a la fecha». `undefined` ⇒ servidor anterior. */
+  kind?: PeriodKind | null,
 ): CompareInfo {
-  const toDate = TO_DATE[preset] ?? null;
+  const wanted = TO_DATE[preset] ?? null;
+  const toDate = wanted && (kind === undefined || kind === null || kind === wanted) ? wanted : null;
   const noBase = !previous || preset === 'all' || comparison === null;
   const basis: ComparisonBasis = noBase ? 'none' : (comparison?.basis ?? 'complete');
   if (basis === 'none') return { mode: 'none', toDate, previous: previous ? { from: previous.from, to: previous.to } : null, clamped: false, dataSince: null };
