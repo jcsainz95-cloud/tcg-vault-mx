@@ -45,7 +45,9 @@ test.describe('admin · dashboard', () => {
     await page.getByLabel(t('es', 'admin.roleLabel')).selectOption('vault_operator');
     await expect(page.getByText(t('es', 'admin.superAdminGateTitle'))).toBeVisible();
     await expect(page.getByTestId('franja-finance')).toHaveCount(0);
-    await page.goto('/es/admin');
+    // Navegación del cliente (el dial «Ver como» vive en memoria: un goto recargaría como súper-admin).
+    await page.getByRole('link', { name: t('es', 'admin.modules.dashboard'), exact: true }).click();
+    await expect(page.getByRole('heading', { name: t('es', 'admin.modules.dashboard') })).toBeVisible();
     await expect(page.getByText(t('es', 'admin.dashboard.workQueue')).first()).toBeVisible();
     // CR-4: el operador no ve NINGÚN importe en Inicio.
     await expect(page.getByText(/MX\$/)).toHaveCount(0);
