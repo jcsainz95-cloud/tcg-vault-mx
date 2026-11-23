@@ -295,7 +295,7 @@ describe('UX-GAS-3 · la tarjeta «Control del gasto» del tablero', () => {
     role.superAdmin = false;
     vi.spyOn(api, 'getDashboard').mockResolvedValue(dash(null));
     renderWithProviders(<AdminDashboard />, 'es');
-    await screen.findByTestId('sales-gross');
+    await screen.findByText('Cola de trabajo');
     expect(screen.queryByTestId('dashboard-spend-control')).not.toBeInTheDocument();
     expect(screen.queryByText('Control del gasto')).not.toBeInTheDocument();
   });

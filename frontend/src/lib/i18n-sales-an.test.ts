@@ -18,12 +18,25 @@ const section = DS.slice(START, END);
 // D9 (2026-11-09, `docs/specs/D9_COMISION.md` §5): la comisión va dentro del precio. `docs/archive` es historia
 // congelada, así que el texto vigente de estas filas vive aquí y no se edita el archivo.
 const D9_TEXT: Record<string, { es: string; en: string }> = {
+  // §REPORTES-CEO: «buylist» sale del español de negocio; el texto vigente es «compras a vendedores».
+  'admin.m9.sales.p2.buylistPaid': { es: 'Pagado a vendedores', en: 'Paid to sellers' },
   'admin.m9.sales.card.chargedHelp': { es: 'Lo que pagaron los clientes: con IVA y envío.', en: 'What customers paid: VAT and shipping included.' },
 };
 const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m) => {
   const key = m[1].startsWith('sales.') ? `admin.m9.${m[1]}` : m[1];
   return { key, es: D9_TEXT[key]?.es ?? m[2], en: D9_TEXT[key]?.en ?? m[3] };
 });
+// §REPORTES-CEO F1: las pestañas de M9 desaparecieron (Ventas es la única vista; Actividad y Lista de compra se movieron).
+// El archivo congelado las sigue listando, así que se excluyen aquí y se asierta que ya no existen.
+// §REPORTES-CEO §2: el selector de periodo es el único (`admin.reports.period.*`); de la tabla antigua salen las claves de sus
+// presets/fechas propias, los avisos de rango a mano y la ganancia de Ventas (vive en Finanzas), y el título de la tabla diaria.
+const RETIRED = (key: string) =>
+  key.startsWith('admin.m9.tabs.') ||
+  /^admin\.m9\.sales\.period\.(presetsLabel|today|yesterday|last7|last30|thisMonth|lastMonth|custom|from|to|apply)$/.test(key) ||
+  /^admin\.m9\.sales\.range\.(bothRequired|fromAfterTo|toFuture|tooLong)$/.test(key) ||
+  key === 'admin.m9.sales.p2.profit' ||
+  key === 'admin.m9.sales.p2.profitHelp' ||
+  key === 'admin.m9.sales.table.title';
 const ES = flatten(es);
 const EN = flatten(en);
 
@@ -38,7 +51,7 @@ describe('UX-AN-15 · paridad ES/EN con la tabla de §AN-UX.14', () => {
     expect(ROWS.length).toBeGreaterThan(150);
     expect(ROWS.some((r) => r.key === 'admin.dashboard.salesToday.title')).toBe(true);
   });
-  it.each(ROWS.map((r) => [r.key, r] as const))('%s', (key, r) => {
+  it.each(ROWS.filter((r) => !RETIRED(r.key)).map((r) => [r.key, r] as const))('%s', (key, r) => {
     expect(ES[key], `es: ${key}`).toBe(r.es);
     expect(EN[key], `en: ${key}`).toBe(r.en);
   });
@@ -50,10 +63,12 @@ describe('UX-AN-15 · paridad ES/EN con la tabla de §AN-UX.14', () => {
       expect(AN_RE.test(v), `${k}: ${v}`).toBe(false);
     }
   });
-  it('lo de antes de `admin.m9.*` no cambió', () => {
-    expect(es.admin.m9.metrics.title).toBe('Actividad de la tienda');
-    expect(es.admin.m9.range.title).toBe('Rango de fechas');
-    expect(en.admin.m9.export.pnl).toBe('Export P&L (CSV)');
+  it('§REPORTES-CEO F1: las pestañas y la actividad de `admin.m9.*` se retiraron sin dejar claves muertas', () => {
+    const m9 = es.admin.m9 as Record<string, unknown>;
+    for (const gone of ['tabs', 'metrics', 'range', 'export', 'goalPending', 'goalProgress', 'goalsUnset']) {
+      expect(m9[gone], `es admin.m9.${gone}`).toBeUndefined();
+      expect((en.admin.m9 as Record<string, unknown>)[gone], `en admin.m9.${gone}`).toBeUndefined();
+    }
   });
 });
 

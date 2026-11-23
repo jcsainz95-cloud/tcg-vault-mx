@@ -161,7 +161,8 @@ describe('⚠️⚠️ §11 / §M5-V.8(7) — la tarjeta del tablero SUMA `appro
     expect(args._sum).not.toHaveProperty('payoutNetCents');
     expect(args._sum).not.toHaveProperty('offerGrossCents');
     // Y se acota por `paidAt` (cuándo SALIÓ el dinero), no por `createdAt`.
-    expect(args.where.paidAt).toEqual({ gte: new Date('2026-01-01'), lte: new Date('2026-02-01') });
+    // §REPORTES-CEO F1 (contrato §2): `YYYY-MM-DD` = días de México, semiabierto (el «hasta» incluido: hasta 2026-02-02 06:00Z).
+    expect(args.where.paidAt).toEqual({ gte: new Date('2026-01-01T06:00:00.000Z'), lt: new Date('2026-02-02T06:00:00.000Z') });
   });
 
   it('`amountCents` LEE `_sum.approvedTotalCents` (no otra clave del agregado)', async () => {

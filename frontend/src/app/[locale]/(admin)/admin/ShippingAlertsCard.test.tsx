@@ -77,7 +77,7 @@ describe('UX-SDX-39 · la tarjeta para los dos roles; `null`/ausente ⇒ no exis
     it(`\`shipping\` ${name} ⇒ ningún «Alertas de envíos»`, async () => {
       serve(value);
       renderWithProviders(<AdminDashboard />, 'es');
-      await screen.findByTestId('sales-gross');
+      await screen.findByText('Cola de trabajo');
       expect(screen.queryByTestId('dashboard-shipping-alerts')).toBeNull();
       expect(screen.queryByText('Alertas de envíos')).toBeNull();
     });

@@ -5,6 +5,8 @@ import type { AppLocale } from '@/i18n/routing';
 import type { SalesFiguresDTO, SalesReportDTO } from '@/types/contract';
 import { cn } from '@/lib/cn';
 import { formatMoneyCents } from '@/lib/format';
+import { Link } from '@/i18n/navigation';
+import { periodSearch } from '@/lib/reports/period';
 import { NoData } from './SalesSummary';
 import { Segmented } from './SalesBarChart';
 import { bucketDays, fmtDay, fmtMonth, fmtRange, money, oneDecimal, signedMoney } from './salesFormat';
@@ -176,9 +178,24 @@ export function SalesDailyTable({
   return (
     <section aria-labelledby="sales-table-h" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 id="sales-table-h" className="text-h2 font-semibold">
-          {t('table.title', { unit })}
-        </h2>
+        <div className="flex flex-col gap-1">
+          <h2 id="sales-table-h" className="text-h2 font-semibold">
+            {t('table.title', { unit })}
+          </h2>
+          {/* §REPORTES-CEO §6 «Excepciones» (2): único desglose por día de ganancia, envío y compras hasta F2; enlaza al P&L. */}
+          <p className="text-xs text-muted" data-testid="sales-table-pnl-link">
+            {t.rich('table.pnlLink', {
+              link: (c) => (
+                <Link
+                  href={`/admin/m7${periodSearch({ preset: 'custom', from: data.period.from, to: data.period.to })}`}
+                  className="text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                >
+                  {c}
+                </Link>
+              ),
+            })}
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           {p2 && (
             <Segmented

@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import es from '../../../../../messages/es.json';
 import { AdminDashboard } from './AdminDashboard';
+import { M9View } from './m9/M9View';
 import { today } from './m9/sales.testkit';
 
 /**
@@ -35,7 +36,7 @@ describe('UX-AN-10 (AN-F-3) · el operador no tiene tarjeta ni petición', () =>
     role.current = 'vault_operator';
     const spy = vi.spyOn(api, 'getSalesToday');
     renderWithProviders(<AdminDashboard />, 'es');
-    await screen.findByTestId('sales-gross'); // el tablero ya pintó
+    await screen.findByText('Cola de trabajo'); // el tablero ya pintó (§REPORTES-CEO F1: la tarjeta vive en Reportes › Ventas, no en Inicio)
     expect(screen.queryByTestId('sales-today-card')).toBeNull();
     expect(screen.queryByText(T.title)).toBeNull();
     expect(spy).not.toHaveBeenCalled();
@@ -45,7 +46,7 @@ describe('UX-AN-10 (AN-F-3) · el operador no tiene tarjeta ni petición', () =>
 describe('UX-AN-11 · súper-admin: cifras, rótulo del periodo, referencia y enlace', () => {
   it('pinta lo del DTO y enlaza a la pestaña «Ventas» con `preset=today`', async () => {
     const spy = vi.spyOn(api, 'getSalesToday').mockResolvedValue(today());
-    renderWithProviders(<AdminDashboard />, 'es');
+    renderWithProviders(<M9View />, 'es');
     const card = await screen.findByTestId('sales-today-orders');
     expect(card.textContent).toBe('3 pedidos');
     const root = screen.getByTestId('sales-today-card');
@@ -53,25 +54,25 @@ describe('UX-AN-11 · súper-admin: cifras, rótulo del periodo, referencia y en
     expect(root.textContent).toMatch(/Hoy, mar 6 oct · va en curso/);
     expect(root.textContent).toMatch(/Mar 29 sep completo: 1 pedido · MX\$400\.00/);
     expect(screen.getByTestId('sales-today-delta').textContent).toContain('+2 pedidos');
-    expect(screen.getByTestId('sales-today-link')).toHaveAttribute('href', '/admin/m9?tab=ventas&preset=today');
+    expect(screen.getByTestId('sales-today-link')).toHaveAttribute('href', '/admin/m9?preset=today');
     expect(spy).toHaveBeenCalledTimes(1);
   });
   it('referencia sin ventas ⇒ «El … no hubo ventas.» sin %', async () => {
     vi.spyOn(api, 'getSalesToday').mockResolvedValue(
       today({ sameWeekdayLastWeek: { day: '2026-09-29', orders: 0, chargedCents: 0 }, comparison: { orders: { diff: 3, pct: null }, chargedCents: { diff: 125000, pct: null } } }),
     );
-    renderWithProviders(<AdminDashboard />, 'es');
+    renderWithProviders(<M9View />, 'es');
     const delta = await screen.findByTestId('sales-today-delta');
     expect(delta.textContent).toBe('El mar 29 sep no hubo ventas.');
   });
 });
 
-describe('UX-AN-12 · el error de la tarjeta no tumba el tablero', () => {
+describe('UX-AN-12 · el error de la tarjeta no tumba el informe de Ventas', () => {
   it('la celda muestra su error con «Reintentar» y las demás tarjetas siguen', async () => {
     vi.spyOn(api, 'getSalesToday').mockRejectedValue(new Error('boom'));
-    renderWithProviders(<AdminDashboard />, 'es');
+    renderWithProviders(<M9View />, 'es');
     await waitFor(() => expect(screen.getByTestId('sales-today-card').textContent).toContain(T.error));
     expect(screen.getByRole('button', { name: T.retry })).toBeInTheDocument();
-    expect(screen.getByTestId('sales-gross')).toBeInTheDocument();
+    expect(await screen.findByTestId('sales-period-label')).toBeInTheDocument();
   });
 });

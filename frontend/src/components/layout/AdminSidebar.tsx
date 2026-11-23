@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '@/i18n/navigation';
 import { useRole } from '@/lib/role';
+import { useReportPeriodSearch } from '@/lib/reports/period-store';
 import { cn } from '@/lib/cn';
 import { usePickingSummary } from '@/hooks/usePickingSummary';
 import type { PickingListSummaryDTO } from '@/types/contract';
@@ -26,13 +27,15 @@ export interface Item {
    * gasto son del dueño y al operador no le dicen nada que pueda hacer.
    */
   hiddenUnlessSuperAdmin?: boolean;
+  /** §REPORTES-CEO §2: el periodo vigente viaja en la URL al navegar entre Reportes y Finanzas (también por el menú). */
+  carriesPeriod?: boolean;
 }
 
 /**
  * §37.2 (P-66 I2) · el menú rotula por NOMBRE, no por código: el M-n sobrevive solo en la ruta
  * (`/admin/m5`) y en la clave i18n (`admin.modules.m5`) — renombrar rutas rompe enlaces guardados.
  * Grupos por lo que se hace (el trabajo diario primero) y, dentro de cada grupo, por frecuencia de
- * uso conocida. «Resumen» va solo arriba, SIN rótulo de grupo (`groupKey: null`).
+ * uso conocida. «Inicio» y «Pedidos» van solos arriba, SIN rótulo de grupo (`groupKey: null`).
  *
  * Regla de §37.2a-2: el `h1` de cada página es `t('admin.modules.<key>')` — la MISMA cadena que
  * su entrada del menú, carácter por carácter (candado: `AdminPageTitles.test.tsx`).
@@ -40,15 +43,19 @@ export interface Item {
 const groups: { groupKey: string | null; items: Item[] }[] = [
   {
     groupKey: null,
-    items: [{ href: '/admin', key: 'dashboard' }],
+    // §REPORTES-CEO F1: «Resumen» pasa a «Inicio» (solo colas y avisos del día) y «Ventas» (m3) a «Pedidos»
+    // (lista y reembolsos). Las rutas no cambian: el M-n sobrevive en la URL y en la clave i18n.
+    items: [
+      { href: '/admin', key: 'dashboard' },
+      { href: '/admin/m3', key: 'm3' },
+    ],
   },
   {
     groupKey: 'daily',
     items: [
       { href: '/admin/m5', key: 'm5' },
-      { href: '/admin/m3', key: 'm3' },
       // v4.10 (§37.20 · HECHOS 2026-10-02 «Menú del panel: se queda como está; … se JUNTAN en UNA sola pestaña
-      // con dos cubetas»): UNA entrada «Reembolsos», en el mismo hueco tras «Ventas», súper-admin y solo él.
+      // con dos cubetas»): UNA entrada «Reembolsos», súper-admin y solo él.
       // Badge = SOLO transferencias SPEI pendientes (lo único que espera la mano del dueño), ⛔ no una suma.
       // `manualRefundsPending` es `null` para el operador ⇒ sin badge. Se ilumina también en el detalle
       // `/admin/manual-refunds/:id`, que se queda en su ruta (§37.20 c).
@@ -80,8 +87,26 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
     ],
   },
   {
+    // §REPORTES-CEO F1 (API_CONTRACT_REPORTES §6): una entrada por área, en el orden de la junta. Todo lo de dinero es
+    // súper-admin (candado visible, como Finanzas hoy); «Inventario» y «Operación» las ve también el operador, en unidades
+    // (la máscara por rol la pone el servidor y la pantalla no pinta dinero a quien no es súper-admin).
+    groupKey: 'reports',
+    items: [
+      { href: '/admin/reportes', key: 'reportsBoard', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/m7', key: 'm7', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/m9', key: 'm9', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/reportes/compras', key: 'reportsPurchases', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/reportes/inventario', key: 'reportsStock', carriesPeriod: true },
+      { href: '/admin/reportes/operacion', key: 'reportsOps', carriesPeriod: true },
+      // §MKT-UX.1 / API_CONTRACT §MKT.G.1+G.7: «Marketing», visible SOLO para súper-admin en Fase 0 (único con
+      // `marketing:read`); oculto, ⛔ ni bloqueado, para el operador. La URL a mano llega al 403 neutro de la pantalla.
+      { href: '/admin/marketing', key: 'marketing', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
+    ],
+  },
+  {
     groupKey: 'stock',
     items: [
+      // «Inventario (editar)»: el trabajo sobre las piezas; las cifras de inventario viven en Reportes › Inventario.
       { href: '/admin/m1', key: 'm1' },
       // §diseño §1 (D-1/D-4): Sellado. Ruta `vault_operator+` (secciones i/ii/iii de alta,
       // inventario y cola); el panel de diales (iv) se gatea DENTRO de la vista con SuperAdminOnly.
@@ -112,8 +137,6 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
   {
     groupKey: 'administration',
     items: [
-      { href: '/admin/m7', key: 'm7', superAdminOnly: true },
-      { href: '/admin/m9', key: 'm9', superAdminOnly: true },
       { href: '/admin/m6', key: 'm6' }, // §FICHA-CLIENTE.13: el operador ve clientes y ficha (lectura)
       { href: '/admin/m10', key: 'm10', superAdminOnly: true },
       // Card Show (§CARDSHOW.15): captura de leads/preinscritos del evento. Súper-admin y solo él
@@ -122,9 +145,6 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
       // §PROV F1: compra a tiendas aliadas. Lectura/recogida/verificación: staff; invitar, aceptar y pagar: super_admin
       // (los botones se ocultan por rol y el backend manda).
       { href: '/admin/proveedores', key: 'suppliers' },
-      // §MKT-UX.1 / API_CONTRACT §MKT.G.1+G.7: «Marketing», visible SOLO para súper-admin en Fase 0 (único con
-      // `marketing:read`); oculto, ⛔ ni bloqueado, para el operador. La URL a mano llega al 403 neutro de la pantalla.
-      { href: '/admin/marketing', key: 'marketing', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
     ],
   },
 ];
@@ -178,6 +198,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { isSuperAdmin } = useRole();
   const summary = usePickingSummary();
+  const periodQuery = useReportPeriodSearch();
 
   function badgeFor(item: Item) {
     if (!item.badge || !summary.data) return null;
@@ -209,7 +230,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
               return (
                 <li key={item.href}>
                   <Link
-                    href={item.href}
+                    href={item.carriesPeriod ? `${item.href}${periodQuery}` : item.href}
                     onClick={onNavigate}
                     aria-disabled={locked}
                     aria-current={active ? 'page' : undefined}

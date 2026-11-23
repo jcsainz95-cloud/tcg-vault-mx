@@ -41,13 +41,6 @@
     "skipToContent": "Skip to content",
     "value": "Value",
     "total": "Total",
-    "datePresets": {
-      "label": "Quick range",
-      "week": "This week",
-      "month": "Last month",
-      "quarter": "This quarter",
-      "year": "This year"
-    },
     "undo": "Undo",
     "verdict": {
       "done": "Done",
@@ -1740,21 +1733,22 @@
     },
     "groups": {
       "daily": "Daily work",
+      "reports": "Reports",
       "stock": "Stock",
       "storefront": "Storefront",
       "administration": "Administration"
     },
     "modules": {
       "suppliers": "Suppliers",
-      "dashboard": "Overview",
-      "m1": "Inventory",
+      "dashboard": "Home",
+      "m1": "Inventory (edit)",
       "m2": "Catalog & pricing",
-      "m3": "Sales",
+      "m3": "Orders",
       "m4": "Orders to prepare",
       "m5": "Sell requests",
       "m6": "Users",
       "m7": "Finance",
-      "m9": "Reports",
+      "m9": "Sales",
       "m10": "Settings",
       "m11": "Sealed",
       "m12": "Meta Battle Decks",
@@ -1769,7 +1763,11 @@
       "accessories": "Accessories",
       "cardShow": "Card Show",
       "marketing": "Marketing",
-      "discounts": "Discount codes"
+      "discounts": "Discount codes",
+      "reportsOps": "Operations",
+      "reportsStock": "Inventory",
+      "reportsPurchases": "Buying from sellers",
+      "reportsBoard": "Executive board"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -1778,14 +1776,7 @@
     "superAdminGateTitle": "Restricted access",
     "superAdminGateBody": "This module is super-admin only. Switch role or request access.",
     "dashboard": {
-      "profit": "Period profit",
-      "sales": "Period sales",
-      "salesGross": "Gross",
-      "salesNet": "Net",
       "workQueue": "Work queue",
-      "inventoryValue": "Inventory value",
-      "custodyValue": "Custody value",
-      "buylist": "Period buylist",
       "dataHealth": "Data health",
       "launch": "Launch progress",
       "shipments": "Shipments",
@@ -1794,9 +1785,9 @@
       "lastFx": "Last FX rate",
       "goalPending": "Goal pending",
       "users": "Users",
-      "salesSettled": "Settled sales",
-      "buylistPaid": "Buylist paid",
       "withdrawals": "Withdrawals no dispute",
+      "buylistPaid": "Seller purchases paid",
+      "buylistQueue": "Seller purchases",
       "toPrepare": {
         "title": "Orders to prepare",
         "detail": "{ship} shipping · {vault} vault · {toReplace} to replace",
@@ -6455,13 +6446,6 @@
     },
     "m7": {
       "title": "Finance",
-      "range": {
-        "title": "Date range",
-        "subtitle": "Applies to P&L and collected VAT. With no range the full history is used.",
-        "from": "From",
-        "to": "To",
-        "clear": "Clear range"
-      },
       "pnl": {
         "title": "Profit & loss (P&L)",
         "formula": "Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
@@ -6488,14 +6472,6 @@
         "buylistGuideMarginNegative": "In this period, the labels cost more than what was deducted from sellers.",
         "buylistGuideCostMissing": "{count, plural, one {# paid request used a manual label with no cost entered: its label counts as if it cost MX$0 and its margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.} other {# paid requests used a manual label with no cost entered: their labels count as if they cost MX$0 and their margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.}}"
       },
-      "values": {
-        "title": "Inventory and custody value",
-        "inventoryAtReference": "Inventory (at reference)",
-        "inventoryAtCost": "At cost",
-        "pendingPrice": "{count} without price",
-        "custody": "Customer custody value",
-        "custodyNote": "Customer cards in the vault, at market value."
-      },
       "iva": {
         "title": "Collected VAT",
         "subtitle": "Recorded for reconciliation/CFDI (no PAC stamping in the MVP).",
@@ -6508,8 +6484,7 @@
       },
       "export": {
         "pnl": "Export P&L (CSV)",
-        "iva": "Export VAT (CSV)",
-        "inventory": "Export inventory (CSV)"
+        "iva": "Export VAT (CSV)"
       },
       "statement": {
         "title": "Summary",
@@ -6525,71 +6500,14 @@
         "ivaRefunded": "VAT on refunds",
         "ivaNet": "Net VAT payable",
         "netResult": "Net result"
-      },
-      "volume": {
-        "title": "Volume and ticket",
-        "subtitle": "Same range as the P&L. Figures are what the customer PAID (VAT and shipping included).",
-        "needsRange": "Pick a date range to see volume and average order.",
-        "orders": "Orders",
-        "avgTicket": "Average order",
-        "avgTicketHelp": "Collected ÷ orders: what a customer pays per purchase, with VAT and shipping.",
-        "piecesPerOrder": "Pieces per order",
-        "pieces": "Pieces sold",
-        "boundaryNote": "On day boundaries the total may differ from the P&L by one order."
       }
     },
     "m9": {
-      "title": "Reports",
-      "range": {
-        "title": "Date range",
-        "subtitle": "Each metric respects the range by its realization date.",
-        "from": "From",
-        "to": "To",
-        "clear": "Clear range"
-      },
-      "metrics": {
-        "title": "Store activity",
-        "subtitle": "Counts for the selected date range.",
-        "users": "Active users",
-        "salesSettled": "Settled sales",
-        "buylistPaid": "Buylist paid",
-        "withdrawalsNoDispute": "Withdrawals without dispute"
-      },
-      "goalPending": "Goal not set",
-      "goalProgress": "{current} of {target} · {pct}%",
-      "goalsUnset": "No goals set yet: showing counts only.",
-      "export": {
-        "title": "Export",
-        "subtitle": "Download reports as CSV for external analysis.",
-        "pnl": "Export P&L (CSV)",
-        "iva": "Export VAT (CSV)",
-        "inventory": "Export inventory (CSV)"
-      },
-      "tabs": {
-        "sales": "Sales",
-        "activity": "Activity",
-        "buyList": "Buy list"
-      },
       "sales": {
         "period": {
-          "title": "Period",
-          "presetsLabel": "Choose a period",
-          "today": "Today",
-          "yesterday": "Yesterday",
-          "last7": "Last 7 days",
-          "last30": "Last 30 days",
-          "thisMonth": "This month",
-          "lastMonth": "Last month",
-          "custom": "Pick dates…",
-          "from": "From",
-          "to": "To",
-          "apply": "Show"
+          "title": "Period"
         },
         "range": {
-          "bothRequired": "Pick both dates.",
-          "fromAfterTo": "The start date must come before the end date.",
-          "toFuture": "It can't be later than today.",
-          "tooLong": "One year at most (366 days). Shorten the range.",
           "invalid": "That period isn't valid. Pick another one."
         },
         "groupBy": {
@@ -6656,7 +6574,8 @@
           "summaryOrders": "{metric} from {from} to {to}: {total} in total; the busiest, {best} with {bestValue}; {zero, plural, =0 {no days without orders} one {# day without orders} other {# days without orders}}."
         },
         "table": {
-          "title": "By {unit, select, day {day} week {week} other {month}}",
+          "title": "Detail by {unit, select, day {day} week {week} other {month}}",
+          "pnlLink": "Profit, shipping and seller purchases per day. The full income statement is in <link>Finance</link>.",
           "caption": "Sales by {unit, select, day {day} week {week} other {month}}, {from} to {to}",
           "colsLabel": "Columns",
           "colsSales": "Sales",
@@ -6750,11 +6669,9 @@
           "shippingCost": "Label cost (excl. VAT)",
           "includesAdjustments": "Includes carrier adjustments {amount}",
           "costMissing": "{count, plural, one {# shipment without recorded cost} other {# shipments without recorded cost}}",
-          "buylistPaid": "Buylist purchases",
+          "buylistPaid": "Paid to sellers",
           "buylistCount": "{count, plural, one {# paid purchase} other {# paid purchases}}",
           "payoutMissing": "{count} without a recorded amount",
-          "profit": "Profit (Finance rule)",
-          "profitHelp": "The same profit as Finance.",
           "shippingResult": "Shipping result",
           "shippingResultHelp": "Shipping charged minus label cost.",
           "shippingResultMaybeLower": "May be lower: some shipments have no recorded cost.",
@@ -6777,7 +6694,7 @@
         }
       },
       "buyList": {
-        "title": "Cards people want that you don't have",
+        "title": "What to restock",
         "subtitle": "Cards someone has on their wishlist that you don't have on sale today. No names: just how many.",
         "dials": "Calculated with: target margin {margin}% {basis} · customers' max {ivaMode} · VAT {rate}%",
         "basis": {
@@ -6878,6 +6795,139 @@
         "daysFmt": "{days, plural, one {# day} other {# days}}",
         "truncated": "Showing {shown} of {total}; download the CSV to see all.",
         "noData": "No data"
+      }
+    },
+    "reports": {
+      "period": {
+        "label": "Period",
+        "today": "Today",
+        "7d": "7 days",
+        "30d": "30 days",
+        "month": "This month",
+        "last-month": "Last month",
+        "quarter": "This quarter",
+        "year": "This year",
+        "all": "All",
+        "custom": "Dates…",
+        "from": "From",
+        "to": "To",
+        "apply": "Show",
+        "invalid": "Pick two real dates: start before end, not after today and, where it applies, within the day limit.",
+        "maxDays": "max. {days} days",
+        "mexicoTime": "Mexico City time",
+        "resolved": "{from} to {to}",
+        "allResolved": "Full history, up to {to}"
+      },
+      "board": {
+        "breadcrumb": "Reports",
+        "intro": "Each area's results over the same period. Tap “See the full report” to go into the detail.",
+        "comparedWith": "Compared with {prevFrom} to {prevTo}",
+        "noComparison": "No previous period to compare with",
+        "seeFull": "See the full report",
+        "delta": {
+          "up": "up",
+          "down": "down",
+          "same": "same",
+          "pct": "{pct} %",
+          "vsPrevious": "vs previous period",
+          "noPrevious": "No sales in the previous period to compare with"
+        },
+        "launch": {
+          "title": "Launch goals",
+          "ask": "Am I on track against what I set out to do?",
+          "seeTotal": "See the running total in Home",
+          "users": "Active users",
+          "salesSettled": "Settled sales",
+          "buylistPaid": "Seller purchases paid",
+          "withdrawalsNoDispute": "Withdrawals without dispute",
+          "goalPending": "Goal not set",
+          "goalProgress": "{current} of {target} · {pct}%",
+          "goalsUnset": "No goals set yet: showing this period's counts only."
+        },
+        "areas": {
+          "finance": {
+            "ask": "How much did I earn?",
+            "profit": "Profit",
+            "profitNote": "After cost of goods, fees, shipping and refunds. Fixed costs (rent, payroll, advertising) are not deducted yet."
+          },
+          "sales": {
+            "ask": "What sells, and how much does each order bring in?",
+            "orders": "Orders",
+            "net": "Sales before VAT",
+            "netNote": "The same revenue figure as Finance.",
+            "ticket": "Average order",
+            "ticketNote": "What a customer pays per purchase, with VAT and shipping.",
+            "customers": "Customers",
+            "customersValue": "{new, plural, one {# new} other {# new}} · {returning, plural, one {# returning} other {# returning}}"
+          },
+          "purchases": {
+            "ask": "How many cards do I buy from sellers, and what does receiving them cost?",
+            "paid": "Paid to sellers",
+            "paidCount": "{count, plural, one {# request paid} other {# requests paid}}",
+            "fee": "Shipping fee withheld",
+            "guides": "Purchase label cost"
+          },
+          "stock": {
+            "ask": "What is what I have worth?",
+            "reference": "Inventory value",
+            "referenceNote": "At cost: {cost} · {pending} without a price",
+            "custody": "Customer custody value",
+            "custodyNote": "Customers' cards in the vault, at market value."
+          },
+          "ops": {
+            "ask": "Am I delivering on time, and does shipping cost me or pay me?",
+            "ship": "Shipments to prepare",
+            "vault": "Vault to prepare",
+            "toReplace": "To replace",
+            "overdue": "{count, plural, one {# overdue case} other {# overdue cases}}",
+            "shippingResult": "Shipping result",
+            "shippingResultNote": "Shipping charged minus what the labels cost, before VAT."
+          },
+          "marketing": {
+            "ask": "How many people arrive, and from where?",
+            "body": "Marketing is measured by week or by month, with its own filters. Open it to see visits, where they come from and how many buy."
+          }
+        }
+      },
+      "purchases": {
+        "intro": "What you pay sellers for their cards and what it costs to receive them, over the chosen period.",
+        "fee": "Shipping fee withheld",
+        "feeNote": "What is withheld from sellers for the label.",
+        "guides": "Purchase label cost",
+        "guidesNote": "What the labels to receive their cards cost, before VAT.",
+        "margin": "Label margin",
+        "marginNote": "What was withheld minus what the label cost, on requests paid in the period.",
+        "marginNegative": "In this period the labels cost more than was withheld from sellers.",
+        "queue": "Requests waiting for you are handled in <link>Sell requests</link>.",
+        "pnlDetail": "Withheld fee, labels and their margin are also lines of the income statement: the full detail is in <link>Finance</link>."
+      },
+      "stock": {
+        "intro": "What you hold and what you should restock. To edit pieces, use Inventory (edit).",
+        "values": "Inventory and custody value",
+        "reference": "Inventory (at reference)",
+        "atCost": "At cost",
+        "pendingPrice": "{count} without a price",
+        "custody": "Customer custody value",
+        "custodyNote": "Customers' cards in the vault, at market value.",
+        "units": "Pieces",
+        "toReplace": "Pieces to replace",
+        "operatorNote": "Here you see pieces only, no amounts.",
+        "edit": "To add, move or edit pieces, go to <link>Inventory (edit)</link>.",
+        "restock": "What to restock",
+        "snapshot": "Today's snapshot: inventory does not depend on the period.",
+        "export": "Export inventory (CSV)"
+      },
+      "ops": {
+        "intro": "How the day's work is going and, for the super-admin, what shipping costs and earns over the period.",
+        "queues": "Today's queues",
+        "ship": "Shipments to prepare",
+        "vault": "Vault to prepare",
+        "toReplace": "To replace",
+        "overdue": "{count, plural, one {# overdue case} other {# overdue cases}}",
+        "stuckRefunds": "Stuck refunds",
+        "queueLink": "To work each order, go to <link>Orders to prepare</link>.",
+        "pnlDetail": "Label cost is also a line of the income statement: the full detail is in <link>Finance</link>.",
+        "shipping": "Shipping and chargebacks this period"
       }
     },
     "vaults": {

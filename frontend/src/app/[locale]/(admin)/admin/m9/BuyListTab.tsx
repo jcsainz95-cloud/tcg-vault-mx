@@ -32,7 +32,6 @@ export type { BuyListUrlState };
 function writeUrl(s: BuyListUrlState) {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
-  url.searchParams.set('tab', 'compra');
   if (s.sort) {
     url.searchParams.set('sort', s.sort);
     url.searchParams.set('dir', s.dir);
@@ -55,7 +54,7 @@ export function triggerBlobDownload(blob: Blob, filename: string) {
 }
 
 /**
- * Pestaña «Lista de compra» de Reportes (DESIGN_SYSTEM §WSH-UX.7 · API_CONTRACT §WSH.8 + v1.87.1).
+ * Sección «Qué reponer» de Reportes › Inventario (antes pestaña «Lista de compra» de M9) (DESIGN_SYSTEM §WSH-UX.7 · API_CONTRACT §WSH.8 + v1.87.1).
  *
  * - **Sin datos personales (821, WSH-UX-8):** se pinta SOLO la lista blanca de `WishlistDemandRowDTO`, campo por campo.
  *   ⛔ Nunca se itera el objeto ni se vuelca: una clave de más en el DTO no llega al DOM.

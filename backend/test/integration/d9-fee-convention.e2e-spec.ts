@@ -232,7 +232,7 @@ describe('D9 · comisión de plataforma dentro del precio (Postgres real)', () =
     expect(min._min.createdAt).not.toBeNull(); // este spec creó pedidos FEE_INCLUDED
     const r = await admin.pnlReport();
     expect(r.feeIncludedSince).toBe(min._min.createdAt!.toISOString());
-    expect((await admin.pnlReport('2001-01-01', '2001-01-31')).feeIncludedSince).toBe(r.feeIncludedSince);
+    expect((await admin.pnlReport('2021-01-01', '2021-01-31')).feeIncludedSince).toBe(r.feeIncludedSince);
     // sin pedidos FEE_INCLUDED ⇒ null (se simula pasando todos a FEE_ON_TOP dentro de una transacción que se revierte)
     const ROLL = new Error('rollback');
     await expect(

@@ -4,6 +4,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { AdminDashboard } from './AdminDashboard';
 import { mockDashboard, mockPnl } from '@/lib/mock/fixtures';
+import { formatMoneyCents } from '@/lib/format';
 
 // `useRole`: super_admin para que las cifras enmascaradas no oculten la cola de trabajo.
 vi.mock('@/lib/role', () => ({
@@ -27,7 +28,7 @@ describe('AdminDashboard · cola de trabajo accionable (§7.8)', () => {
     const shipments = await screen.findByRole('link', { name: /Envíos/ });
     expect(shipments.getAttribute('href')).toContain('/admin/m4');
 
-    const buylist = screen.getByRole('link', { name: /^Buylist/ });
+    const buylist = screen.getByRole('link', { name: /^Compras a vendedores/ });
     expect(buylist.getAttribute('href')).toContain('/admin/m5');
 
     expect(screen.queryByRole('link', { name: /Disputas/ })).toBeNull();
@@ -46,15 +47,23 @@ describe('AdminDashboard · cola de trabajo accionable (§7.8)', () => {
  * neto** y que la diferencia entre ambos sea **explicable**, no sospechosa.
  */
 describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
-  it('la tarjeta de ventas publica las dos cifras, rotuladas', async () => {
-    renderWithProviders(<AdminDashboard />, 'es');
-    const bruto = await screen.findByTestId('sales-gross');
-    const neto = screen.getByTestId('sales-net');
-    expect(bruto).toHaveTextContent('Bruto');
-    expect(neto).toHaveTextContent('Neto');
-    // ⛔ El neto es MENOR que el bruto: el bruto lleva IVA, comisión y envío dentro.
-    expect(bruto.textContent).toContain('15,919.98');
-    expect(neto.textContent).toContain('12,500.00');
+  // §REPORTES-CEO F1 (CR-2): Inicio ya NO pinta ventas ni ganancia del periodo (viven en Ventas y Finanzas); lo que sigue
+  // asertando el dato es que el bruto/neto del servidor cuadran, que ahora consumen Ventas y Finanzas.
+  it('Inicio no pinta ventas, ganancia, valor de inventario ni buylist del periodo', async () => {
+    const { container } = renderWithProviders(<AdminDashboard />, 'es');
+    expect(await screen.findByText('Cola de trabajo')).toBeInTheDocument();
+    expect(screen.queryByTestId('sales-gross')).toBeNull();
+    expect(screen.queryByTestId('sales-net')).toBeNull();
+    expect(screen.queryByTestId('sales-today-card')).toBeNull();
+    // I-6: ni la etiqueta ni la CIFRA de ganancia/ventas/inventario del periodo (el tablero las trae en el DTO; Inicio no las pinta).
+    for (const cents of [mockDashboard.profitPeriodCents, mockDashboard.salesPeriod.grossAmountCents, mockDashboard.inventoryValueCents]) {
+      expect(cents).toBeGreaterThan(0);
+      expect(container.textContent).not.toContain(formatMoneyCents(cents as number, 'es'));
+    }
+    expect(container.textContent).not.toMatch(/Ganancia/);
+    for (const gone of ['Ganancia del periodo', 'Ventas del periodo', 'Valor de inventario', 'Valor en bóveda']) {
+      expect(container.textContent).not.toContain(gone);
+    }
   });
 
   /**
@@ -67,7 +76,7 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
    * enseñaría a leer el tablero como dos cifras que «más o menos» cuadran.
    */
   it('⭐ bruto ≡ neto + envío neto + IVA + comisión, EXACTO', () => {
-    const s = mockDashboard.salesPeriod;
+    const s = mockDashboard.salesPeriod as unknown as Record<string, number>; // `null` solo para el operador (I-4)
     expect(s.netAmountCents + s.netShippingRevenueCents + s.ivaCents + s.processingFeeCents).toBe(
       s.grossAmountCents,
     );
@@ -92,27 +101,6 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
 });
 
 /**
- * **Hueco 9 (auditoría del operador, 2026-09-29) — «Neto: MX$NaN».** El backend OMITE
- * `salesPeriod.netAmountCents` al `vault_operator` (`admin.service.ts` · `dashboard`: solo el súper
- * recibe el P&L). Sin el campo la línea del neto no se pinta; nunca «NaN», y el bruto sigue.
- */
-describe('AdminDashboard · hueco 9: neto ausente para el operador', () => {
-  it('sin `netAmountCents` no pinta la línea del neto ni «NaN»; el bruto sigue', async () => {
-    const api = await import('@/lib/api');
-    const { netAmountCents: _omit, ...operatorSales } = mockDashboard.salesPeriod;
-    void _omit;
-    vi.spyOn(api, 'getDashboard').mockResolvedValue({
-      ...mockDashboard,
-      salesPeriod: { count: operatorSales.count, grossAmountCents: operatorSales.grossAmountCents },
-    } as never);
-    const { container } = renderWithProviders(<AdminDashboard />, 'es');
-    expect(await screen.findByTestId('sales-gross')).toHaveTextContent('15,919.98');
-    expect(screen.queryByTestId('sales-net')).not.toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/NaN/);
-  });
-});
-
-/**
  * **SR-UI-9** (`DESIGN_SYSTEM §40.3 (e)`, contrato §M4-SHIP.18.12 (7)): `workQueue.refundReviews` `null` ⇒ la tarjeta
  * NO existe; con `{pending:2, oldestRefundedAt}` ⇒ «2» y el enlace a `/admin/m3?refundReview=pending`.
  */
@@ -121,7 +109,7 @@ describe('AdminDashboard · SR-UI-9 «Reembolsos por revisar»', () => {
     const api = await import('@/lib/api');
     vi.spyOn(api, 'getDashboard').mockResolvedValue({ ...mockDashboard, workQueue: { ...mockDashboard.workQueue, refundReviews: null } } as never);
     renderWithProviders(<AdminDashboard />, 'es');
-    await screen.findByTestId('sales-gross');
+    await screen.findByText('Cola de trabajo');
     expect(screen.queryByTestId('dashboard-refund-reviews')).toBeNull();
     expect(screen.queryByText('Reembolsos por revisar')).toBeNull();
   });

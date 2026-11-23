@@ -41,13 +41,6 @@
     "skipToContent": "Saltar al contenido",
     "value": "Valor",
     "total": "Total",
-    "datePresets": {
-      "label": "Rango rápido",
-      "week": "Esta semana",
-      "month": "Último mes",
-      "quarter": "Este trimestre",
-      "year": "Este año"
-    },
     "undo": "Deshacer",
     "verdict": {
       "done": "Hecho",
@@ -1740,21 +1733,22 @@
     },
     "groups": {
       "daily": "Día a día",
+      "reports": "Reportes",
       "stock": "Existencias",
       "storefront": "Tienda",
       "administration": "Administración"
     },
     "modules": {
       "suppliers": "Proveedores",
-      "dashboard": "Resumen",
-      "m1": "Inventario",
+      "dashboard": "Inicio",
+      "m1": "Inventario (editar)",
       "m2": "Catálogo y precios",
-      "m3": "Ventas",
+      "m3": "Pedidos",
       "m4": "Pedidos por preparar",
       "m5": "Solicitudes de venta",
       "m6": "Usuarios",
       "m7": "Finanzas",
-      "m9": "Reportes",
+      "m9": "Ventas",
       "m10": "Configuración",
       "m11": "Sellado",
       "m12": "Meta Battle Decks",
@@ -1769,7 +1763,11 @@
       "accessories": "Accesorios",
       "cardShow": "Card Show",
       "marketing": "Marketing",
-      "discounts": "Códigos de descuento"
+      "discounts": "Códigos de descuento",
+      "reportsOps": "Operación",
+      "reportsStock": "Inventario",
+      "reportsPurchases": "Compras a vendedores",
+      "reportsBoard": "Junta de dirección"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -1778,14 +1776,7 @@
     "superAdminGateTitle": "Acceso restringido",
     "superAdminGateBody": "Este módulo es solo para súper-admin. Cambia de rol o pide acceso.",
     "dashboard": {
-      "profit": "Ganancia del periodo",
-      "sales": "Ventas del periodo",
-      "salesGross": "Bruto",
-      "salesNet": "Neto",
       "workQueue": "Cola de trabajo",
-      "inventoryValue": "Valor de inventario",
-      "custodyValue": "Valor en bóveda",
-      "buylist": "Buylist del periodo",
       "dataHealth": "Salud de datos",
       "launch": "Progreso de lanzamiento",
       "shipments": "Envíos",
@@ -1794,9 +1785,9 @@
       "lastFx": "Último tipo de cambio",
       "goalPending": "Meta pendiente",
       "users": "Usuarios",
-      "salesSettled": "Ventas liquidadas",
-      "buylistPaid": "Buylist pagadas",
       "withdrawals": "Retiros sin disputa",
+      "buylistPaid": "Compras a vendedores pagadas",
+      "buylistQueue": "Compras a vendedores",
       "toPrepare": {
         "title": "Pedidos por preparar",
         "detail": "{ship} envíos · {vault} bóveda · {toReplace} por reponer",
@@ -6455,13 +6446,6 @@
     },
     "m7": {
       "title": "Finanzas",
-      "range": {
-        "title": "Rango de fechas",
-        "subtitle": "Aplica al P&L y al IVA cobrado. Sin rango se usa todo el histórico.",
-        "from": "Desde",
-        "to": "Hasta",
-        "clear": "Limpiar rango"
-      },
       "pnl": {
         "title": "Estado de resultados (P&L)",
         "formula": "Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.",
@@ -6488,14 +6472,6 @@
         "buylistGuideMarginNegative": "En este periodo las guías costaron más de lo que se descontó a los vendedores.",
         "buylistGuideCostMissing": "{count, plural, one {# solicitud pagada usó una guía hecha a mano sin costo capturado: su guía cuenta como si hubiera costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.} other {# solicitudes pagadas usaron una guía hecha a mano sin costo capturado: sus guías cuentan como si hubieran costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.}}"
       },
-      "values": {
-        "title": "Valor de inventario y custodia",
-        "inventoryAtReference": "Inventario (a referencia)",
-        "inventoryAtCost": "A costo",
-        "pendingPrice": "{count} sin precio",
-        "custody": "Valor en custodia de clientes",
-        "custodyNote": "Cartas de clientes en la bóveda, a valor de mercado."
-      },
       "iva": {
         "title": "IVA cobrado",
         "subtitle": "Registrado para conciliación/CFDI (sin timbrado con PAC en el MVP).",
@@ -6508,8 +6484,7 @@
       },
       "export": {
         "pnl": "Exportar P&L (CSV)",
-        "iva": "Exportar IVA (CSV)",
-        "inventory": "Exportar inventario (CSV)"
+        "iva": "Exportar IVA (CSV)"
       },
       "statement": {
         "title": "Resumen",
@@ -6525,71 +6500,14 @@
         "ivaRefunded": "IVA de reembolsos",
         "ivaNet": "IVA neto por enterar",
         "netResult": "Resultado neto"
-      },
-      "volume": {
-        "title": "Volumen y ticket",
-        "subtitle": "Mismo rango que el P&L. Son cifras de lo PAGADO por el cliente (IVA y envío dentro).",
-        "needsRange": "Elige un rango de fechas para ver el volumen y el ticket promedio.",
-        "orders": "Pedidos",
-        "avgTicket": "Ticket promedio",
-        "avgTicketHelp": "Cobrado ÷ pedidos: lo que paga un cliente por compra, con IVA y envío.",
-        "piecesPerOrder": "Piezas por pedido",
-        "pieces": "Piezas vendidas",
-        "boundaryNote": "En los bordes de día el total puede diferir del P&L por una orden."
       }
     },
     "m9": {
-      "title": "Reportes",
-      "range": {
-        "title": "Rango de fechas",
-        "subtitle": "Cada métrica respeta el rango por su fecha de realización.",
-        "from": "Desde",
-        "to": "Hasta",
-        "clear": "Limpiar rango"
-      },
-      "metrics": {
-        "title": "Actividad de la tienda",
-        "subtitle": "Conteos en el rango de fechas elegido.",
-        "users": "Usuarios activos",
-        "salesSettled": "Ventas liquidadas",
-        "buylistPaid": "Buylist pagadas",
-        "withdrawalsNoDispute": "Retiros sin disputa"
-      },
-      "goalPending": "Meta sin fijar",
-      "goalProgress": "{current} de {target} · {pct}%",
-      "goalsUnset": "Todavía no hay metas fijadas: se muestran solo los conteos.",
-      "export": {
-        "title": "Exportar",
-        "subtitle": "Descarga los reportes en CSV para análisis externo.",
-        "pnl": "Exportar P&L (CSV)",
-        "iva": "Exportar IVA (CSV)",
-        "inventory": "Exportar inventario (CSV)"
-      },
-      "tabs": {
-        "sales": "Ventas",
-        "activity": "Actividad",
-        "buyList": "Lista de compra"
-      },
       "sales": {
         "period": {
-          "title": "Periodo",
-          "presetsLabel": "Elegir periodo",
-          "today": "Hoy",
-          "yesterday": "Ayer",
-          "last7": "Últimos 7 días",
-          "last30": "Últimos 30 días",
-          "thisMonth": "Este mes",
-          "lastMonth": "Mes pasado",
-          "custom": "Elegir fechas…",
-          "from": "Desde",
-          "to": "Hasta",
-          "apply": "Ver"
+          "title": "Periodo"
         },
         "range": {
-          "bothRequired": "Elige las dos fechas.",
-          "fromAfterTo": "La fecha de inicio va antes que la de fin.",
-          "toFuture": "No puede ser después de hoy.",
-          "tooLong": "Máximo un año (366 días). Acorta el rango.",
           "invalid": "Ese periodo no es válido. Elige otro."
         },
         "groupBy": {
@@ -6656,7 +6574,8 @@
           "summaryOrders": "{metric} del {from} al {to}: {total} en total; el día con más, {best} con {bestValue}; {zero, plural, =0 {ningún día sin pedidos} one {# día sin pedidos} other {# días sin pedidos}}."
         },
         "table": {
-          "title": "Por {unit, select, day {día} week {semana} other {mes}}",
+          "title": "Detalle por {unit, select, day {día} week {semana} other {mes}}",
+          "pnlLink": "Ganancia, envío y compras a vendedores por día. El estado de resultados completo está en <link>Finanzas</link>.",
           "caption": "Ventas por {unit, select, day {día} week {semana} other {mes}}, del {from} al {to}",
           "colsLabel": "Columnas",
           "colsSales": "Ventas",
@@ -6750,11 +6669,9 @@
           "shippingCost": "Costo de guías (sin IVA)",
           "includesAdjustments": "Incluye ajustes de paquetería {amount}",
           "costMissing": "{count, plural, one {# envío sin costo capturado} other {# envíos sin costo capturado}}",
-          "buylistPaid": "Compras del buylist",
+          "buylistPaid": "Pagado a vendedores",
           "buylistCount": "{count, plural, one {# compra pagada} other {# compras pagadas}}",
           "payoutMissing": "{count} sin monto registrado",
-          "profit": "Ganancia (regla de Finanzas)",
-          "profitHelp": "La misma ganancia que Finanzas.",
           "shippingResult": "Resultado del envío",
           "shippingResultHelp": "Envío cobrado menos costo de guías.",
           "shippingResultMaybeLower": "Puede ser menor: hay envíos sin costo capturado.",
@@ -6777,7 +6694,7 @@
         }
       },
       "buyList": {
-        "title": "Cartas que te piden y no tienes",
+        "title": "Qué reponer",
         "subtitle": "Cartas que alguien tiene en su lista de deseos y hoy no tienes a la venta. Sin nombres: solo cuántos.",
         "dials": "Calculado con: margen que buscas {margin} % {basis} · máximos de los clientes {ivaMode} · IVA {rate} %",
         "basis": {
@@ -6878,6 +6795,139 @@
         "daysFmt": "{days, plural, one {# día} other {# días}}",
         "truncated": "Mostrando {shown} de {total}; descarga el CSV para ver todo.",
         "noData": "Sin dato"
+      }
+    },
+    "reports": {
+      "period": {
+        "label": "Periodo",
+        "today": "Hoy",
+        "7d": "7 días",
+        "30d": "30 días",
+        "month": "Este mes",
+        "last-month": "Mes pasado",
+        "quarter": "Este trimestre",
+        "year": "Este año",
+        "all": "Todo",
+        "custom": "Fechas…",
+        "from": "Desde",
+        "to": "Hasta",
+        "apply": "Ver",
+        "invalid": "Elige dos fechas reales: la de inicio antes que la de fin, no después de hoy y, donde aplica, dentro del tope de días.",
+        "maxDays": "máx. {days} días",
+        "mexicoTime": "Hora de México",
+        "resolved": "Del {from} al {to}",
+        "allResolved": "Todo el historial, hasta el {to}"
+      },
+      "board": {
+        "breadcrumb": "Reportes",
+        "intro": "Los resultados de cada área, en el mismo periodo. Toca «Ver el informe completo» para bajar al detalle.",
+        "comparedWith": "Comparado con del {prevFrom} al {prevTo}",
+        "noComparison": "Sin periodo anterior con qué comparar",
+        "seeFull": "Ver el informe completo",
+        "delta": {
+          "up": "subió",
+          "down": "bajó",
+          "same": "igual",
+          "pct": "{pct} %",
+          "vsPrevious": "vs periodo anterior",
+          "noPrevious": "Sin ventas en el periodo anterior con qué comparar"
+        },
+        "launch": {
+          "title": "Metas de lanzamiento",
+          "ask": "¿Voy avanzando contra lo que me propuse?",
+          "seeTotal": "Ver el acumulado en Inicio",
+          "users": "Usuarios activos",
+          "salesSettled": "Ventas liquidadas",
+          "buylistPaid": "Compras a vendedores pagadas",
+          "withdrawalsNoDispute": "Retiros sin disputa",
+          "goalPending": "Meta sin fijar",
+          "goalProgress": "{current} de {target} · {pct}%",
+          "goalsUnset": "Todavía no hay metas fijadas: se muestran solo los conteos del periodo."
+        },
+        "areas": {
+          "finance": {
+            "ask": "¿Cuánto gané?",
+            "profit": "Ganancia",
+            "profitNote": "Después del costo de lo vendido, comisiones, envío y reembolsos. Todavía no se descuentan gastos fijos (renta, nómina, publicidad)."
+          },
+          "sales": {
+            "ask": "¿Qué se vende y cuánto deja cada pedido?",
+            "orders": "Pedidos",
+            "net": "Ventas sin IVA",
+            "netNote": "Es la misma cifra de ingresos de Finanzas.",
+            "ticket": "Ticket promedio",
+            "ticketNote": "Lo que paga un cliente por compra, con IVA y envío.",
+            "customers": "Clientes",
+            "customersValue": "{new, plural, one {# nuevo} other {# nuevos}} · {returning, plural, one {# recurrente} other {# recurrentes}}"
+          },
+          "purchases": {
+            "ask": "¿Cuántas cartas compro a vendedores y cuánto me cuesta recibirlas?",
+            "paid": "Pagado a vendedores",
+            "paidCount": "{count, plural, one {# solicitud pagada} other {# solicitudes pagadas}}",
+            "fee": "Tarifa de envío descontada",
+            "guides": "Costo de guías de compra"
+          },
+          "stock": {
+            "ask": "¿Cuánto vale lo que tengo?",
+            "reference": "Valor de inventario",
+            "referenceNote": "A costo: {cost} · {pending} sin precio",
+            "custody": "Valor en custodia de clientes",
+            "custodyNote": "Cartas de clientes en la bóveda, a valor de mercado."
+          },
+          "ops": {
+            "ask": "¿Estoy entregando a tiempo y el envío me cuesta o me deja?",
+            "ship": "Envíos por preparar",
+            "vault": "Bóveda por preparar",
+            "toReplace": "Por reponer",
+            "overdue": "{count, plural, one {# caso vencido} other {# casos vencidos}}",
+            "shippingResult": "Resultado del envío",
+            "shippingResultNote": "Lo cobrado por envío menos lo que costaron las guías, sin IVA."
+          },
+          "marketing": {
+            "ask": "¿Cuánta gente llega y de dónde?",
+            "body": "Marketing se mide por semana o por mes, con sus propios filtros. Ábrelo para ver visitas, de dónde llegan y cuántos compran."
+          }
+        }
+      },
+      "purchases": {
+        "intro": "Lo que pagas a vendedores por sus cartas y lo que cuesta recibirlas, en el periodo elegido.",
+        "fee": "Tarifa de envío descontada",
+        "feeNote": "Lo que se les descuenta a los vendedores por la guía.",
+        "guides": "Costo de guías de compra",
+        "guidesNote": "Lo que cuestan las guías para recibir sus cartas, sin IVA.",
+        "margin": "Margen de las guías",
+        "marginNote": "Lo descontado menos lo que costó la guía, en las solicitudes pagadas en el periodo.",
+        "marginNegative": "En este periodo las guías costaron más de lo que se descontó a los vendedores.",
+        "queue": "Las solicitudes por atender se trabajan en <link>Solicitudes de venta</link>.",
+        "pnlDetail": "Tarifa descontada, guías y su margen también son renglones del estado de resultados: el detalle completo está en <link>Finanzas</link>."
+      },
+      "stock": {
+        "intro": "Lo que tienes y lo que te conviene reponer. Para editar piezas, usa Inventario (editar).",
+        "values": "Valor del inventario y de la custodia",
+        "reference": "Inventario (a referencia)",
+        "atCost": "A costo",
+        "pendingPrice": "{count} sin precio",
+        "custody": "Valor en custodia de clientes",
+        "custodyNote": "Cartas de clientes en la bóveda, a valor de mercado.",
+        "units": "Piezas",
+        "toReplace": "Piezas por reponer",
+        "operatorNote": "Aquí ves solo piezas, sin importes.",
+        "edit": "Para dar de alta, mover o editar piezas, ve a <link>Inventario (editar)</link>.",
+        "restock": "Qué reponer",
+        "snapshot": "Foto de hoy: el inventario no depende del periodo.",
+        "export": "Exportar inventario (CSV)"
+      },
+      "ops": {
+        "intro": "Cómo va el trabajo del día y, para el súper-admin, lo que cuesta y deja el envío en el periodo.",
+        "queues": "Colas de hoy",
+        "ship": "Envíos por preparar",
+        "vault": "Bóveda por preparar",
+        "toReplace": "Por reponer",
+        "overdue": "{count, plural, one {# caso vencido} other {# casos vencidos}}",
+        "stuckRefunds": "Reembolsos atorados",
+        "queueLink": "Para trabajar cada pedido, ve a <link>Pedidos por preparar</link>.",
+        "pnlDetail": "El costo de guías también es un renglón del estado de resultados: el detalle completo está en <link>Finanzas</link>.",
+        "shipping": "Envíos y contracargos del periodo"
       }
     },
     "vaults": {

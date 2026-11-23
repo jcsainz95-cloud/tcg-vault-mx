@@ -11,7 +11,6 @@ import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
-import { SalesTodayCard } from './SalesTodayCard';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -207,55 +206,6 @@ export function AdminDashboard() {
         {query.data && (
           <div className={grid}>
             <StatCard
-              label={t('profit')}
-              value={formatMoneyCents(query.data.profitPeriodCents ?? 0, locale)}
-              masked={!isSuperAdmin}
-              maskedLabel={tm('masked')}
-            />
-            {/*
-             * ⭐⭐ **§M10-IVA.7 — LA TARJETA PASA DE UNA CIFRA A DOS: BRUTO Y NETO** (D55(b),
-             * pregunta **70** del dueño: *«Hagamos ventas brutas con iva y ventas netas sin iva»*).
-             *
-             * `amountCents` **desapareció** del DTO y fue el compilador quien trajo aquí — que es
-             * justo lo que el rename buscaba: *un «amount» conviviendo con otro «amount» distinto
-             * es la ambigüedad que este pase existe para matar*.
-             *
-             * **Qué es cada una, dicho donde se pinta:**
-             * - **bruto** = `Σ Order.totalCents` = **lo que el cliente pagó**, con comisión y envío
-             *   dentro.
-             * - **neto**  = `Σ netRevenueCents(o)` = **mercancía**, sin IVA, sin comisión y sin
-             *   envío. ⭐ Sale **del mismo helper** que `pnl.incomeCents`, así que **es el mismo
-             *   número** que el P&L de M7 (candado `IVA-10(b)` lo asierta como igualdad entre los
-             *   dos endpoints). *El dueño preguntó si era el mismo número; lo es por construcción.*
-             *
-             * ⛔ **El front NO calcula ninguna de las dos, ni la diferencia entre ellas.** La
-             * identidad `bruto ≡ neto + envío neto + IVA + comisión` la garantiza el servidor; si
-             * esta pantalla la recompusiera, estaría publicando **una tercera definición de neto**,
-             * que es exactamente lo que §M10-IVA.7 rechaza por escrito.
-             */}
-            <StatCard
-              label={t('sales')}
-              value={query.data.salesPeriod.count}
-              sub={
-                <span className="flex flex-col gap-0.5">
-                  <span data-testid="sales-gross">
-                    {t('salesGross')}: {formatMoneyCents(query.data.salesPeriod.grossAmountCents, locale)}
-                  </span>
-                  {/* Hueco 9 (2026-09-29): el backend OMITE `netAmountCents` al no-súper-admin (el neto
-                      es la cifra del P&L, `admin.service.ts` · `dashboard`). Sin el campo la línea no
-                      se pinta: nunca «MX$NaN». ⛔ No se deriva del bruto (sería otra definición de neto). */}
-                  {Number.isFinite(query.data.salesPeriod.netAmountCents) && (
-                    <span data-testid="sales-net">
-                      {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
-                    </span>
-                  )}
-                </span>
-              }
-            />
-            {/* §AN-UX.11 (criterio 611): «Ventas de hoy», SOLO súper-admin — para el operador no existe (⛔ ni máscara
-                ni consulta, AN-7). Consulta propia `/admin/reports/sales/today`; su error no toca el resto del tablero. */}
-            {isSuperAdmin && <SalesTodayCard />}
-            <StatCard
               label={t('workQueue')}
               value={
                 query.data.workQueue.shipments +
@@ -264,7 +214,7 @@ export function AdminDashboard() {
               sub={
                 <span className="flex flex-wrap gap-x-3 gap-y-1">
                   <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
-                  <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
+                  <QueueLink href="/admin/m5" label={t('buylistQueue')} count={query.data.workQueue.buylist} />
                   <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
                   {/* 💰 rev BSD-1 (§BSD-UX.6c, BSD-1.1 C-3): el contador lo da el SERVIDOR (hermano de `buylist`, que sigue
                       siendo un número). ⛔ Con 0 (o ausente: servidor anterior) no hay nodo. Texto completo, ⛔ un número solo. */}
@@ -393,23 +343,6 @@ export function AdminDashboard() {
             )}
             {/* 💰 v1.80.12.9 (§19.29.9, DESIGN_SYSTEM §43.19.9): solo súper-admin; `null` ⇒ la tarjeta NO existe (GAS-1). */}
             {isSuperAdmin && query.data.workQueue.spendControl && <SpendControlCard data={query.data.workQueue.spendControl} />}
-            <StatCard
-              label={t('inventoryValue')}
-              value={formatMoneyCents(query.data.inventoryValueCents ?? 0, locale)}
-              masked={!isSuperAdmin}
-              maskedLabel={tm('masked')}
-            />
-            <StatCard
-              label={t('custodyValue')}
-              value={formatMoneyCents(query.data.custodyValueCents ?? 0, locale)}
-              masked={!isSuperAdmin}
-              maskedLabel={tm('masked')}
-            />
-            <StatCard
-              label={t('buylist')}
-              value={query.data.buylistPeriod.count}
-              sub={formatMoneyCents(query.data.buylistPeriod.amountCents, locale)}
-            />
             <StatCard
               label={t('dataHealth')}
               // La única cifra en bermellón del tablero: lo que exige intervención.

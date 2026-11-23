@@ -152,12 +152,21 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
       '/admin',
-      '/admin/m5',
       '/admin/m3',
+      '/admin/m5',
       '/admin/refunds',
       // v4.20 (§43.19.8): «Avisos de gasto», súper-admin, tras «Reembolsos».
       '/admin/spend-alerts',
       '/admin/m4',
+      // §REPORTES-CEO F1: grupo «Reportes», una entrada por área en el orden de la junta.
+      '/admin/reportes',
+      '/admin/m7',
+      '/admin/m9',
+      '/admin/reportes/compras',
+      '/admin/reportes/inventario',
+      '/admin/reportes/operacion',
+      // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin.
+      '/admin/marketing',
       '/admin/m1',
       '/admin/m11',
       // §AC-UX.9: «Accesorios» justo tras «Sellado».
@@ -168,15 +177,11 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m12',
       // §DSC-UX.5: «Códigos de descuento», súper-admin, al final de «Tienda».
       '/admin/codes',
-      '/admin/m7',
-      '/admin/m9',
       '/admin/m6',
       '/admin/m10',
       // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración».
       '/admin/card-show',
       '/admin/proveedores',
-      // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin, tras «Card Show».
-      '/admin/marketing',
     ]);
     expect(screen.queryByTestId('nav-badge-refunds')).toBeNull();
     expect(dash).not.toHaveBeenCalled();

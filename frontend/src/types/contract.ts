@@ -3557,18 +3557,19 @@ export interface SellOfferResponseDTO {
  *
  * **Rol: `super_admin`.** `vault_operator` no recibe esta tarjeta (sin cambio).
  */
+/** I-4 (§REPORTES-CEO §2): al `vault_operator` el servidor manda `null` en todo `*Cents` (la clave se conserva); el conteo sí. */
 export interface DashboardSalesPeriodDTO {
   count: number;
   /** `Σ Order.totalCents` ← **lo que el cliente pagó**, con comisión y envío DENTRO. */
-  grossAmountCents: number;
+  grossAmountCents: number | null;
   /** `Σ netRevenueCents(o)` ← ⭐ **el MISMO helper que `pnl.incomeCents`**. Mercancía, sin IVA, sin comisión y sin envío. */
-  netAmountCents: number;
+  netAmountCents: number | null;
   /** `Σ Order.ivaCents`. */
-  ivaCents: number;
+  ivaCents: number | null;
   /** `Σ netShippingRevenueCents(o)`. */
-  netShippingRevenueCents: number;
+  netShippingRevenueCents: number | null;
   /** `Σ Order.processingFeeCents`. */
-  processingFeeCents: number;
+  processingFeeCents: number | null;
 }
 
 export interface DashboardDTO {
@@ -3611,7 +3612,7 @@ export interface DashboardDTO {
   };
   inventoryValueCents?: number;
   custodyValueCents?: number;
-  buylistPeriod: { count: number; amountCents: number };
+  buylistPeriod: { count: number; amountCents: number | null };
   dataHealth: {
     pendingPriceCount: number;
     lastPriceSyncAt?: string;

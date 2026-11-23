@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { DownloadCloud } from 'lucide-react';
@@ -11,12 +11,13 @@ import { cn } from '@/lib/cn';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { SalesPeriodLabel, SalesPeriodPicker, type FieldError } from './SalesPeriodPicker';
+import { setCurrentPeriod } from '@/lib/reports/period-store';
+import { SalesPeriodLabel, SalesPeriodPicker } from './SalesPeriodPicker';
 import { SALES_GRID, SalesSummary } from './SalesSummary';
 import { SalesBarChart } from './SalesBarChart';
 import { SalesDailyTable } from './SalesDailyTable';
 import { SalesTopLists } from './SalesTopLists';
-import { SalesMix, SalesP2Totals, SalesWhen } from './SalesP2';
+import { SalesMix, SalesWhen } from './SalesP2';
 import { toReportParams, todayMx, writeSalesUrl, type SalesUrlState } from './salesParams';
 
 function triggerBlobDownload(blob: Blob, filename: string) {
@@ -67,7 +68,13 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
     const next = { ...state, ...patch };
     setState(next);
     writeSalesUrl(next);
+    setCurrentPeriod({ preset: next.preset, from: next.from, to: next.to }); // el menú lleva el periodo vigente (I-3b)
   }
+  // Al abrir: URL y menú reflejan lo que la pantalla muestra (p. ej. «Todo» desde Finanzas cae a «Este mes» aquí).
+  useEffect(() => {
+    writeSalesUrl(initial);
+    setCurrentPeriod({ preset: initial.preset, from: initial.from, to: initial.to });
+  }, [initial]);
 
   const csv = useMutation({
     mutationFn: (p: SalesReportParams) => exportSalesCsv(p),
@@ -78,15 +85,9 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
 
   const err = query.isError ? asApiError(query.error) : null;
   const forbidden = err?.status === 403;
-  let fieldError: FieldError | null = null;
-  let genericInvalid = false;
-  if (err?.status === 400) {
-    const field = err.details?.field;
-    // AN-1.2 (§15.12.5): el `400` no trae `reason` ⇒ mensaje GENÉRICO de periodo inválido, colocado por `field`.
-    if (field === 'from' || field === 'to') fieldError = { field, key: 'invalid' };
-    else genericInvalid = true;
-  }
-  const otherError = query.isError && !forbidden && err?.status !== 400;
+  // AN-1.2 (§15.12.5): el `400`/`422` no trae `reason` ⇒ mensaje GENÉRICO de periodo inválido.
+  const genericInvalid = err?.status === 400 || err?.status === 422;
+  const otherError = query.isError && !forbidden && !genericInvalid;
   const updating = query.isFetching && query.isPlaceholderData;
 
   const csvBlock = shown && (
@@ -115,13 +116,9 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
     <div className="flex flex-col gap-10">
       <div className="flex flex-col gap-3">
         <SalesPeriodPicker
-          preset={state.preset}
-          from={state.from}
-          to={state.to}
+          period={state}
           groupBy={state.groupBy}
-          serverError={fieldError}
-          onPreset={(p) => update({ preset: p, from: undefined, to: undefined })}
-          onCustom={(from, to) => update({ preset: 'custom', from, to })}
+          onPeriod={(p) => update(p)}
           onGroupBy={(g) => update({ groupBy: g })}
         />
         {shown && <SalesPeriodLabel data={shown} />}
@@ -174,7 +171,6 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
             onWeek={() => update({ groupBy: 'week' })}
           />
           <SalesDailyTable data={shown} cols={state.cols} today={today} onCols={(c) => update({ cols: c })} csv={csvBlock} />
-          <SalesP2Totals data={shown} />
           <SalesTopLists top={shown.top} tab={state.top} onTab={(k) => update({ top: k })} onSort={(s) => update({ topSort: s })} />
           {shown.bestDays && <SalesWhen bestDays={shown.bestDays} totalOrders={shown.totals.orders} />}
           {shown.mix && <SalesMix mix={shown.mix} totalOrders={shown.totals.orders} totalPieces={shown.totals.pieces} />}

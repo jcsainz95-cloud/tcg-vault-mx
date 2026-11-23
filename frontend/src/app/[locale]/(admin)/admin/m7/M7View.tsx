@@ -1,26 +1,23 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { DownloadCloud, TrendingUp, Boxes, Landmark, ReceiptText, ShoppingBag, Receipt, Layers, Package } from 'lucide-react';
+import { DownloadCloud, ReceiptText, TrendingUp } from 'lucide-react';
 import {
   getPnl,
-  getInventoryValue,
-  getCustodyValue,
   getIvaReport,
-  getSalesReport,
   exportFinanceCsv,
   type FinanceRange,
   type FinanceCsvReport,
 } from '@/lib/api';
 import type { IvaByOrderEntryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatMoneyCents, formatDate, formatDateLongMx, formatCount } from '@/lib/format';
+import { formatMoneyCents, formatDate, formatDateLongMx } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
-import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { DateRangePresets } from '@/components/domain/DateRangePresets';
+import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { financeRange, periodFor, type ReportPeriod } from '@/lib/reports/period';
 import { Banner } from '@/components/ui/Banner';
 import { StatCard } from '@/components/ui/StatCard';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -112,37 +109,24 @@ function StmtLine({ label, value, deduct, srSign }: { label: string; value: stri
   );
 }
 
-export function M7View() {
+/**
+ * Finanzas (`/admin/m7`). §REPORTES-CEO F1: «Volumen y ticket» se fue a Ventas y el valor de inventario/custodia a
+ * Reportes › Inventario (una sola casa por cifra); aquí quedan el P&L, el IVA y las exportaciones de dinero.
+ * `initialPeriod` llega de la URL (`?preset=` o `?preset=custom&from=&to=`, días de México); «Todo» = sin rango (histórico).
+ */
+export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?: ReportPeriod } = {}) {
   const t = useTranslations('admin.m7');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const adds = t('pnl.signAdds');
   const subtracts = t('pnl.signSubtracts');
-  // §M10-IVA.8-bis (D) — «—» para el null de `avgTicketCents`/`piecesPerOrder` (orders=0). ⛔ nunca «MX$0.00».
-  const emptyValue = '—';
 
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const range: FinanceRange = { from: from || undefined, to: to || undefined };
+  const [period, setPeriod] = useReportPeriod(initialPeriod);
+  const range: FinanceRange = financeRange(period);
 
   const pnl = useQuery({ queryKey: ['finance-pnl', range], queryFn: () => getPnl(range) });
-  const inventoryValue = useQuery({ queryKey: ['finance-inventory-value'], queryFn: getInventoryValue });
-  const custodyValue = useQuery({ queryKey: ['finance-custody-value'], queryFn: getCustodyValue });
   const iva = useQuery({ queryKey: ['finance-iva', range], queryFn: () => getIvaReport(range) });
-
-  /*
-   * §M10-IVA.8-bis (D) — volumen y ticket para el MISMO rango que el P&L, reusando `GET /admin/reports/sales`
-   * (⛔ cero backend nuevo). `preset=custom` exige `from` y `to`, así que la consulta solo se habilita con un rango
-   * explícito; sin rango (P&L de todo el histórico) la sección invita a elegirlo. El caveat de borde de día MX
-   * (pnl inclusivo vs reports/sales semiabierto) se declara en pantalla; ⛔ no se inventa endpoint por él.
-   */
-  const hasRange = Boolean(from && to);
-  const sales = useQuery({
-    queryKey: ['finance-sales', from, to],
-    queryFn: () => getSalesReport({ preset: 'custom', from, to, groupBy: 'day' }),
-    enabled: hasRange,
-  });
 
   const exportMutation = useMutation({
     mutationFn: async (report: FinanceCsvReport) => {
@@ -166,21 +150,8 @@ export function M7View() {
     <div className="flex flex-col gap-10">
       <h1 className="text-h1 font-bold">{tModules('m7')}</h1>
 
-      {/* Selector de rango de fechas (aplica a P&L e IVA) */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('range.title')}</h2>
-        <p className="text-sm text-muted">{t('range.subtitle')}</p>
-        <DateRangePresets onSelect={({ from: f, to: tv }) => { setFrom(f); setTo(tv); }} />
-        <div className="flex flex-wrap items-end gap-3">
-          <Input label={t('range.from')} type="date" className="w-44" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <Input label={t('range.to')} type="date" className="w-44" value={to} onChange={(e) => setTo(e.target.value)} />
-          {(from || to) && (
-            <Button variant="ghost" onClick={() => { setFrom(''); setTo(''); }}>
-              {t('range.clear')}
-            </Button>
-          )}
-        </div>
-      </section>
+      {/* Periodo único (§REPORTES-CEO §2): aplica al P&L, al IVA y a las exportaciones */}
+      <PeriodSelector value={period} onChange={setPeriod} />
 
       {/* P&L con el desglose de la fórmula */}
       <section className="flex flex-col gap-3">
@@ -370,91 +341,22 @@ export function M7View() {
         </QueryState>
       </section>
 
-      {/*
-       * §M10-IVA.8-bis (D) — volumen y ticket promedio para el MISMO rango que el P&L (reuso de `GET /admin/reports/sales`).
-       * Las cifras son lo PAGADO por el cliente (IVA + comisión + envío DENTRO), distinto del ingreso NETO del P&L. `null`
-       * (orders=0) ⇒ «—», ⛔ nunca «MX$0.00»/«NaN». `preset=custom` necesita rango explícito; sin él, se invita a elegirlo.
-       */}
+      {/* IVA acumulado — desglose por orden + export */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('volume.title')}</h2>
-        <p className="text-sm text-muted">{t('volume.subtitle')}</p>
-        {!hasRange ? (
-          <EmptyState title={t('volume.needsRange')} />
-        ) : (
-          <QueryState isLoading={sales.isLoading} isError={sales.isError} error={sales.error} onRetry={() => sales.refetch()}>
-            {sales.data && (
-              <>
-                <div data-testid="finance-volume" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <StatCard
-                    label={t('volume.orders')}
-                    value={formatCount(sales.data.totals.orders, locale)}
-                    icon={<ShoppingBag size={18} />}
-                  />
-                  <StatCard
-                    label={t('volume.avgTicket')}
-                    value={sales.data.totals.avgTicketCents != null ? formatMoneyCents(sales.data.totals.avgTicketCents, locale) : emptyValue}
-                    sub={t('volume.avgTicketHelp')}
-                    icon={<Receipt size={18} />}
-                  />
-                  <StatCard
-                    label={t('volume.piecesPerOrder')}
-                    value={sales.data.totals.piecesPerOrder != null ? formatCount(sales.data.totals.piecesPerOrder, locale) : emptyValue}
-                    icon={<Layers size={18} />}
-                  />
-                  <StatCard
-                    label={t('volume.pieces')}
-                    value={formatCount(sales.data.totals.pieces, locale)}
-                    icon={<Package size={18} />}
-                  />
-                </div>
-                <p className="text-xs text-muted">{t('volume.boundaryNote')}</p>
-              </>
-            )}
-          </QueryState>
-        )}
-      </section>
-
-      {/* Valor de inventario / bóveda / custodia */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('values.title')}</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <QueryState isLoading={inventoryValue.isLoading} isError={inventoryValue.isError} error={inventoryValue.error} onRetry={() => inventoryValue.refetch()}>
-            {inventoryValue.data && (
-              <StatCard
-                label={t('values.inventoryAtReference')}
-                value={formatMoneyCents(inventoryValue.data.atReferenceCents, locale)}
-                sub={`${t('values.inventoryAtCost')}: ${formatMoneyCents(inventoryValue.data.atCostCents, locale)} · ${t('values.pendingPrice', { count: inventoryValue.data.pendingPriceCount })}`}
-                icon={<Boxes size={18} />}
-              />
-            )}
-          </QueryState>
-          <QueryState isLoading={custodyValue.isLoading} isError={custodyValue.isError} error={custodyValue.error} onRetry={() => custodyValue.refetch()}>
-            {custodyValue.data && (
-              <StatCard
-                label={t('values.custody')}
-                value={formatMoneyCents(custodyValue.data.totalCustodyValueCents, locale)}
-                sub={t('values.custodyNote')}
-                icon={<Landmark size={18} />}
-              />
-            )}
-          </QueryState>
-          <QueryState isLoading={iva.isLoading} isError={iva.isError} error={iva.error} onRetry={() => iva.refetch()}>
-            {iva.data && (
+        <h2 className="text-h2 font-semibold">{t('iva.title')}</h2>
+        <p className="text-sm text-muted">{t('iva.subtitle')}</p>
+        <QueryState isLoading={iva.isLoading} isError={iva.isError} error={iva.error} onRetry={() => iva.refetch()}>
+          {iva.data && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <StatCard
                 label={t('iva.collected')}
                 value={formatMoneyCents(iva.data.ivaCollectedCents, locale)}
                 sub={t('iva.note')}
                 icon={<ReceiptText size={18} />}
               />
-            )}
-          </QueryState>
-        </div>
-      </section>
-
-      {/* IVA acumulado — desglose por orden + export */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('iva.title')}</h2>
-        <p className="text-sm text-muted">{t('iva.subtitle')}</p>
+            </div>
+          )}
+        </QueryState>
         <div className="flex flex-wrap gap-2">
           <Button
             variant="secondary"
@@ -463,14 +365,6 @@ export function M7View() {
             onClick={() => exportMutation.mutate('iva')}
           >
             <DownloadCloud size={16} /> {t('export.iva')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={exportMutation.isPending && exportMutation.variables === 'inventory'}
-            onClick={() => exportMutation.mutate('inventory')}
-          >
-            <DownloadCloud size={16} /> {t('export.inventory')}
           </Button>
         </div>
         {exportMutation.isError && <Banner variant="danger" role="alert">{tc('errorGeneric')}</Banner>}

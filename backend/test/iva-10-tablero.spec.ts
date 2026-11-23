@@ -192,7 +192,8 @@ describe('⭐ `IVA-10` — el tablero: bruto y neto, y la diferencia es EXPLICAB
     const d: any = await service.dashboard(Role.vault_operator);
     expect(d.salesPeriod).toEqual({
       count: 2,
-      grossAmountCents: VAULT.totalCents + DIRECT.totalCents,
+      // §REPORTES-CEO F1 (contrato §2): el operador ya no recibe dinero del periodo; la clave se conserva en `null`.
+      grossAmountCents: null,
     });
     expect(d.salesPeriod).not.toHaveProperty('netAmountCents');
     expect(d).not.toHaveProperty('profitPeriodCents'); // el resto del dinero, como siempre

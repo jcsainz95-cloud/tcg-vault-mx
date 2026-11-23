@@ -8,23 +8,31 @@ import { formatMoneyCents } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { BarSeries, Segmented, type Bar } from './SalesBarChart';
 import { SALES_GRID } from './SalesSummary';
-import { fmtIsoWeekday, money, shortMoney, signedMoney } from './salesFormat';
+import { fmtIsoWeekday, shortMoney, signedMoney } from './salesFormat';
 import type { SalesChartMetric } from './salesParams';
 
 /**
  * Totales P2 del periodo (`§AN-UX.8c`). Cada celda existe SOLO si su clave llega (⛔ `?? 0`, UX-AN-13/19).
  * «Resultado del envío» = `resultNetCents` tal cual (⛔ cobrado − costo en el navegador, AN-F-5).
  */
-export function SalesP2Totals({ data }: { data: SalesReportDTO }) {
+export type SalesP2Part = 'shipping' | 'buylist' | 'chargebacks';
+
+/**
+ * §REPORTES-CEO F1 — una sola casa por cifra: ya no se pintan en Ventas. `only` elige qué celdas lleva cada área:
+ * `shipping` + `chargebacks` → Reportes › Operación; `buylist` → Reportes › Compras a vendedores. La ganancia vive en Finanzas.
+ */
+export function SalesP2Totals({ data, only }: { data: SalesReportDTO; only: readonly SalesP2Part[] }) {
   const t = useTranslations('admin.m9.sales.p2');
   const locale = useLocale() as AppLocale;
   const fm = (n: number) => formatMoneyCents(n, locale);
-  const { shipping, buylist, profitCents, chargebacks } = data.totals;
-  if (!shipping || !buylist || profitCents === undefined) return null;
+  const { shipping, buylist, chargebacks } = data.totals;
+  const has = (p: SalesP2Part) => only.includes(p);
+  if (!shipping || !buylist) return null;
   const undated = data.chargebacksUndatedCount;
   return (
     <section data-testid="sales-p2-totals" className={SALES_GRID}>
-      <StatCard label={t('shippingCharged')} value={fm(shipping.chargedNetCents)} />
+      {has('shipping') && <StatCard label={t('shippingCharged')} value={fm(shipping.chargedNetCents)} />}
+      {has('shipping') && (
       <StatCard
         label={t('shippingCost')}
         value={fm(shipping.costNetCents)}
@@ -42,7 +50,8 @@ export function SalesP2Totals({ data }: { data: SalesReportDTO }) {
           )
         }
       />
-      {shipping.resultNetCents !== undefined && (
+      )}
+      {has('shipping') && shipping.resultNetCents !== undefined && (
         <StatCard
           label={t('shippingResult')}
           value={<span data-testid="sales-card-shippingResult">{signedMoney(shipping.resultNetCents, locale)}</span>}
@@ -59,6 +68,7 @@ export function SalesP2Totals({ data }: { data: SalesReportDTO }) {
           }
         />
       )}
+      {has('buylist') && (
       <StatCard
         label={t('buylistPaid')}
         value={fm(buylist.paidNetCents)}
@@ -74,8 +84,8 @@ export function SalesP2Totals({ data }: { data: SalesReportDTO }) {
           </span>
         }
       />
-      <StatCard label={t('profit')} value={money(profitCents, locale)} sub={t('profitHelp')} />
-      {chargebacks !== undefined && (
+      )}
+      {has('chargebacks') && chargebacks !== undefined && (
         <StatCard
           label={t('chargebacks')}
           value={<span data-testid="sales-card-chargebacks">{t('chargebacksCount', { count: chargebacks.count })}</span>}

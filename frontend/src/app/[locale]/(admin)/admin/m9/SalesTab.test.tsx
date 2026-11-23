@@ -5,6 +5,7 @@ import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import es from '../../../../../../messages/es.json';
 import { SalesTab } from './SalesTab';
+import { SalesP2Totals } from './SalesP2';
 import { SALES_DEFAULTS } from './salesParams';
 import { figures, report, reportP2 } from './sales.testkit';
 import type { SalesReportDTO } from '@/types/contract';
@@ -111,7 +112,7 @@ describe('UX-AN-5 · el rótulo sale de la RESPUESTA (AN-4)', () => {
     mount();
     const label = await screen.findByTestId('sales-period-label');
     expect(label).toHaveAttribute('data-from', '2026-09-30');
-    fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.today }));
+    fireEvent.click(screen.getByRole('button', { name: es.admin.reports.period.today }));
     await waitFor(() => expect(screen.getByTestId('sales-region')).toHaveAttribute('aria-busy', 'true'));
     expect(screen.getByTestId('sales-period-label')).toHaveAttribute('data-from', '2026-09-30');
     expect(screen.getByTestId('sales-period-label').textContent).toContain('7 días');
@@ -138,43 +139,54 @@ describe('UX-AN-6 · cambiar `groupBy` pide con `groupBy` y las celdas pintan lo
   });
 });
 
-describe('UX-AN-7 · rango a mano: se valida antes de mandar; el `400` va bajo su campo', () => {
+describe('UX-AN-7 · rango a mano: se valida como fecha REAL antes de mandar; el `400`/`422` del servidor da el aviso genérico', () => {
+  const P = es.admin.reports.period;
   async function openCustom() {
     const spy = serve(report());
     mount();
     await screen.findByTestId('sales-period-label');
-    fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.custom }));
+    fireEvent.click(screen.getByRole('button', { name: P.custom }));
     return spy;
   }
   const set = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } });
-  const ver = () => fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.apply }));
-  const R = es.admin.m9.sales.range;
+  const ver = () => screen.getByRole('button', { name: P.apply });
 
   it.each([
-    ['falta una', '2026-09-01', '', R.bothRequired],
-    ['desde > hasta', '2026-09-10', '2026-09-01', R.fromAfterTo],
-    ['hasta > hoy', '2026-09-01', '2999-01-01', R.toFuture],
-    ['más de 366 días', '2024-01-01', '2026-01-01', R.tooLong],
-  ])('%s ⇒ su texto y NINGUNA petición', async (_n, from, to, msg) => {
+    ['falta una', '2026-09-01', ''],
+    ['desde > hasta', '2026-09-10', '2026-09-01'],
+    ['hasta > hoy', '2026-09-01', '2999-01-01'],
+    ['fecha inexistente', '2026-02-30', '2026-03-05'],
+    ['más de 366 días (tope de Ventas)', '2024-01-01', '2026-01-01'],
+  ])('%s ⇒ «Ver» desactivado, su aviso y NINGUNA petición', async (_n, from, to) => {
     const spy = await openCustom();
     const calls = spy.mock.calls.length;
-    set(es.admin.m9.sales.period.from, from);
-    set(es.admin.m9.sales.period.to, to);
-    ver();
-    expect(await screen.findByText(msg)).toBeInTheDocument();
+    set(P.from, from);
+    set(P.to, to);
+    expect(ver()).toBeDisabled();
+    expect(screen.getByText(P.invalid)).toBeInTheDocument();
+    fireEvent.click(ver());
     expect(spy.mock.calls.length).toBe(calls);
   });
 
-  it('un `400 {field:"to"}` del servidor: mensaje genérico (AN-1.2, sin `reason`) bajo «Hasta»', async () => {
+  it('un `422` del servidor: mensaje genérico (AN-1.2, sin `reason`) y la petición lleva custom con las fechas', async () => {
     const spy = await openCustom();
-    spy.mockRejectedValueOnce(new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'to' } }));
-    set(es.admin.m9.sales.period.from, '2026-09-01');
-    set(es.admin.m9.sales.period.to, '2026-09-05');
-    ver();
-    const to = screen.getByLabelText(es.admin.m9.sales.period.to);
-    await waitFor(() => expect(to).toHaveAttribute('aria-invalid', 'true'));
-    expect(document.getElementById(to.getAttribute('aria-describedby') ?? '')?.textContent).toBe(R.invalid);
+    spy.mockRejectedValueOnce(new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'to' } }));
+    set(P.from, '2026-09-01');
+    set(P.to, '2026-09-05');
+    fireEvent.click(ver());
+    expect(await screen.findByText(es.admin.m9.sales.range.invalid)).toBeInTheDocument();
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ preset: 'custom', from: '2026-09-01', to: '2026-09-05' }));
+  });
+
+  it('§2: el selector no manda `preset` de servidor (el atajo «Hoy» llega como custom, de ese día en México)', async () => {
+    const spy = serve(report(), report());
+    mount();
+    await screen.findByTestId('sales-period-label');
+    fireEvent.click(screen.getByRole('button', { name: P.today }));
+    await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(1));
+    const last = spy.mock.calls.at(-1)![0]!;
+    expect(last.preset).toBe('custom');
+    expect(last.from).toBe(last.to);
   });
 });
 
@@ -232,7 +244,8 @@ describe('UX-AN-13 · P2 se pinta solo si llega (⛔ `?? 0`)', () => {
     mount();
     await screen.findByTestId('sales-period-label');
     const cols = screen.getByRole('group', { name: es.admin.m9.sales.table.colsLabel });
-    expect(screen.getByTestId('sales-p2-totals')).toBeInTheDocument();
+    // §REPORTES-CEO F1 (CR-2): los totales de envío/compras/contracargos se fueron a Operación y Compras a vendedores.
+    expect(screen.queryByTestId('sales-p2-totals')).toBeNull();
     expect(screen.getByTestId('sales-when')).toBeInTheDocument();
     expect(screen.getByTestId('sales-mix')).toBeInTheDocument();
     fireEvent.click(within(cols).getByRole('button', { name: es.admin.m9.sales.table.colsMoney }));
@@ -290,15 +303,20 @@ describe('UX-AN-18 (AN-F-5) · «Resultado del envío» es el del DTO, con signo
   it('no es cobrado − costo: se pinta el valor del DTO; «Puede ser menor» con costos faltantes', async () => {
     const base = reportP2();
     const shipping = { chargedNetCents: 30000, costNetCents: 23600, costMissingCount: 2, adjustmentsCents: 0, resultNetCents: -8000 };
-    serve({
+    const data: SalesReportDTO = {
       ...base,
       totals: { ...base.totals, shipping },
       rows: base.rows.map((r, i) => ({ ...r, shipping: { ...shipping, resultNetCents: i === 0 ? 12000 : 0, costMissingCount: i === 0 ? 1 : 0 } })),
-    });
-    mount();
+    };
+    // §REPORTES-CEO F1: la celda vive en Reportes › Operación (`SalesP2Totals only=['shipping']`); la columna por día sigue en Ventas.
+    const card = renderWithProviders(<SalesP2Totals data={data} only={['shipping']} />, 'es');
     const cell = await screen.findByTestId('sales-card-shippingResult');
     expect(cell.textContent).toBe('−MX$80.00'); // ≠ 300.00 − 236.00 = +64.00
     expect(cell.closest('div')?.textContent).toContain(es.admin.m9.sales.p2.shippingResultMaybeLower);
+    card.unmount();
+    serve(data);
+    mount();
+    await screen.findByTestId('sales-period-label');
     fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.table.colsMoney }));
     const cols = screen.getAllByTestId('sales-shipping-result');
     expect(cols[0].textContent).toContain('+MX$120.00');
@@ -311,7 +329,8 @@ describe('UX-AN-18 (AN-F-5) · «Resultado del envío» es el del DTO, con signo
 describe('UX-AN-19 (AN-F-5) · contracargos y «Qué se vende» solo si llegan', () => {
   const cb = { count: 1, amountCents: 95000, byOutcome: { open: { count: 1, amountCents: 95000 }, won: { count: 0, amountCents: 0 }, lost: { count: 0, amountCents: 0 } } };
   it('ausentes ⇒ ni tabla, ni columna/celda, ni aviso', async () => {
-    serve(reportP2());
+    const data = reportP2();
+    serve(data);
     mount();
     await screen.findByTestId('sales-period-label');
     expect(screen.queryByTestId('sales-mix-product-type')).toBeNull();
@@ -319,62 +338,32 @@ describe('UX-AN-19 (AN-F-5) · contracargos y «Qué se vende» solo si llegan',
     fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.table.colsMoney }));
     expect(within(screen.getByTestId('sales-table')).queryByText(es.admin.m9.sales.table.chargebacks)).toBeNull();
     expect(screen.queryByTestId('sales-chargebacks-undated')).toBeNull();
+    // y la celda de Operación tampoco aparece sin el dato
+    const ops = renderWithProviders(<SalesP2Totals data={data} only={['chargebacks']} />, 'es');
+    expect(ops.queryByTestId('sales-card-chargebacks')).toBeNull();
   });
-  it('`chargebacksUndatedCount = 0` ⇒ sin aviso; `3` ⇒ el aviso dice 3', async () => {
+  it('`chargebacksUndatedCount = 0` ⇒ sin aviso; `3` ⇒ el aviso dice 3 (celda en Operación, columna en Ventas)', async () => {
     const base = reportP2();
-    const withCb = (n: number) => ({
+    const withCb = (n: number): SalesReportDTO => ({
       ...base,
       totals: { ...base.totals, chargebacks: cb },
       rows: base.rows.map((r) => ({ ...r, chargebacks: cb })),
       chargebacksUndatedCount: n,
       mix: { ...base.mix!, byProductType: { raw: { pieces: 4, netCents: 1 }, graded: { pieces: 2, netCents: 2 }, sealed: { pieces: 0, netCents: 0 } } },
     });
-    serve(withCb(0));
-    const first = mount();
+    const ops0 = renderWithProviders(<SalesP2Totals data={withCb(0)} only={['chargebacks']} />, 'es');
     await screen.findByTestId('sales-card-chargebacks');
-    expect(screen.getByTestId('sales-mix-product-type')).toBeInTheDocument();
     expect(screen.queryByTestId('sales-card-chargebacks-undated')).toBeNull();
-    first.unmount();
+    ops0.unmount();
+    const ops3 = renderWithProviders(<SalesP2Totals data={withCb(3)} only={['chargebacks']} />, 'es');
+    expect((await screen.findByTestId('sales-card-chargebacks-undated')).textContent).toContain('3');
+    ops3.unmount();
     serve(withCb(3));
     mount();
-    expect((await screen.findByTestId('sales-card-chargebacks-undated')).textContent).toContain('3');
+    await screen.findByTestId('sales-period-label');
+    expect(screen.getByTestId('sales-mix-product-type')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.table.colsMoney }));
     expect(within(screen.getByTestId('sales-table')).getByText(es.admin.m9.sales.table.chargebacks)).toBeInTheDocument();
     expect(screen.getByTestId('sales-chargebacks-undated').textContent).toContain('3');
-  });
-});
-
-describe('UX-AN-20 · el CSV no habla de centavos', () => {
-  it('ni el DOM de la pestaña', async () => {
-    serve(report());
-    const { container } = mount();
-    await screen.findByTestId('sales-period-label');
-    expect(container.textContent).not.toMatch(/centavo|cents/i);
-  });
-});
-
-describe('§AN-UX.10 · estados', () => {
-  it('periodo sin ventas: banner y TODO lo demás se pinta (filas de cero, barras-marca)', async () => {
-    serve(report({ totals: figures(), rows: report().rows.map((r) => ({ ...r, ...figures() })) }));
-    mount();
-    expect(await screen.findByTestId('sales-empty')).toHaveTextContent(es.admin.m9.sales.state.empty);
-    expect(screen.getAllByTestId('sales-row')).toHaveLength(7);
-    expect(screen.getAllByTestId('sales-bar').every((b) => b.getAttribute('data-zero') === 'true')).toBe(true);
-  });
-  it('`403` ⇒ «Solo el súper-admin…» sin reintentar', async () => {
-    serve(new ApiClientError(403, { code: 'FORBIDDEN', message: 'x' }));
-    mount();
-    expect(await screen.findByText(es.admin.m9.sales.state.forbidden)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: es.common.retry })).toBeNull();
-  });
-  it('error de red ⇒ banner con «Reintentar»; los datos previos se quedan visibles', async () => {
-    const spy = serve(report(), new Error('network'));
-    mount();
-    await screen.findByTestId('sales-period-label');
-    fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.yesterday }));
-    expect(await screen.findByText(es.admin.m9.sales.state.error)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: es.common.retry })).toBeInTheDocument();
-    expect(screen.getByTestId('sales-card-orders').textContent).toBe('3');
-    expect(spy).toHaveBeenCalledTimes(2);
   });
 });

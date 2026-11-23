@@ -889,6 +889,11 @@ stop_backend_only() {
 _prisma_sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 # Texto del schema sin comentarios ni formato: corta en el primer `//` que NO esté dentro de comillas
 # (`@default("http://…")` se conserva), colapsa espacios y quita líneas vacías. LC_ALL=C: por bytes.
+# I-7 (qa, 2026-11-23): el modismo `{ $1 = $1 } NF` NO quita líneas vacías en mawk 1.3.4 (asignar $1
+# en un registro vacío deja NF=1) ⇒ dos vacías seguidas en el schema, que Prisma colapsa en una al
+# copiar, daban «sigue sin coincidir» en todo `up`. `_prisma_sin_formato` no depende de reconstruir
+# campos ni de NF: gsub/sub explícitos y `$0 != ""` (igual en mawk, gawk y busybox awk).
+_prisma_sin_formato() { LC_ALL=C awk '{ gsub(/[ \t\r]+/, " "); sub(/^ /, ""); sub(/ $/, "") } $0 != ""' "$@"; }
 _prisma_sin_comentarios() {
   LC_ALL=C awk '
     index($0, "//") { o = ""; q = 0; n = length($0)
@@ -898,7 +903,7 @@ _prisma_sin_comentarios() {
         if (c == "/" && substr($0, i + 1, 1) == "/") break
         o = o c }
       $0 = o }
-    { $1 = $1 } NF' "$1"
+    { print }' "$1" | _prisma_sin_formato
 }
 _prisma_huella() { _prisma_sin_comentarios "$1" | _prisma_sha; }
 ensure_prisma_client() {
@@ -923,7 +928,7 @@ ensure_prisma_client() {
     die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia),
      ni ignorando el formato y los comentarios. ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
   fi
-  if [ "$(awk '{$1=$1}; NF' "$copia" | _prisma_sha)" != "$(awk '{$1=$1}; NF' "$schema" | _prisma_sha)" ]; then
+  if [ "$(_prisma_sin_formato "$copia" | _prisma_sha)" != "$(_prisma_sin_formato "$schema" | _prisma_sha)" ]; then
     warn "La copia del cliente difiere del schema SOLO en comentarios ($(grep -c $'\xef\xbf\xbd' "$copia" 2>/dev/null || true) línea(s) con U+FFFD):"
     warn "es el corte de multibyte de Prisma 5.22 en la tubería del generador (DEVOPS_NOTES §103.4). El cliente es el mismo; sigo."
   fi
