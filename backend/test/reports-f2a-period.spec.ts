@@ -28,29 +28,38 @@ describe('F2a — previousRange (puro)', () => {
     expect(pr('month', '2026-02-01', '2026-02-28')).toEqual(['month', '2026-01-01', '2026-01-31', false]);
     expect(pr('month', '2026-03-01', '2026-03-31')).toEqual(['month', '2026-02-01', '2026-02-28', false]);
   });
-  it('31-mar vs feb ⇒ feb completo y clamped:true; bisiesto: feb 29 completo', () => {
-    expect(pr('month', '2026-03-01', '2026-03-30')).toEqual(['month', '2026-02-01', '2026-02-28', true]);
+  it('regla única «el mismo día, un mes antes»: 31-mar CERRADO ⇒ feb completo sin rótulo; 30-mar-2027 ⇒ 28-feb clamped:true', () => {
+    expect(pr('month', '2027-03-01', '2027-03-31')).toEqual(['month', '2027-02-01', '2027-02-28', false]);
+    expect(pr('month', '2027-03-01', '2027-03-30')).toEqual(['month', '2027-02-01', '2027-02-28', true]);
+    expect(pr('month', '2027-03-01', '2027-03-29')).toEqual(['month', '2027-02-01', '2027-02-28', true]);
+    expect(pr('month', '2027-03-01', '2027-03-28')).toEqual(['month', '2027-02-01', '2027-02-28', false]);
+  });
+  it('bisiesto: 29-mar-2028 vs 29-feb sin rótulo; 30-mar-2028 recorta; 31-mar-2028 cerrado vs 29-feb sin rótulo', () => {
     expect(pr('month', '2028-03-01', '2028-03-31')).toEqual(['month', '2028-02-01', '2028-02-29', false]);
     expect(pr('month', '2028-03-01', '2028-03-30')).toEqual(['month', '2028-02-01', '2028-02-29', true]);
     expect(pr('month', '2028-03-01', '2028-03-29')).toEqual(['month', '2028-02-01', '2028-02-29', false]);
   });
-  it('trimestre, semestre y año: cerrado = unidad anterior completa; a la fecha = primeros k días', () => {
+  it('trimestre, semestre y año: cerrado = unidad anterior completa; a la fecha = MISMA FECHA de calendario una unidad atrás', () => {
     expect(pr('quarter', '2026-10-01', '2026-12-31')).toEqual(['quarter', '2026-07-01', '2026-09-30', false]);
     expect(pr('quarter', '2026-10-01', '2026-11-23')).toEqual(['quarter', '2026-07-01', '2026-08-23', false]);
     expect(pr('semester', '2026-07-01', '2026-12-31')).toEqual(['semester', '2026-01-01', '2026-06-30', false]);
-    expect(pr('semester', '2026-07-01', '2026-11-23')).toEqual(['semester', '2026-01-01', '2026-05-26', false]);
+    expect(pr('semester', '2026-07-01', '2026-11-23')).toEqual(['semester', '2026-01-01', '2026-05-23', false]);
     expect(pr('year', '2026-01-01', '2026-12-31')).toEqual(['year', '2025-01-01', '2025-12-31', false]);
     expect(pr('year', '2026-01-01', '2026-11-23')).toEqual(['year', '2025-01-01', '2025-11-23', false]);
-    // a la fecha más largo que la unidad anterior: S2 (184 días) al 29-dic = 182 días vs S1 (181) ⇒ recorta
-    expect(pr('semester', '2026-07-01', '2026-12-29')).toEqual(['semester', '2026-01-01', '2026-06-30', true]);
-    expect(pr('quarter', '2026-04-01', '2026-06-29')).toEqual(['quarter', '2026-01-01', '2026-03-31', false]);
+    // recorte de la FECHA (no del largo): 30-may −3 meses = 30-feb no existe ⇒ 28-feb, clamped:true
+    expect(pr('quarter', '2027-04-01', '2027-05-30')).toEqual(['quarter', '2027-01-01', '2027-02-28', true]);
+    expect(pr('quarter', '2027-04-01', '2027-06-29')).toEqual(['quarter', '2027-01-01', '2027-03-29', false]);
   });
-  it('year a la fecha tras el 29-feb de un año bisiesto', () => {
-    expect(pr('year', '2028-01-01', '2028-03-01')).toEqual(['year', '2027-01-01', '2027-03-02', false]);
+  it('año a la fecha en bisiesto: 2028-03-01 ⇒ 2027-01-01..2027-03-01 (fecha de calendario, no primeros k días); 29-feb es fin de mes ⇒ 28-feb sin rótulo', () => {
+    expect(pr('year', '2028-01-01', '2028-03-01')).toEqual(['year', '2027-01-01', '2027-03-01', false]);
+    expect(pr('year', '2028-01-01', '2028-02-29')).toEqual(['year', '2027-01-01', '2027-02-28', false]);
   });
-  it('day = mismo día de la semana anterior; con varios días desplaza −7 a ambos extremos', () => {
+  it('day = mismo día de la semana anterior; con más de un día cae a span (el anterior nunca solapa)', () => {
     expect(pr('day', '2026-11-23', '2026-11-23')).toEqual(['day', '2026-11-16', '2026-11-16', false]);
-    expect(pr('day', '2026-11-20', '2026-11-23')).toEqual(['day', '2026-11-13', '2026-11-16', false]);
+    expect(pr('day', '2026-11-20', '2026-11-23')).toEqual(['span', '2026-11-16', '2026-11-19', false]);
+  });
+  it('rolling de 30 días = los 30 días inmediatamente antes (no −7)', () => {
+    expect(pr('rolling', '2026-11-01', '2026-11-30')).toEqual(['rolling', '2026-10-02', '2026-10-31', false]);
   });
   it('calendario que no calza con su unidad cae a span (from a mitad de mes; to pasa el fin)', () => {
     expect(pr('month', '2026-11-05', '2026-11-23')).toEqual(['span', '2026-10-17', '2026-11-04', false]);
@@ -103,6 +112,8 @@ describe('F2a — deltaOf (centavos enteros)', () => {
     expect(deltaOf(9, 8).deltaBps).toBe(1250);
     expect(deltaOf(1, 16).deltaBps).toBe(-9375);
     expect(deltaOf(17, 16).deltaBps).toBe(625);
+    expect(deltaOf(31, 32).deltaBps).toBe(-313); // −312.5: mitad hacia afuera de cero
+    expect(deltaOf(33, 32).deltaBps).toBe(313);
     expect(deltaOf(1, 32000).deltaBps).toBe(-10000); // −31999×10000/32000 = −9999.69
   });
 });
@@ -181,9 +192,21 @@ describe('F2a — AdminService.pnlReport con comparación', () => {
     expect(r2.previousPeriod.to).toBe('2019-12-31');
   });
 
-  it('sin kind con YMD = span; 31-mar vs feb ⇒ clamped', async () => {
+  it('periodo a caballo de 2020: se lee desde 2020-01-01 (sin qFrom range() lo rechazaría)', async () => {
+    const { service, prisma } = build(new Date('2026-01-05T12:00:00Z'));
+    const r: any = await service.pnlReport('2020-01-20', '2020-02-10');
+    expect(r.previousPeriod).toEqual({ from: '2019-12-29', to: '2020-01-19', clamped: false });
+    const wheres = prisma.order.findMany.mock.calls.map((c: any) => c[0].where.settledAt).filter(Boolean);
+    expect(wheres).toContainEqual({ gte: new Date('2020-01-01T06:00:00.000Z'), lt: new Date('2020-01-20T06:00:00.000Z') });
+  });
+
+  it('sin kind con YMD = span; 30-mar vs feb ⇒ clamped; kind que no calza ⇒ period.kind efectivo span', async () => {
     const { service } = build(new Date('2026-01-05T12:00:00Z'));
     expect(((await service.pnlReport('2026-11-01', '2026-11-23')) as any).period.kind).toBe('span');
     expect(((await service.pnlReport('2026-03-01', '2026-03-30', 'month')) as any).previousPeriod).toEqual({ from: '2026-02-01', to: '2026-02-28', clamped: true });
+    const off: any = await service.pnlReport('2026-11-05', '2026-11-23', 'month');
+    expect(off.period.kind).toBe('span');
+    expect(off.previousPeriod).toEqual({ from: '2026-10-17', to: '2026-11-04', clamped: false });
+    expect(((await service.pnlReport('2026-11-20', '2026-11-23', 'day')) as any).period.kind).toBe('span');
   });
 });

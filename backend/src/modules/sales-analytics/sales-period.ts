@@ -146,22 +146,42 @@ export function unitEnd(kind: PeriodKind, start: Ymd): Ymd {
   return ymdOfUtc(Date.UTC(y, m - 1 + n, 0));
 }
 
+/** Días del mes `m` (1..12) del año `y`. */
+const monthLength = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+
 /**
- * §REPORTES-CEO F2a — el periodo anterior = el MISMO TRAMO (puro). `kind` de calendario cuyo `from` no es el inicio de la unidad,
- * o cuyo `to` pasa el fin de la unidad ⇒ cae a `span`. `clamped` solo si el tramo a la fecha supera el largo de la unidad anterior.
+ * `ymd` desplazado `-months` meses de calendario (mismo día; si no existe en el mes destino ⇒ fin de ese mes, `clamped:true`).
+ * Un día que ES el último de su mes va al último del mes destino SIN rótulo (el periodo cerrado nunca se rotula).
+ */
+function shiftBackMonths(ymd: Ymd, months: number): { ymd: Ymd; clamped: boolean } {
+  const [y, m, d] = ymdParts(ymd);
+  const total = y * 12 + (m - 1) - months;
+  const ty = Math.floor(total / 12);
+  const tm = (total % 12) + 1;
+  const tLen = monthLength(ty, tm);
+  const fmt = (day: number) => `${String(ty).padStart(4, '0')}-${String(tm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (d === monthLength(y, m)) return { ymd: fmt(tLen), clamped: false };
+  if (d > tLen) return { ymd: fmt(tLen), clamped: true };
+  return { ymd: fmt(d), clamped: false };
+}
+
+/**
+ * §REPORTES-CEO F2a — el periodo anterior = el MISMO TRAMO (puro). Regla única de calendario: «el mismo día, un mes/trimestre/
+ * semestre/año antes» (`from`/`to` desplazados −1/−3/−6/−12 meses); `clamped` solo si la FECHA se recorta (30-mar vs 28-feb).
+ * Un periodo cerrado (`to` = fin de la unidad) ⇒ la unidad anterior completa, sin rótulo. `kind` de calendario cuyo `from` no es el
+ * inicio de la unidad, o cuyo `to` pasa el fin de la unidad ⇒ `span`. `day` solo admite UN día (−7 d); con más ⇒ `span`.
  */
 export function previousRange(kind: PeriodKind | undefined, from: Ymd, to: Ymd): { kind: PeriodKind; from: Ymd; to: Ymd; clamped: boolean } {
   const days = daysBetween(from, to) + 1;
   const span = (k: PeriodKind) => ({ kind: k, from: addDays(from, -days), to: prevYmd(from), clamped: false });
   if (kind === undefined || kind === 'span') return span('span');
   if (kind === 'rolling') return span('rolling');
-  if (kind === 'day') return { kind, from: addDays(from, -7), to: addDays(to, -7), clamped: false };
+  if (kind === 'day') return from === to ? { kind, from: addDays(from, -7), to: addDays(to, -7), clamped: false } : span('span');
   if (unitStart(kind, from) !== from || to > unitEnd(kind, from)) return span('span');
-  const prevStart = unitStart(kind, prevYmd(from));
-  const prevEnd = prevYmd(from);
-  if (to === unitEnd(kind, from)) return { kind, from: prevStart, to: prevEnd, clamped: false };
-  const cand = addDays(prevStart, days - 1);
-  return cand > prevEnd ? { kind, from: prevStart, to: prevEnd, clamped: true } : { kind, from: prevStart, to: cand, clamped: false };
+  const months = CALENDAR_MONTHS[kind]!;
+  const f = shiftBackMonths(from, months);
+  const t = shiftBackMonths(to, months);
+  return { kind, from: f.ymd, to: t.ymd, clamped: f.clamped || t.clamped };
 }
 
 export type ComparisonBasis = 'complete' | 'partial' | 'none';

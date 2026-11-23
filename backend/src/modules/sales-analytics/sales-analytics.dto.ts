@@ -5,7 +5,7 @@
  */
 import type { Finish } from '@prisma/client';
 import type { Delta, SalesFigures } from './sales-figures';
-import type { SalesGroupBy, SalesPreset, SalesTopSort, Ymd } from './sales-period';
+import type { PeriodKind, SalesGroupBy, SalesPreset, SalesTopSort, Ymd } from './sales-period';
 
 export interface TopCard {
   cardId: string;
@@ -44,7 +44,7 @@ export interface PieceCell {
 }
 
 export interface SalesReportDTO {
-  period: { preset: SalesPreset; from: Ymd; to: Ymd; days: number; timezone: 'America/Mexico_City' };
+  period: { preset: SalesPreset; /** F2a: `kind` EFECTIVO (cae a `span` si no calza). */ kind: PeriodKind; from: Ymd; to: Ymd; days: number; timezone: 'America/Mexico_City' };
   previousPeriod: { from: Ymd; to: Ymd; clamped: boolean };
   /** F2a: día MX del primer pedido liquidado; `null` sin pedidos (⇒ `basis:'none'`). */
   firstDataDay: Ymd | null;
