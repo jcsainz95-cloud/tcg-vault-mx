@@ -368,7 +368,7 @@ export default async function CardShowPage() {
                 </p>
                 <h3 className="mt-3 font-brand text-h2 font-bold text-on-ink">{g.nombre}</h3>
                 {'magic' in g && g.magic && (
-                  <p className="mt-2 font-mono text-[11px] uppercase tracking-label text-on-ink">{g.magic.formato}</p>
+                  <p className="mt-2 font-mono text-[11px] tracking-label text-on-ink">{g.magic.formato}</p>
                 )}
                 <p className="mt-3 min-h-[4.5em] text-sm text-on-ink-muted">{g.linea}</p>
                 {'magic' in g && g.magic && (
@@ -423,7 +423,7 @@ export default async function CardShowPage() {
                           <span className="font-brand text-lg font-bold text-on-ink">{t.nombre}</span>
                           <span className="tabular font-mono text-sm text-on-ink">{t.horas}</span>
                         </div>
-                        {t.formato && <p className="mt-1 font-mono text-[11px] uppercase tracking-label text-on-ink">{t.formato}</p>}
+                        {t.formato && <p className="mt-1 font-mono text-[11px] tracking-label text-on-ink">{t.formato}</p>}
                         <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
                           <span className="text-on-ink-muted">{`Cupo ${t.cupo} jugadores`}</span>
                           <span className="font-bold text-[color:var(--hunt-red-up)]">{t.precio}</span>

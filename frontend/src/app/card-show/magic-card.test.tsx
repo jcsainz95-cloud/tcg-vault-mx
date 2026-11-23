@@ -38,4 +38,13 @@ describe('Card Show · tarjeta de Magic', () => {
     expect(a).toHaveAttribute('target', '_blank');
     expect(a).toHaveAttribute('rel', 'noopener noreferrer');
   });
+  it('m-33 (JC 2026-11-23): el formato se lee «Commander Bracket 3 · 1v1», sin `uppercase`, en la tarjeta y en el programa', async () => {
+    const { container } = render(await CardShowPage());
+    const els = Array.from(container.querySelectorAll('p')).filter((p) => p.textContent === 'Commander Bracket 3 · 1v1');
+    expect(els).toHaveLength(2); // tarjeta de Magic + programa del sábado
+    for (const el of els) {
+      expect(el.textContent).toContain('1v1');
+      expect(el.className).not.toMatch(/\buppercase\b/);
+    }
+  });
 });
