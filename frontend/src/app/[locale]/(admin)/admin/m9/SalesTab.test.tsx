@@ -112,7 +112,7 @@ describe('UX-AN-5 · el rótulo sale de la RESPUESTA (AN-4)', () => {
     mount();
     const label = await screen.findByTestId('sales-period-label');
     expect(label).toHaveAttribute('data-from', '2026-09-30');
-    fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.today }));
+    fireEvent.click(screen.getByRole('button', { name: es.admin.reports.period.today }));
     await waitFor(() => expect(screen.getByTestId('sales-region')).toHaveAttribute('aria-busy', 'true'));
     expect(screen.getByTestId('sales-period-label')).toHaveAttribute('data-from', '2026-09-30');
     expect(screen.getByTestId('sales-period-label').textContent).toContain('7 días');
@@ -139,43 +139,54 @@ describe('UX-AN-6 · cambiar `groupBy` pide con `groupBy` y las celdas pintan lo
   });
 });
 
-describe('UX-AN-7 · rango a mano: se valida antes de mandar; el `400` va bajo su campo', () => {
+describe('UX-AN-7 · rango a mano: se valida como fecha REAL antes de mandar; el `400`/`422` del servidor da el aviso genérico', () => {
+  const P = es.admin.reports.period;
   async function openCustom() {
     const spy = serve(report());
     mount();
     await screen.findByTestId('sales-period-label');
-    fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.custom }));
+    fireEvent.click(screen.getByRole('button', { name: P.custom }));
     return spy;
   }
   const set = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } });
-  const ver = () => fireEvent.click(screen.getByRole('button', { name: es.admin.m9.sales.period.apply }));
-  const R = es.admin.m9.sales.range;
+  const ver = () => screen.getByRole('button', { name: P.apply });
 
   it.each([
-    ['falta una', '2026-09-01', '', R.bothRequired],
-    ['desde > hasta', '2026-09-10', '2026-09-01', R.fromAfterTo],
-    ['hasta > hoy', '2026-09-01', '2999-01-01', R.toFuture],
-    ['más de 366 días', '2024-01-01', '2026-01-01', R.tooLong],
-  ])('%s ⇒ su texto y NINGUNA petición', async (_n, from, to, msg) => {
+    ['falta una', '2026-09-01', ''],
+    ['desde > hasta', '2026-09-10', '2026-09-01'],
+    ['hasta > hoy', '2026-09-01', '2999-01-01'],
+    ['fecha inexistente', '2026-02-30', '2026-03-05'],
+    ['más de 366 días (tope de Ventas)', '2024-01-01', '2026-01-01'],
+  ])('%s ⇒ «Ver» desactivado, su aviso y NINGUNA petición', async (_n, from, to) => {
     const spy = await openCustom();
     const calls = spy.mock.calls.length;
-    set(es.admin.m9.sales.period.from, from);
-    set(es.admin.m9.sales.period.to, to);
-    ver();
-    expect(await screen.findByText(msg)).toBeInTheDocument();
+    set(P.from, from);
+    set(P.to, to);
+    expect(ver()).toBeDisabled();
+    expect(screen.getByText(P.invalid)).toBeInTheDocument();
+    fireEvent.click(ver());
     expect(spy.mock.calls.length).toBe(calls);
   });
 
-  it('un `400 {field:"to"}` del servidor: mensaje genérico (AN-1.2, sin `reason`) bajo «Hasta»', async () => {
+  it('un `422` del servidor: mensaje genérico (AN-1.2, sin `reason`) y la petición lleva custom con las fechas', async () => {
     const spy = await openCustom();
-    spy.mockRejectedValueOnce(new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'to' } }));
-    set(es.admin.m9.sales.period.from, '2026-09-01');
-    set(es.admin.m9.sales.period.to, '2026-09-05');
-    ver();
-    const to = screen.getByLabelText(es.admin.m9.sales.period.to);
-    await waitFor(() => expect(to).toHaveAttribute('aria-invalid', 'true'));
-    expect(document.getElementById(to.getAttribute('aria-describedby') ?? '')?.textContent).toBe(R.invalid);
+    spy.mockRejectedValueOnce(new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'to' } }));
+    set(P.from, '2026-09-01');
+    set(P.to, '2026-09-05');
+    fireEvent.click(ver());
+    expect(await screen.findByText(es.admin.m9.sales.range.invalid)).toBeInTheDocument();
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ preset: 'custom', from: '2026-09-01', to: '2026-09-05' }));
+  });
+
+  it('§2: el selector no manda `preset` de servidor (el atajo «Hoy» llega como custom, de ese día en México)', async () => {
+    const spy = serve(report(), report());
+    mount();
+    await screen.findByTestId('sales-period-label');
+    fireEvent.click(screen.getByRole('button', { name: P.today }));
+    await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(1));
+    const last = spy.mock.calls.at(-1)![0]!;
+    expect(last.preset).toBe('custom');
+    expect(last.from).toBe(last.to);
   });
 });
 

@@ -370,7 +370,8 @@ export function AdminDashboard() {
                 <>
                   {t('goalPending')}
                   <br />
-                  {t('users')} {query.data.launchProgress.users} · {t('withdrawals')}{' '}
+                  {t('users')} {query.data.launchProgress.users} · {t('buylistPaid')}{' '}
+                  {query.data.launchProgress.buylistPaid} · {t('withdrawals')}{' '}
                   {query.data.launchProgress.withdrawalsNoDispute}
                 </>
               }

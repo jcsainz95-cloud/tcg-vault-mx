@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M7View } from './M7View';
-import { presetRange } from '@/lib/dateRange';
+import { periodFor } from '@/lib/reports/period';
 import * as download from '@/lib/download';
 
 describe('M7View · Finanzas (P&L)', () => {
@@ -31,23 +31,32 @@ describe('M7View · Finanzas (P&L)', () => {
     expect((await screen.findAllByText('ord-9001')).length).toBeGreaterThan(0);
   });
 
-  it('los botones de preset setean el rango from/to del selector', async () => {
+  it('usa el selector único: defecto «Este mes» y los atajos cambian las fechas resueltas visibles', async () => {
     renderWithProviders(<M7View />, 'es');
-
-    const fromInput = await screen.findByLabelText('Desde') as HTMLInputElement;
-    const toInput = screen.getByLabelText('Hasta') as HTMLInputElement;
-    expect(fromInput.value).toBe('');
-    expect(toInput.value).toBe('');
-
+    const month = periodFor('month');
+    const resolved = await screen.findByTestId('period-resolved');
+    expect(resolved.textContent).toContain('Hora de México');
+    expect(screen.getByRole('button', { name: 'Este mes' })).toHaveAttribute('aria-pressed', 'true');
+    // Finanzas SÍ ofrece «Todo» (sin from/to = todo el histórico, como siempre).
+    const all = screen.getByRole('button', { name: 'Todo' });
+    expect(all).not.toBeDisabled();
+    fireEvent.click(all);
+    expect(screen.getByTestId('period-resolved').textContent).toContain('Todo el historial');
     fireEvent.click(screen.getByRole('button', { name: 'Este año' }));
-    const year = presetRange('year');
-    expect(fromInput.value).toBe(year.from);
-    expect(toInput.value).toBe(year.to);
+    expect(screen.getByTestId('period-resolved').textContent).not.toContain('Todo el historial');
+    expect(periodFor('year').from.endsWith('-01-01')).toBe(true);
+    expect(month.from.endsWith('-01')).toBe(true);
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Último mes' }));
-    const month = presetRange('month');
-    expect(fromInput.value).toBe(month.from);
-    expect(toInput.value).toBe(month.to);
+  it('m-6: las fechas a mano siguen al atajo que se pulsa', async () => {
+    renderWithProviders(<M7View initialPeriod={{ preset: 'custom', from: '2026-10-01', to: '2026-10-15' }} />, 'es');
+    expect((await screen.findByLabelText('Desde')) as HTMLInputElement).toHaveValue('2026-10-01');
+    fireEvent.click(screen.getByRole('button', { name: 'Hoy' }));
+    const today = periodFor('today');
+    expect(screen.queryByLabelText('Desde')).toBeNull(); // el panel de fechas se cierra con un atajo
+    fireEvent.click(screen.getByRole('button', { name: 'Fechas…' }));
+    expect(screen.getByLabelText('Desde')).toHaveValue(today.from);
+    expect(screen.getByLabelText('Hasta')).toHaveValue(today.to);
   });
 
   it('exporta el CSV de P&L descargando un archivo', async () => {

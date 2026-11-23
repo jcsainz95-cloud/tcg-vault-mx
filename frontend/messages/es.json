@@ -41,13 +41,6 @@
     "skipToContent": "Saltar al contenido",
     "value": "Valor",
     "total": "Total",
-    "datePresets": {
-      "label": "Rango rápido",
-      "week": "Esta semana",
-      "month": "Último mes",
-      "quarter": "Este trimestre",
-      "year": "Este año"
-    },
     "undo": "Deshacer",
     "verdict": {
       "done": "Hecho",
@@ -1792,8 +1785,8 @@
       "lastFx": "Último tipo de cambio",
       "goalPending": "Meta pendiente",
       "users": "Usuarios",
-      "salesSettled": "Ventas liquidadas",
       "withdrawals": "Retiros sin disputa",
+      "buylistPaid": "Compras a vendedores pagadas",
       "toPrepare": {
         "title": "Pedidos por preparar",
         "detail": "{ship} envíos · {vault} bóveda · {toReplace} por reponer",
@@ -6452,13 +6445,6 @@
     },
     "m7": {
       "title": "Finanzas",
-      "range": {
-        "title": "Rango de fechas",
-        "subtitle": "Aplica al P&L y al IVA cobrado. Sin rango se usa todo el histórico.",
-        "from": "Desde",
-        "to": "Hasta",
-        "clear": "Limpiar rango"
-      },
       "pnl": {
         "title": "Estado de resultados (P&L)",
         "formula": "Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.",
@@ -6497,8 +6483,7 @@
       },
       "export": {
         "pnl": "Exportar P&L (CSV)",
-        "iva": "Exportar IVA (CSV)",
-        "inventory": "Exportar inventario (CSV)"
+        "iva": "Exportar IVA (CSV)"
       },
       "statement": {
         "title": "Resumen",
@@ -6517,27 +6502,11 @@
       }
     },
     "m9": {
-      "title": "Reportes",
       "sales": {
         "period": {
-          "title": "Periodo",
-          "presetsLabel": "Elegir periodo",
-          "today": "Hoy",
-          "yesterday": "Ayer",
-          "last7": "Últimos 7 días",
-          "last30": "Últimos 30 días",
-          "thisMonth": "Este mes",
-          "lastMonth": "Mes pasado",
-          "custom": "Elegir fechas…",
-          "from": "Desde",
-          "to": "Hasta",
-          "apply": "Ver"
+          "title": "Periodo"
         },
         "range": {
-          "bothRequired": "Elige las dos fechas.",
-          "fromAfterTo": "La fecha de inicio va antes que la de fin.",
-          "toFuture": "No puede ser después de hoy.",
-          "tooLong": "Máximo un año (366 días). Acorta el rango.",
           "invalid": "Ese periodo no es válido. Elige otro."
         },
         "groupBy": {
@@ -6604,7 +6573,8 @@
           "summaryOrders": "{metric} del {from} al {to}: {total} en total; el día con más, {best} con {bestValue}; {zero, plural, =0 {ningún día sin pedidos} one {# día sin pedidos} other {# días sin pedidos}}."
         },
         "table": {
-          "title": "Por {unit, select, day {día} week {semana} other {mes}}",
+          "title": "Detalle por {unit, select, day {día} week {semana} other {mes}}",
+          "pnlLink": "Ganancia, envío y compras a vendedores por día. El estado de resultados completo está en <link>Finanzas</link>.",
           "caption": "Ventas por {unit, select, day {día} week {semana} other {mes}}, del {from} al {to}",
           "colsLabel": "Columnas",
           "colsSales": "Ventas",
@@ -6698,11 +6668,9 @@
           "shippingCost": "Costo de guías (sin IVA)",
           "includesAdjustments": "Incluye ajustes de paquetería {amount}",
           "costMissing": "{count, plural, one {# envío sin costo capturado} other {# envíos sin costo capturado}}",
-          "buylistPaid": "Compras del buylist",
+          "buylistPaid": "Pagado a vendedores",
           "buylistCount": "{count, plural, one {# compra pagada} other {# compras pagadas}}",
           "payoutMissing": "{count} sin monto registrado",
-          "profit": "Ganancia (regla de Finanzas)",
-          "profitHelp": "La misma ganancia que Finanzas.",
           "shippingResult": "Resultado del envío",
           "shippingResultHelp": "Envío cobrado menos costo de guías.",
           "shippingResultMaybeLower": "Puede ser menor: hay envíos sin costo capturado.",
@@ -6833,19 +6801,27 @@
         "label": "Periodo",
         "today": "Hoy",
         "7d": "7 días",
+        "30d": "30 días",
         "month": "Este mes",
         "last-month": "Mes pasado",
+        "quarter": "Este trimestre",
+        "year": "Este año",
+        "all": "Todo",
         "custom": "Fechas…",
         "from": "Desde",
         "to": "Hasta",
         "apply": "Ver",
-        "invalid": "Elige dos fechas válidas: la de inicio antes que la de fin y no después de hoy."
+        "invalid": "Elige dos fechas reales: la de inicio antes que la de fin, no después de hoy y, donde aplica, dentro del tope de días.",
+        "maxDays": "máx. {days} días",
+        "mexicoTime": "Hora de México",
+        "resolved": "Del {from} al {to}",
+        "allResolved": "Todo el historial, hasta el {to}"
       },
       "board": {
         "breadcrumb": "Reportes",
         "intro": "Los resultados de cada área, en el mismo periodo. Toca «Ver el informe completo» para bajar al detalle.",
-        "comparedWith": "Del {from} al {to}, comparado con del {prevFrom} al {prevTo} · hora del centro de México",
-        "rangeOnly": "Del {from} al {to} · hora del centro de México",
+        "comparedWith": "Comparado con del {prevFrom} al {prevTo}",
+        "noComparison": "Sin periodo anterior con qué comparar",
         "seeFull": "Ver el informe completo",
         "delta": {
           "up": "subió",
@@ -6854,6 +6830,18 @@
           "pct": "{pct} %",
           "vsPrevious": "vs periodo anterior",
           "noPrevious": "Sin ventas en el periodo anterior con qué comparar"
+        },
+        "launch": {
+          "title": "Metas de lanzamiento",
+          "ask": "¿Voy avanzando contra lo que me propuse?",
+          "seeTotal": "Ver el acumulado en Inicio",
+          "users": "Usuarios activos",
+          "salesSettled": "Ventas liquidadas",
+          "buylistPaid": "Compras a vendedores pagadas",
+          "withdrawalsNoDispute": "Retiros sin disputa",
+          "goalPending": "Meta sin fijar",
+          "goalProgress": "{current} de {target} · {pct}%",
+          "goalsUnset": "Todavía no hay metas fijadas: se muestran solo los conteos del periodo."
         },
         "areas": {
           "finance": {
@@ -6909,7 +6897,8 @@
         "margin": "Margen de las guías",
         "marginNote": "Lo descontado menos lo que costó la guía, en las solicitudes pagadas en el periodo.",
         "marginNegative": "En este periodo las guías costaron más de lo que se descontó a los vendedores.",
-        "queue": "Las solicitudes por atender se trabajan en <link>Solicitudes de venta</link>."
+        "queue": "Las solicitudes por atender se trabajan en <link>Solicitudes de venta</link>.",
+        "pnlDetail": "Tarifa descontada, guías y su margen también son renglones del estado de resultados: el detalle completo está en <link>Finanzas</link>."
       },
       "stock": {
         "intro": "Lo que tienes y lo que te conviene reponer. Para editar piezas, usa Inventario (editar).",
@@ -6923,7 +6912,9 @@
         "toReplace": "Piezas por reponer",
         "operatorNote": "Aquí ves solo piezas, sin importes.",
         "edit": "Para dar de alta, mover o editar piezas, ve a <link>Inventario (editar)</link>.",
-        "restock": "Qué reponer"
+        "restock": "Qué reponer",
+        "snapshot": "Foto de hoy: el inventario no depende del periodo.",
+        "export": "Exportar inventario (CSV)"
       },
       "ops": {
         "intro": "Cómo va el trabajo del día y, para el súper-admin, lo que cuesta y deja el envío en el periodo.",
@@ -6934,6 +6925,7 @@
         "overdue": "{count, plural, one {# caso vencido} other {# casos vencidos}}",
         "stuckRefunds": "Reembolsos atorados",
         "queueLink": "Para trabajar cada pedido, ve a <link>Pedidos por preparar</link>.",
+        "pnlDetail": "El costo de guías también es un renglón del estado de resultados: el detalle completo está en <link>Finanzas</link>.",
         "shipping": "Envíos y contracargos del periodo"
       }
     },

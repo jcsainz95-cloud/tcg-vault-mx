@@ -18,6 +18,8 @@ const section = DS.slice(START, END);
 // D9 (2026-11-09, `docs/specs/D9_COMISION.md` §5): la comisión va dentro del precio. `docs/archive` es historia
 // congelada, así que el texto vigente de estas filas vive aquí y no se edita el archivo.
 const D9_TEXT: Record<string, { es: string; en: string }> = {
+  // §REPORTES-CEO: «buylist» sale del español de negocio; el texto vigente es «compras a vendedores».
+  'admin.m9.sales.p2.buylistPaid': { es: 'Pagado a vendedores', en: 'Paid to sellers' },
   'admin.m9.sales.card.chargedHelp': { es: 'Lo que pagaron los clientes: con IVA y envío.', en: 'What customers paid: VAT and shipping included.' },
 };
 const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m) => {
@@ -26,7 +28,15 @@ const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m
 });
 // §REPORTES-CEO F1: las pestañas de M9 desaparecieron (Ventas es la única vista; Actividad y Lista de compra se movieron).
 // El archivo congelado las sigue listando, así que se excluyen aquí y se asierta que ya no existen.
-const RETIRED = (key: string) => key.startsWith('admin.m9.tabs.');
+// §REPORTES-CEO §2: el selector de periodo es el único (`admin.reports.period.*`); de la tabla antigua salen las claves de sus
+// presets/fechas propias, los avisos de rango a mano y la ganancia de Ventas (vive en Finanzas), y el título de la tabla diaria.
+const RETIRED = (key: string) =>
+  key.startsWith('admin.m9.tabs.') ||
+  /^admin\.m9\.sales\.period\.(presetsLabel|today|yesterday|last7|last30|thisMonth|lastMonth|custom|from|to|apply)$/.test(key) ||
+  /^admin\.m9\.sales\.range\.(bothRequired|fromAfterTo|toFuture|tooLong)$/.test(key) ||
+  key === 'admin.m9.sales.p2.profit' ||
+  key === 'admin.m9.sales.p2.profitHelp' ||
+  key === 'admin.m9.sales.table.title';
 const ES = flatten(es);
 const EN = flatten(en);
 

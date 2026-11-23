@@ -4,7 +4,7 @@ import { loginAs, mockOnly, needsSeed } from './utils/auth';
 
 /**
  * Flujo: panel admin responsive (PROJECT §F / AC 24, 25, 27; contrato §10).
- * Dashboard de 8 tarjetas + enmascarado financiero para vault_operator, M1
+ * Inicio (colas y avisos; el dinero del periodo vive en Reportes) + candado de dinero para vault_operator, M1
  * (alta SIN foto propia + certNumber de gradeada, v1.2), M5 (cherry-pick) y M8 retirado (F-26: solo la
  * redirección a `/admin`).
  */
@@ -14,38 +14,42 @@ test.describe('admin · dashboard', () => {
    * verdad, ninguna de las pantallas del ciclo (M1/M5) es alcanzable, y el resto de los `@real`
    * de este archivo fallaría por un motivo que no es el suyo.
    */
-  test('@real muestra las 8 tarjetas del dashboard', async ({ page }) => {
+  test('@real Inicio: solo colas y avisos del día; el dinero del periodo vive en su casa (Reportes)', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin');
     await expect(page.getByRole('heading', { name: t('es', 'admin.modules.dashboard') })).toBeVisible();
 
-    for (const key of [
-      'profit',
-      'sales',
-      'workQueue',
-      'inventoryValue',
-      'custodyValue',
-      'buylist',
-      'dataHealth',
-      'launch',
-    ] as const) {
+    for (const key of ['workQueue', 'dataHealth', 'launch'] as const) {
       await expect(page.getByText(t('es', `admin.dashboard.${key}`)).first()).toBeVisible();
+    }
+    // §REPORTES-CEO CR-2: ganancia, ventas, inventario y buylist del periodo YA NO están en Inicio…
+    for (const gone of ['Ganancia del periodo', 'Ventas del periodo', 'Valor de inventario', 'Valor en bóveda', 'Buylist del periodo']) {
+      await expect(page.getByText(gone)).toHaveCount(0);
+    }
+    // …sino en su casa: el súper-admin las ve en la Junta de dirección.
+    await page.goto('/es/admin/reportes');
+    await expect(page.getByRole('heading', { name: t('es', 'admin.modules.reportsBoard') })).toBeVisible();
+    for (const id of ['finance', 'sales', 'purchases', 'stock', 'ops', 'metas']) {
+      await expect(page.getByTestId(`franja-${id}`)).toBeVisible();
     }
   });
 
-  test('enmascara cifras financieras para vault_operator', async ({ page }) => {
-    // El switcher «Ver como» es una afordancia de DEMO: en modo real el rol lo dicta el JWT
-    // (`RoleProvider.canSwitchRole === false`) y el selector no se pinta. El enmascarado real
-    // por rol lo cubre el backend + el unitario de AdminShell, no este smoke.
+  test('operador: Inicio sin dinero del periodo y la Junta cerrada; el súper sí la ve (CR-4)', async ({ page }) => {
+    // El switcher «Ver como» es una afordancia de DEMO: en modo real el rol lo dicta el JWT.
     mockOnly('el switcher de rol «Ver como» solo existe en modo demo');
     await loginAs(page, 'admin');
-    await page.goto('/es/admin');
-    // Como super_admin (default) no hay enmascarado.
-    await expect(page.getByText(t('es', 'admin.masked'))).toHaveCount(0);
+    await page.goto('/es/admin/reportes');
+    // Como super_admin (default) la Junta muestra dinero y no hay candado.
+    await expect(page.getByTestId('franja-finance')).toContainText('MX$');
+    await expect(page.getByText(t('es', 'admin.superAdminGateTitle'))).toHaveCount(0);
 
-    // Cambia el rol a operador de bóveda → tarjetas de dinero enmascaradas.
+    // Cambia el rol a operador de bóveda → la Junta queda cerrada y Inicio no tiene dinero del periodo.
     await page.getByLabel(t('es', 'admin.roleLabel')).selectOption('vault_operator');
-    await expect(page.getByText(t('es', 'admin.masked')).first()).toBeVisible();
+    await expect(page.getByText(t('es', 'admin.superAdminGateTitle'))).toBeVisible();
+    await expect(page.getByTestId('franja-finance')).toHaveCount(0);
+    await page.goto('/es/admin');
+    await expect(page.getByText(t('es', 'admin.dashboard.workQueue')).first()).toBeVisible();
+    await expect(page.getByText('Ganancia del periodo')).toHaveCount(0);
   });
 });
 

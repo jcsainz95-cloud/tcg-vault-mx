@@ -2,18 +2,28 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getCustodyValue, getInventoryValue, getPnl, getSalesReport } from '@/lib/api';
+import { getCustodyValue, getInventoryValue, getLaunchMetrics, getPnl, getSalesReport } from '@/lib/api';
 import { usePickingSummary } from '@/hooks/usePickingSummary';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import { formatCount, formatMoneyCents } from '@/lib/format';
-import { periodSearch, type ReportPeriod } from '@/lib/reports/period';
+import { SALES_MAX_DAYS, financeRange, periodSearch, type ReportPeriod } from '@/lib/reports/period';
+import { salesParamsFor } from '@/lib/reports/sales-params';
+import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import type { LaunchMetricsDTO } from '@/types/contract';
 import { fmtRange, money } from '../m9/salesFormat';
 import { Figure, Franja } from './Figure';
-import { PeriodPicker } from './PeriodPicker';
-import { usePeriodState } from './usePeriodState';
 
 const DASH = '—';
+
+type LaunchMetric = 'users' | 'salesSettled' | 'buylistPaid' | 'withdrawalsNoDispute';
+type GoalKey = 'N' | 'X' | 'Y' | 'Z';
+const LAUNCH: { metric: LaunchMetric; goal: GoalKey }[] = [
+  { metric: 'users', goal: 'N' },
+  { metric: 'salesSettled', goal: 'X' },
+  { metric: 'buylistPaid', goal: 'Y' },
+  { metric: 'withdrawalsNoDispute', goal: 'Z' },
+];
 
 /**
  * Reportes › Junta de dirección (§REPORTES-CEO F1, `API_CONTRACT_REPORTES §6`). Una franja por área con las cifras-titular que
@@ -26,22 +36,29 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
   const t = useTranslations('admin.reports.board');
   const tm = useTranslations('admin.modules');
   const locale = useLocale() as AppLocale;
-  const [period, setPeriod] = usePeriodState(initialPeriod);
+  const [period, setPeriod] = useReportPeriod(initialPeriod);
   const { from, to } = period;
   const search = periodSearch(period);
+  const range = financeRange(period);
 
-  const pnl = useQuery({ queryKey: ['finance-pnl', { from, to }], queryFn: () => getPnl({ from, to }) });
+  const pnl = useQuery({ queryKey: ['finance-pnl', range], queryFn: () => getPnl(range) });
   const sales = useQuery({
-    queryKey: ['board-sales', from, to],
-    queryFn: () => getSalesReport({ preset: 'custom', from, to, groupBy: 'day' }),
+    queryKey: ['board-sales', period.preset, from, to],
+    queryFn: () => getSalesReport(salesParamsFor(period)),
   });
+  const launch = useQuery({ queryKey: ['launch-metrics', range], queryFn: () => getLaunchMetrics(range) });
   const inv = useQuery({ queryKey: ['finance-inventory-value'], queryFn: getInventoryValue });
   const custody = useQuery({ queryKey: ['finance-custody-value'], queryFn: getCustodyValue });
   const picking = usePickingSummary();
 
-  const own = fmtRange(from, to, locale);
-  const prev = sales.data ? fmtRange(sales.data.previousPeriod.from, sales.data.previousPeriod.to, locale) : null;
+  const prev = sales.data?.previousPeriod ? fmtRange(sales.data.previousPeriod.from, sales.data.previousPeriod.to, locale) : null;
   const st = sales.data?.totals;
+  /** Avance contra la meta, tal cual de los conteos del servidor (el % solo formatea; sin meta ⇒ «Meta sin fijar»). */
+  function goalNote(d: LaunchMetricsDTO, metric: LaunchMetric, goal: GoalKey): string {
+    const target = d.goals?.[goal];
+    if (target == null) return t('launch.goalPending');
+    return t('launch.goalProgress', { current: d[metric], target, pct: target > 0 ? Math.round((d[metric] / target) * 100) : 0 });
+  }
   const sPrev = sales.data?.comparison;
 
   return (
@@ -54,9 +71,9 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
         <p className="max-w-2xl text-sm text-muted">{t('intro')}</p>
       </div>
 
-      <PeriodPicker value={period} onChange={setPeriod} />
+      <PeriodSelector value={period} onChange={setPeriod} maxDays={SALES_MAX_DAYS} />
       <p className="text-sm text-muted" data-testid="board-period">
-        {prev ? t('comparedWith', { from: own.from, to: own.to, prevFrom: prev.from, prevTo: prev.to }) : t('rangeOnly', { from: own.from, to: own.to })}
+        {prev ? t('comparedWith', { prevFrom: prev.from, prevTo: prev.to }) : t('noComparison')}
       </p>
 
       <Franja id="finance" title={tm('m7')} ask={t('areas.finance.ask')} href={`/admin/m7${search}`} seeFull={t('seeFull')} queries={[pnl]}>
@@ -152,6 +169,29 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
         )}
         {st?.shipping?.resultNetCents !== undefined && (
           <Figure label={t('areas.ops.shippingResult')} value={money(st.shipping.resultNetCents, locale)} note={t('areas.ops.shippingResultNote')} />
+        )}
+      </Franja>
+
+      <Franja
+        id="metas"
+        title={t('launch.title')}
+        ask={t('launch.ask')}
+        href="/admin"
+        seeFull={t('launch.seeTotal')}
+        queries={[launch]}
+      >
+        {launch.data && (
+          <>
+            {LAUNCH.map(({ metric, goal }) => (
+              <Figure
+                key={metric}
+                label={t(`launch.${metric}`)}
+                value={formatCount(launch.data![metric], locale)}
+                note={goalNote(launch.data!, metric, goal)}
+              />
+            ))}
+            {!launch.data.goals && <p className="px-5 py-3 text-xs text-muted sm:col-span-2 lg:col-span-4">{t('launch.goalsUnset')}</p>}
+          </>
         )}
       </Franja>
 

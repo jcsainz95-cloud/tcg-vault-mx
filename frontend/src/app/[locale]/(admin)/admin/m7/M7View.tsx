@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { DownloadCloud, ReceiptText, TrendingUp } from 'lucide-react';
@@ -15,9 +15,9 @@ import type { IvaByOrderEntryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate, formatDateLongMx } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
-import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { DateRangePresets } from '@/components/domain/DateRangePresets';
+import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { financeRange, periodFor, type ReportPeriod } from '@/lib/reports/period';
 import { Banner } from '@/components/ui/Banner';
 import { StatCard } from '@/components/ui/StatCard';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -112,9 +112,9 @@ function StmtLine({ label, value, deduct, srSign }: { label: string; value: stri
 /**
  * Finanzas (`/admin/m7`). §REPORTES-CEO F1: «Volumen y ticket» se fue a Ventas y el valor de inventario/custodia a
  * Reportes › Inventario (una sola casa por cifra); aquí quedan el P&L, el IVA y las exportaciones de dinero.
- * `initialRange` llega de la Junta de dirección (`?from=&to=`, días de México `YYYY-MM-DD`).
+ * `initialPeriod` llega de la URL (`?preset=` o `?preset=custom&from=&to=`, días de México); «Todo» = sin rango (histórico).
  */
-export function M7View({ initialRange }: { initialRange?: { from: string; to: string } } = {}) {
+export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?: ReportPeriod } = {}) {
   const t = useTranslations('admin.m7');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
@@ -122,9 +122,8 @@ export function M7View({ initialRange }: { initialRange?: { from: string; to: st
   const adds = t('pnl.signAdds');
   const subtracts = t('pnl.signSubtracts');
 
-  const [from, setFrom] = useState(initialRange?.from ?? '');
-  const [to, setTo] = useState(initialRange?.to ?? '');
-  const range: FinanceRange = { from: from || undefined, to: to || undefined };
+  const [period, setPeriod] = useReportPeriod(initialPeriod);
+  const range: FinanceRange = financeRange(period);
 
   const pnl = useQuery({ queryKey: ['finance-pnl', range], queryFn: () => getPnl(range) });
   const iva = useQuery({ queryKey: ['finance-iva', range], queryFn: () => getIvaReport(range) });
@@ -151,21 +150,8 @@ export function M7View({ initialRange }: { initialRange?: { from: string; to: st
     <div className="flex flex-col gap-10">
       <h1 className="text-h1 font-bold">{tModules('m7')}</h1>
 
-      {/* Selector de rango de fechas (aplica a P&L e IVA) */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('range.title')}</h2>
-        <p className="text-sm text-muted">{t('range.subtitle')}</p>
-        <DateRangePresets onSelect={({ from: f, to: tv }) => { setFrom(f); setTo(tv); }} />
-        <div className="flex flex-wrap items-end gap-3">
-          <Input label={t('range.from')} type="date" className="w-44" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <Input label={t('range.to')} type="date" className="w-44" value={to} onChange={(e) => setTo(e.target.value)} />
-          {(from || to) && (
-            <Button variant="ghost" onClick={() => { setFrom(''); setTo(''); }}>
-              {t('range.clear')}
-            </Button>
-          )}
-        </div>
-      </section>
+      {/* Periodo único (§REPORTES-CEO §2): aplica al P&L, al IVA y a las exportaciones */}
+      <PeriodSelector value={period} onChange={setPeriod} />
 
       {/* P&L con el desglose de la fórmula */}
       <section className="flex flex-col gap-3">
@@ -379,14 +365,6 @@ export function M7View({ initialRange }: { initialRange?: { from: string; to: st
             onClick={() => exportMutation.mutate('iva')}
           >
             <DownloadCloud size={16} /> {t('export.iva')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={exportMutation.isPending && exportMutation.variables === 'inventory'}
-            onClick={() => exportMutation.mutate('inventory')}
-          >
-            <DownloadCloud size={16} /> {t('export.inventory')}
           </Button>
         </div>
         {exportMutation.isError && <Banner variant="danger" role="alert">{tc('errorGeneric')}</Banner>}

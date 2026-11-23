@@ -9,9 +9,9 @@ import M9Page from './page';
 beforeEach(() => redirect.mockClear());
 
 describe('/admin/m9 · enlaces guardados de las pestañas que ya no existen', () => {
-  it('?tab=actividad → Finanzas', async () => {
+  it('?tab=actividad → Junta de dirección, ancla de las metas de lanzamiento', async () => {
     await M9Page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({ tab: 'actividad' }) });
-    expect(redirect).toHaveBeenCalledWith({ href: '/admin/m7', locale: 'en' });
+    expect(redirect).toHaveBeenCalledWith({ href: '/admin/reportes#metas', locale: 'en' });
   });
 
   it('?tab=compra → Inventario › Qué reponer, conservando el orden elegido', async () => {

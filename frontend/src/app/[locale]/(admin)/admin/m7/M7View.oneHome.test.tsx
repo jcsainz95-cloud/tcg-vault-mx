@@ -27,7 +27,7 @@ describe('Finanzas · una sola casa por cifra', () => {
   });
 
   it('el periodo que manda la Junta llega a los campos de fecha', () => {
-    renderWithProviders(<M7View initialRange={{ from: '2026-11-01', to: '2026-11-22' }} />, 'es');
+    renderWithProviders(<M7View initialPeriod={{ preset: 'custom', from: '2026-11-01', to: '2026-11-22' }} />, 'es');
     expect(screen.getByLabelText('Desde')).toHaveValue('2026-11-01');
     expect(screen.getByLabelText('Hasta')).toHaveValue('2026-11-22');
   });

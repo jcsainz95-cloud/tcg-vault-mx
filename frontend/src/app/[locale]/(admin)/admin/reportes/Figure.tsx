@@ -74,7 +74,7 @@ export function Franja({
 }) {
   const qs = queries ?? [];
   return (
-    <section aria-labelledby={`franja-${id}`} data-testid={`franja-${id}`} className="border border-border bg-surface">
+    <section id={id} aria-labelledby={`franja-${id}`} data-testid={`franja-${id}`} className="scroll-mt-6 border border-border bg-surface">
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 pt-5">
         <h2 id={`franja-${id}`} className="font-serif text-[22px] leading-tight">
           {title}

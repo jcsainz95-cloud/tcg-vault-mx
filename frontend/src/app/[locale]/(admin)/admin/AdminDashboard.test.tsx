@@ -4,6 +4,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { AdminDashboard } from './AdminDashboard';
 import { mockDashboard, mockPnl } from '@/lib/mock/fixtures';
+import { formatMoneyCents } from '@/lib/format';
 
 // `useRole`: super_admin para que las cifras enmascaradas no oculten la cola de trabajo.
 vi.mock('@/lib/role', () => ({
@@ -54,6 +55,12 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
     expect(screen.queryByTestId('sales-gross')).toBeNull();
     expect(screen.queryByTestId('sales-net')).toBeNull();
     expect(screen.queryByTestId('sales-today-card')).toBeNull();
+    // I-6: ni la etiqueta ni la CIFRA de ganancia/ventas/inventario del periodo (el tablero las trae en el DTO; Inicio no las pinta).
+    for (const cents of [mockDashboard.profitPeriodCents, mockDashboard.salesPeriod.grossAmountCents, mockDashboard.inventoryValueCents]) {
+      expect(cents).toBeGreaterThan(0);
+      expect(container.textContent).not.toContain(formatMoneyCents(cents as number, 'es'));
+    }
+    expect(container.textContent).not.toMatch(/Ganancia/);
     for (const gone of ['Ganancia del periodo', 'Ventas del periodo', 'Valor de inventario', 'Valor en bóveda', 'Buylist del periodo']) {
       expect(container.textContent).not.toContain(gone);
     }
@@ -69,7 +76,7 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
    * enseñaría a leer el tablero como dos cifras que «más o menos» cuadran.
    */
   it('⭐ bruto ≡ neto + envío neto + IVA + comisión, EXACTO', () => {
-    const s = mockDashboard.salesPeriod;
+    const s = mockDashboard.salesPeriod as unknown as Record<string, number>; // `null` solo para el operador (I-4)
     expect(s.netAmountCents + s.netShippingRevenueCents + s.ivaCents + s.processingFeeCents).toBe(
       s.grossAmountCents,
     );

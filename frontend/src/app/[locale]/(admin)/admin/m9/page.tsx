@@ -7,7 +7,7 @@ import { parseSalesUrl } from './salesParams';
 /**
  * `/admin/m9` — Reportes › Ventas (`DESIGN_SYSTEM §AN-UX.1`). El estado de «Ventas» (`preset`, `from`, `to`, `groupBy`,
  * `topSort`, `chart`, `cols`, `top`) vive en la URL. Enlaces guardados de las pestañas que ya no existen (§REPORTES-CEO F1):
- * `?tab=compra` → Inventario › Qué reponer (conserva `sort`/`dir`); `?tab=actividad` → Finanzas.
+ * `?tab=compra` → Inventario › Qué reponer (conserva `sort`/`dir`); `?tab=actividad` → Junta de dirección, franja «Metas de lanzamiento» (§6, CR-2b).
  */
 export default async function M9Page({
   params,
@@ -20,7 +20,7 @@ export default async function M9Page({
   const raw = params ? (await params).locale : undefined;
   const locale: AppLocale = (routing.locales as readonly string[]).includes(raw ?? '') ? (raw as AppLocale) : routing.defaultLocale;
   const tab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
-  if (tab === 'actividad') redirect({ href: '/admin/m7', locale });
+  if (tab === 'actividad') redirect({ href: '/admin/reportes#metas', locale });
   if (tab === 'compra') {
     const q = new URLSearchParams();
     for (const k of ['sort', 'dir']) {

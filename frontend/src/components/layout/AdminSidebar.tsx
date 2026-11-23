@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '@/i18n/navigation';
 import { useRole } from '@/lib/role';
+import { useReportPeriodSearch } from '@/lib/reports/period-store';
 import { cn } from '@/lib/cn';
 import { usePickingSummary } from '@/hooks/usePickingSummary';
 import type { PickingListSummaryDTO } from '@/types/contract';
@@ -26,6 +27,8 @@ export interface Item {
    * gasto son del dueño y al operador no le dicen nada que pueda hacer.
    */
   hiddenUnlessSuperAdmin?: boolean;
+  /** §REPORTES-CEO §2: el periodo vigente viaja en la URL al navegar entre Reportes y Finanzas (también por el menú). */
+  carriesPeriod?: boolean;
 }
 
 /**
@@ -89,12 +92,12 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
     // (la máscara por rol la pone el servidor y la pantalla no pinta dinero a quien no es súper-admin).
     groupKey: 'reports',
     items: [
-      { href: '/admin/reportes', key: 'reportsBoard', superAdminOnly: true },
-      { href: '/admin/m7', key: 'm7', superAdminOnly: true },
-      { href: '/admin/m9', key: 'm9', superAdminOnly: true },
-      { href: '/admin/reportes/compras', key: 'reportsPurchases', superAdminOnly: true },
-      { href: '/admin/reportes/inventario', key: 'reportsStock' },
-      { href: '/admin/reportes/operacion', key: 'reportsOps' },
+      { href: '/admin/reportes', key: 'reportsBoard', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/m7', key: 'm7', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/m9', key: 'm9', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/reportes/compras', key: 'reportsPurchases', superAdminOnly: true, carriesPeriod: true },
+      { href: '/admin/reportes/inventario', key: 'reportsStock', carriesPeriod: true },
+      { href: '/admin/reportes/operacion', key: 'reportsOps', carriesPeriod: true },
       // §MKT-UX.1 / API_CONTRACT §MKT.G.1+G.7: «Marketing», visible SOLO para súper-admin en Fase 0 (único con
       // `marketing:read`); oculto, ⛔ ni bloqueado, para el operador. La URL a mano llega al 403 neutro de la pantalla.
       { href: '/admin/marketing', key: 'marketing', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
@@ -195,6 +198,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { isSuperAdmin } = useRole();
   const summary = usePickingSummary();
+  const periodQuery = useReportPeriodSearch();
 
   function badgeFor(item: Item) {
     if (!item.badge || !summary.data) return null;
@@ -226,7 +230,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
               return (
                 <li key={item.href}>
                   <Link
-                    href={item.href}
+                    href={item.carriesPeriod ? `${item.href}${periodQuery}` : item.href}
                     onClick={onNavigate}
                     aria-disabled={locked}
                     aria-current={active ? 'page' : undefined}

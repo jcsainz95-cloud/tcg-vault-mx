@@ -8,12 +8,12 @@ import { useRole } from '@/lib/role';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import { formatCount } from '@/lib/format';
-import type { ReportPeriod } from '@/lib/reports/period';
+import { SALES_MAX_DAYS, periodSearch, type ReportPeriod } from '@/lib/reports/period';
+import { salesParamsFor } from '@/lib/reports/sales-params';
+import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
 import { QueryState } from '@/components/ui/QueryState';
 import { SalesP2Totals } from '../m9/SalesP2';
 import { Figure } from './Figure';
-import { PeriodPicker } from './PeriodPicker';
-import { usePeriodState } from './usePeriodState';
 
 /**
  * Reportes › Operación (§REPORTES-CEO F1). Para todo el personal: las colas en UNIDADES (`/admin/picking-list/summary`).
@@ -25,12 +25,12 @@ export function OpsView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
   const tm = useTranslations('admin.modules');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
-  const [period, setPeriod] = usePeriodState(initialPeriod);
+  const [period, setPeriod] = useReportPeriod(initialPeriod);
   const { from, to } = period;
   const picking = usePickingSummary();
   const sales = useQuery({
-    queryKey: ['board-sales', from, to],
-    queryFn: () => getSalesReport({ preset: 'custom', from, to, groupBy: 'day' }),
+    queryKey: ['board-sales', period.preset, from, to],
+    queryFn: () => getSalesReport(salesParamsFor(period)),
     enabled: isSuperAdmin,
   });
   const link = 'text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none';
@@ -64,10 +64,17 @@ export function OpsView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
       {isSuperAdmin && (
         <section aria-labelledby="ops-money" className="flex flex-col gap-3">
           <h2 id="ops-money" className="text-h2 font-semibold">{t('shipping')}</h2>
-          <PeriodPicker value={period} onChange={setPeriod} />
+          <PeriodSelector value={period} onChange={setPeriod} maxDays={SALES_MAX_DAYS} />
           <QueryState isLoading={sales.isLoading} isError={sales.isError} error={sales.error} onRetry={() => sales.refetch()}>
-            {sales.data && <SalesP2Totals data={sales.data} only={['shipping', 'chargebacks']} />}
+            {sales.data && (
+              <div className="[&>section]:mx-0 [&>section]:border">
+                <SalesP2Totals data={sales.data} only={['shipping', 'chargebacks']} />
+              </div>
+            )}
           </QueryState>
+          <p className="text-sm text-muted" data-testid="pnl-detail-link">
+            {t.rich('pnlDetail', { link: (c) => <Link href={`/admin/m7${periodSearch(period)}`} className={link}>{c}</Link> })}
+          </p>
         </section>
       )}
     </div>

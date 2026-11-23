@@ -20,7 +20,8 @@ export function M9View({ initialSales = SALES_DEFAULTS }: { initialSales?: Sales
       <div className="border-y border-border">
         <SalesTodayCard />
       </div>
-      <SalesTab initial={initialSales} />
+      {/* B-1: la tarjeta de hoy cambia la URL del mismo informe; la `key` hace que el informe relea el periodo nuevo. */}
+      <SalesTab key={`${initialSales.preset}|${initialSales.from}|${initialSales.to}`} initial={initialSales} />
     </div>
   );
 }

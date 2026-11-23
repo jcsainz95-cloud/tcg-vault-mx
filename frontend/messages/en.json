@@ -41,13 +41,6 @@
     "skipToContent": "Skip to content",
     "value": "Value",
     "total": "Total",
-    "datePresets": {
-      "label": "Quick range",
-      "week": "This week",
-      "month": "Last month",
-      "quarter": "This quarter",
-      "year": "This year"
-    },
     "undo": "Undo",
     "verdict": {
       "done": "Done",
@@ -1792,8 +1785,8 @@
       "lastFx": "Last FX rate",
       "goalPending": "Goal pending",
       "users": "Users",
-      "salesSettled": "Settled sales",
       "withdrawals": "Withdrawals no dispute",
+      "buylistPaid": "Seller purchases paid",
       "toPrepare": {
         "title": "Orders to prepare",
         "detail": "{ship} shipping · {vault} vault · {toReplace} to replace",
@@ -6452,13 +6445,6 @@
     },
     "m7": {
       "title": "Finance",
-      "range": {
-        "title": "Date range",
-        "subtitle": "Applies to P&L and collected VAT. With no range the full history is used.",
-        "from": "From",
-        "to": "To",
-        "clear": "Clear range"
-      },
       "pnl": {
         "title": "Profit & loss (P&L)",
         "formula": "Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
@@ -6497,8 +6483,7 @@
       },
       "export": {
         "pnl": "Export P&L (CSV)",
-        "iva": "Export VAT (CSV)",
-        "inventory": "Export inventory (CSV)"
+        "iva": "Export VAT (CSV)"
       },
       "statement": {
         "title": "Summary",
@@ -6517,27 +6502,11 @@
       }
     },
     "m9": {
-      "title": "Reports",
       "sales": {
         "period": {
-          "title": "Period",
-          "presetsLabel": "Choose a period",
-          "today": "Today",
-          "yesterday": "Yesterday",
-          "last7": "Last 7 days",
-          "last30": "Last 30 days",
-          "thisMonth": "This month",
-          "lastMonth": "Last month",
-          "custom": "Pick dates…",
-          "from": "From",
-          "to": "To",
-          "apply": "Show"
+          "title": "Period"
         },
         "range": {
-          "bothRequired": "Pick both dates.",
-          "fromAfterTo": "The start date must come before the end date.",
-          "toFuture": "It can't be later than today.",
-          "tooLong": "One year at most (366 days). Shorten the range.",
           "invalid": "That period isn't valid. Pick another one."
         },
         "groupBy": {
@@ -6604,7 +6573,8 @@
           "summaryOrders": "{metric} from {from} to {to}: {total} in total; the busiest, {best} with {bestValue}; {zero, plural, =0 {no days without orders} one {# day without orders} other {# days without orders}}."
         },
         "table": {
-          "title": "By {unit, select, day {day} week {week} other {month}}",
+          "title": "Detail by {unit, select, day {day} week {week} other {month}}",
+          "pnlLink": "Profit, shipping and seller purchases per day. The full income statement is in <link>Finance</link>.",
           "caption": "Sales by {unit, select, day {day} week {week} other {month}}, {from} to {to}",
           "colsLabel": "Columns",
           "colsSales": "Sales",
@@ -6698,11 +6668,9 @@
           "shippingCost": "Label cost (excl. VAT)",
           "includesAdjustments": "Includes carrier adjustments {amount}",
           "costMissing": "{count, plural, one {# shipment without recorded cost} other {# shipments without recorded cost}}",
-          "buylistPaid": "Buylist purchases",
+          "buylistPaid": "Paid to sellers",
           "buylistCount": "{count, plural, one {# paid purchase} other {# paid purchases}}",
           "payoutMissing": "{count} without a recorded amount",
-          "profit": "Profit (Finance rule)",
-          "profitHelp": "The same profit as Finance.",
           "shippingResult": "Shipping result",
           "shippingResultHelp": "Shipping charged minus label cost.",
           "shippingResultMaybeLower": "May be lower: some shipments have no recorded cost.",
@@ -6833,19 +6801,27 @@
         "label": "Period",
         "today": "Today",
         "7d": "7 days",
+        "30d": "30 days",
         "month": "This month",
         "last-month": "Last month",
+        "quarter": "This quarter",
+        "year": "This year",
+        "all": "All",
         "custom": "Dates…",
         "from": "From",
         "to": "To",
         "apply": "Show",
-        "invalid": "Pick two valid dates: the start before the end, and not after today."
+        "invalid": "Pick two real dates: start before end, not after today and, where it applies, within the day limit.",
+        "maxDays": "max. {days} days",
+        "mexicoTime": "Mexico City time",
+        "resolved": "{from} to {to}",
+        "allResolved": "Full history, up to {to}"
       },
       "board": {
         "breadcrumb": "Reports",
         "intro": "Each area's results over the same period. Tap “See the full report” to go into the detail.",
-        "comparedWith": "{from} to {to}, compared with {prevFrom} to {prevTo} · Mexico City time",
-        "rangeOnly": "{from} to {to} · Mexico City time",
+        "comparedWith": "Compared with {prevFrom} to {prevTo}",
+        "noComparison": "No previous period to compare with",
         "seeFull": "See the full report",
         "delta": {
           "up": "up",
@@ -6854,6 +6830,18 @@
           "pct": "{pct} %",
           "vsPrevious": "vs previous period",
           "noPrevious": "No sales in the previous period to compare with"
+        },
+        "launch": {
+          "title": "Launch goals",
+          "ask": "Am I on track against what I set out to do?",
+          "seeTotal": "See the running total in Home",
+          "users": "Active users",
+          "salesSettled": "Settled sales",
+          "buylistPaid": "Seller purchases paid",
+          "withdrawalsNoDispute": "Withdrawals without dispute",
+          "goalPending": "Goal not set",
+          "goalProgress": "{current} of {target} · {pct}%",
+          "goalsUnset": "No goals set yet: showing this period's counts only."
         },
         "areas": {
           "finance": {
@@ -6909,7 +6897,8 @@
         "margin": "Label margin",
         "marginNote": "What was withheld minus what the label cost, on requests paid in the period.",
         "marginNegative": "In this period the labels cost more than was withheld from sellers.",
-        "queue": "Requests waiting for you are handled in <link>Sell requests</link>."
+        "queue": "Requests waiting for you are handled in <link>Sell requests</link>.",
+        "pnlDetail": "Withheld fee, labels and their margin are also lines of the income statement: the full detail is in <link>Finance</link>."
       },
       "stock": {
         "intro": "What you hold and what you should restock. To edit pieces, use Inventory (edit).",
@@ -6923,7 +6912,9 @@
         "toReplace": "Pieces to replace",
         "operatorNote": "Here you see pieces only, no amounts.",
         "edit": "To add, move or edit pieces, go to <link>Inventory (edit)</link>.",
-        "restock": "What to restock"
+        "restock": "What to restock",
+        "snapshot": "Today's snapshot: inventory does not depend on the period.",
+        "export": "Export inventory (CSV)"
       },
       "ops": {
         "intro": "How the day's work is going and, for the super-admin, what shipping costs and earns over the period.",
@@ -6934,6 +6925,7 @@
         "overdue": "{count, plural, one {# overdue case} other {# overdue cases}}",
         "stuckRefunds": "Stuck refunds",
         "queueLink": "To work each order, go to <link>Orders to prepare</link>.",
+        "pnlDetail": "Label cost is also a line of the income statement: the full detail is in <link>Finance</link>.",
         "shipping": "Shipping and chargebacks this period"
       }
     },

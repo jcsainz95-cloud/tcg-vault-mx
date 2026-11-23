@@ -16,11 +16,14 @@ test.describe('admin · Reportes › Ventas', () => {
     await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.m9') })).toBeVisible();
     await expect(page.getByTestId('sales-period-label')).toBeVisible();
 
+    // §REPORTES-CEO §2: el defecto es «Este mes»; «Hora de México» y las fechas resueltas siempre a la vista.
+    await expect(page.getByTestId('period-resolved')).toContainText(t('es', 'admin.reports.period.mexicoTime'));
+    await page.getByRole('button', { name: t('es', 'admin.reports.period.7d'), exact: true }).click();
     // criterio 605/609: últimos 7 días ⇒ 7 filas y 7 barras, también las de cero.
     await expect(page.getByTestId('sales-row')).toHaveCount(7);
     await expect(page.getByTestId('sales-bar')).toHaveCount(7);
 
-    await page.getByRole('button', { name: t('es', 'admin.m9.sales.period.today'), exact: true }).click();
+    await page.getByRole('button', { name: t('es', 'admin.reports.period.today'), exact: true }).click();
     await expect(page.getByTestId('sales-row')).toHaveCount(1);
     await expect(page.getByTestId('sales-period-label')).toContainText('Hoy,');
     await expect(page).toHaveURL(/preset=today/);
@@ -29,9 +32,10 @@ test.describe('admin · Reportes › Ventas', () => {
     await page.getByTestId('sales-csv').click();
     expect((await download).suggestedFilename()).toMatch(/^ventas_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}_day\.csv$/);
 
-    // §REPORTES-CEO F1: el enlace guardado de «Actividad» ya no da 404: aterriza en Finanzas.
+    // §REPORTES-CEO F1 (CR-2b): el enlace guardado de «Actividad» ya no da 404: aterriza en las metas de lanzamiento de la Junta.
     await page.goto('/es/admin/m9?tab=actividad');
-    await expect(page).toHaveURL(/\/admin\/m7/);
+    await expect(page).toHaveURL(/\/admin\/reportes#metas/);
+    await expect(page.getByTestId('franja-metas')).toBeVisible();
   });
 
   test('Reportes › Ventas: «Ventas de hoy» para súper-admin enlaza al informe con `preset=today`', async ({ page }) => {
@@ -44,12 +48,17 @@ test.describe('admin · Reportes › Ventas', () => {
     await expect(page.getByTestId('sales-row')).toHaveCount(1);
   });
 
-  test('tablero: el operador no tiene «Ventas de hoy» (criterio 613)', async ({ page }) => {
+  test('operador: Inicio sin «Ventas de hoy» ni dinero del periodo, y el informe de Ventas le sale restringido (criterio 613, CR-4)', async ({ page }) => {
     await loginAs(page, 'operator');
     // En mocks el rol del panel es el dial «Ver como» (localStorage); en real lo dicta el JWT del operador.
     if (!IS_REAL) await page.addInitScript(() => window.localStorage.setItem('tcg.role', 'vault_operator'));
     await page.goto('/es/admin');
-    await expect(page.getByTestId('sales-gross')).toBeVisible();
+    await expect(page.getByRole('heading', { name: t('es', 'admin.modules.dashboard') })).toBeVisible();
+    await expect(page.getByText(t('es', 'admin.dashboard.workQueue')).first()).toBeVisible();
     await expect(page.getByTestId('sales-today-card')).toHaveCount(0);
+    await page.goto('/es/admin/m9');
+    await expect(page.getByText(t('es', 'admin.superAdminGateTitle'))).toBeVisible();
+    await expect(page.getByTestId('sales-today-card')).toHaveCount(0);
+    await expect(page.getByTestId('sales-row')).toHaveCount(0);
   });
 });
