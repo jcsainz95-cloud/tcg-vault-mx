@@ -38,6 +38,34 @@ test.describe('admin · Reportes › Ventas', () => {
     await expect(page.getByTestId('franja-metas')).toBeVisible();
   });
 
+  test('§2 F2a: Junta, Ventas y Finanzas dicen contra qué se compara (mismo tramo) y Finanzas lleva su columna', async ({ page }) => {
+    test.skip(IS_REAL, 'la cifra depende del seed: en real lo mide QA con el stack');
+    // El demo trae el P&L plano; el servidor real (v1.95.2+) siempre manda el estado de resultados: se enciende aquí.
+    await page.addInitScript(() => window.sessionStorage.setItem('tcg.mock.pnlStatement', '1'));
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/reportes');
+    const note = page.getByTestId('board-period');
+    await expect(note).toContainText('Mes a la fecha');
+    await expect(note).toContainText('comparado con');
+    await page.getByRole('button', { name: t('es', 'admin.reports.period.quarter'), exact: true }).click();
+    await expect(note).toContainText('Trimestre a la fecha');
+    await page.getByRole('button', { name: t('es', 'admin.reports.period.last-month'), exact: true }).click();
+    await expect(note).not.toContainText('a la fecha');
+    await expect(note).toContainText('comparado con');
+    for (const jerga of ['MTD', 'YTD', 'basis', 'clamped']) await expect(page.locator('body')).not.toContainText(jerga);
+
+    await page.goto('/es/admin/m9');
+    await expect(page.getByTestId('sales-compare')).toContainText('Mes a la fecha');
+
+    await page.goto('/es/admin/m7');
+    await expect(page.getByTestId('pnl-compare')).toContainText('Mes a la fecha');
+    await expect(page.getByTestId('cmp-cells')).toHaveCount(8);
+    // «Todo»: sin columna y con su rótulo.
+    await page.getByRole('button', { name: t('es', 'admin.reports.period.all'), exact: true }).click();
+    await expect(page.getByTestId('pnl-compare')).toContainText('Sin periodo anterior para comparar');
+    await expect(page.getByTestId('cmp-cells')).toHaveCount(0);
+  });
+
   test('Reportes › Ventas: «Ventas de hoy» para súper-admin enlaza al informe con `preset=today`', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m9');

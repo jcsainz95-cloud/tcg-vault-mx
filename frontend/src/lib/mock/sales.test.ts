@@ -46,7 +46,8 @@ describe('mock §15 · invariantes', () => {
       ['2026-09-07', '2026-09-13'],
       ['2026-09-14', '2026-09-16'],
     ]);
-    expect(r.previousPeriod).toEqual({ from: '2026-08-18', to: '2026-09-01' });
+    // Sin `kind` ⇒ `span` (misma duración inmediatamente antes); F2a añade `clamped`.
+    expect(r.previousPeriod).toEqual({ from: '2026-08-18', to: '2026-09-01', clamped: false });
   });
   it('0 pedidos ⇒ `null`, nunca 0', () => {
     const r = mockSalesReport({ preset: 'last30' }, NOW);

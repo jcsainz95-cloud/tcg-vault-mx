@@ -11,6 +11,7 @@ import { cn } from '@/lib/cn';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { ReportPreset } from '@/lib/reports/period';
 import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { SalesPeriodLabel, SalesPeriodPicker } from './SalesPeriodPicker';
 import { SALES_GRID, SalesSummary } from './SalesSummary';
@@ -60,7 +61,12 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
 
   // Último informe bueno: si la consulta nueva falla, los datos previos se quedan visibles, atenuados (§AN-UX.10).
   const lastGood = useRef<SalesReportDTO | undefined>(undefined);
-  if (query.data && !query.isPlaceholderData) lastGood.current = query.data;
+  // El atajo del informe que SE VE (no el recién elegido): «Mes a la fecha» nunca va sobre cifras de otro periodo.
+  const lastGoodPreset = useRef<ReportPreset>(state.preset);
+  if (query.data && !query.isPlaceholderData) {
+    lastGood.current = query.data;
+    lastGoodPreset.current = state.preset;
+  }
   const shown = query.data ?? lastGood.current;
 
   // TD-AN-9: el efecto (URL) fuera del updater de `setState`, que React puede llamar dos veces.
@@ -121,7 +127,7 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
           onPeriod={(p) => update(p)}
           onGroupBy={(g) => update({ groupBy: g })}
         />
-        {shown && <SalesPeriodLabel data={shown} />}
+        {shown && <SalesPeriodLabel data={shown} preset={lastGoodPreset.current} />}
       </div>
 
       {forbidden && (

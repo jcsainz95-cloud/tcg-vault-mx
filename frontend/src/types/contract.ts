@@ -7444,6 +7444,13 @@ export interface PnlDTO {
    * ⛔ El cliente NO re-suma: pinta los subtotales tal cual (`netResultCents ≡ profitCents`).
    */
   statement?: PnlStatementDTO;
+  /**
+   * §REPORTES-CEO F2a — solo con `from`/`to` `YYYY-MM-DD`; sin ellos («Todo») o con servidor anterior: `null`/ausente.
+   * ⛔ El cliente no calcula el periodo anterior ni las variaciones: pinta `comparison.figures` tal cual.
+   */
+  period?: { from: string; to: string; kind: PeriodKind; days: number; timezone: 'America/Mexico_City' } | null;
+  previousPeriod?: { from: string; to: string; clamped: boolean } | null;
+  comparison?: PnlComparisonDTO | null;
 }
 
 /**
@@ -7707,11 +7714,17 @@ export type SalesRowDTO = { from: SalesYmd; to: SalesYmd } & SalesFiguresDTO;
 
 export interface SalesReportDTO {
   period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City' };
-  previousPeriod: { from: SalesYmd; to: SalesYmd };
+  /** F2a: `clamped` ⇒ el tramo anterior es más corto que lo transcurrido y se usó COMPLETO (31-mar vs febrero). Opcional: servidor anterior. */
+  previousPeriod: { from: SalesYmd; to: SalesYmd; clamped?: boolean };
+  /** F2a: día MX del primer pedido liquidado (`null` sin pedidos). Opcional: servidor anterior. */
+  firstDataDay?: SalesYmd | null;
   groupBy: SalesGroupBy;
   totals: SalesFiguresDTO;
   previousTotals: SalesFiguresDTO;
   comparison: {
+    /** F2a: contra qué se compara; ausente ⇒ servidor anterior (se trata como `complete`). */
+    basis?: ComparisonBasis;
+    dataSince?: SalesYmd | null;
     orders: SalesDeltaDTO;
     chargedCents: SalesDeltaDTO;
     netSalesCents: SalesDeltaDTO;
@@ -7731,6 +7744,35 @@ export interface SalesReportDTO {
   chargebacksUndatedCount?: number;
 }
 
+/** §REPORTES-CEO §2 (F2a) — forma del periodo; la elige el atajo del selector. */
+export type PeriodKind = 'day' | 'rolling' | 'month' | 'quarter' | 'semester' | 'year' | 'span';
+/** §2 (F2a) — `complete` ⇒ periodo anterior con datos enteros; `partial` ⇒ «contra lo que hay»; `none` ⇒ sin con qué comparar. */
+export type ComparisonBasis = 'complete' | 'partial' | 'none';
+
+/** §2 (F2a) — una cifra de dinero contra el periodo anterior; TODO lo calcula el servidor. `deltaBps` `null` ⇒ «—». */
+export interface MoneyDeltaDTO {
+  cents: number;
+  previousCents: number;
+  deltaCents: number;
+  deltaBps: number | null;
+}
+
+/** `GET /admin/finance/pnl` (F2a): las ocho cifras del estado de resultados contra el MISMO tramo anterior. */
+export interface PnlComparisonDTO {
+  basis: ComparisonBasis;
+  dataSince: string | null;
+  figures: {
+    salesCents: MoneyDeltaDTO;
+    returnsAndRefundsCents: MoneyDeltaDTO;
+    netRevenueCents: MoneyDeltaDTO;
+    cogsCents: MoneyDeltaDTO;
+    stripeFeesCents: MoneyDeltaDTO;
+    shippingCostCents: MoneyDeltaDTO;
+    grossMarginCents: MoneyDeltaDTO;
+    netResultCents: MoneyDeltaDTO;
+  };
+}
+
 /** §15.5 — tarjeta «Ventas de hoy» (criterio 611). */
 export interface SalesTodayDTO {
   today: { day: SalesYmd; orders: number; chargedCents: number };
@@ -7741,6 +7783,8 @@ export interface SalesTodayDTO {
 
 /** Parámetros de `GET /admin/reports/sales` y `/export.csv` (§15.2). */
 export interface SalesReportParams {
+  /** F2a: forma del periodo para elegir el MISMO tramo anterior (`PERIOD_KIND_VALUES`). Vacío ⇒ `span` (como hoy). */
+  kind?: PeriodKind;
   preset?: SalesPreset;
   from?: SalesYmd;
   to?: SalesYmd;

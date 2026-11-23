@@ -6522,9 +6522,7 @@
           "oneDayToday": "Today, {date}",
           "oneDayYesterday": "Yesterday, {date}",
           "oneDay": "{date}",
-          "range": "{from} to {to} · {days, plural, one {# day} other {# days}} · Central Mexico time",
-          "compareRange": "Compared with: {from} to {to}",
-          "compareDay": "Compared with: {date}"
+          "range": "{from} to {to} · {days, plural, one {# day} other {# days}} · Central Mexico time"
         },
         "summary": {
           "title": "Period summary"
@@ -6817,13 +6815,36 @@
         "maxDays": "max. {days} days",
         "mexicoTime": "Mexico City time",
         "resolved": "{from} to {to}",
-        "allResolved": "Full history, up to {to}"
+        "allResolved": "Full history, up to {to}",
+        "fallback": "That period is not valid: showing This month."
+      },
+      "compare": {
+        "toDate": {
+          "month": "Month to date",
+          "quarter": "Quarter to date",
+          "year": "Year to date"
+        },
+        "complete": "{range} compared with {prev}",
+        "partial": "{range} compared with {prev}, against what we have (data since {since})",
+        "none": "No previous period to compare with",
+        "clamped": "The previous period is shorter and was used in full.",
+        "noBase": "No previous period to compare with",
+        "noPrevious": "The previous period was zero: there is no base for a percentage",
+        "cols": {
+          "current": "This period",
+          "previous": "Previous period",
+          "variation": "Change",
+          "before": "Before"
+        },
+        "dir": {
+          "up": "up",
+          "down": "down",
+          "same": "same"
+        }
       },
       "board": {
         "breadcrumb": "Reports",
         "intro": "Each area's results over the same period. Tap “See the full report” to go into the detail.",
-        "comparedWith": "Compared with {prevFrom} to {prevTo}",
-        "noComparison": "No previous period to compare with",
         "seeFull": "See the full report",
         "delta": {
           "up": "up",
@@ -6831,6 +6852,8 @@
           "same": "same",
           "pct": "{pct} %",
           "vsPrevious": "vs previous period",
+          "vsPartial": "vs what we have",
+          "noBase": "No previous period to compare with",
           "noPrevious": "No sales in the previous period to compare with"
         },
         "launch": {

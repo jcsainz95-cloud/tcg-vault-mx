@@ -11,12 +11,14 @@ import {
   type FinanceRange,
   type FinanceCsvReport,
 } from '@/lib/api';
-import type { IvaByOrderEntryDTO } from '@/types/contract';
+import type { IvaByOrderEntryDTO, PnlComparisonDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate, formatDateLongMx } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
 import { Button } from '@/components/ui/Button';
-import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { ComparisonNote } from '@/components/domain/ComparisonNote';
+import { CompareCells, CompareHeader, COL_AMOUNT, COL_PAD } from './CompareCells';
 import { financeRange, periodFor, type ReportPeriod } from '@/lib/reports/period';
 import { Banner } from '@/components/ui/Banner';
 import { StatCard } from '@/components/ui/StatCard';
@@ -32,7 +34,7 @@ function PnlLine({ label, value, sign, srSign }: { label: string; value: string;
   const tone = sign === '−' ? 'text-danger' : 'text-text';
   return (
     <div data-testid="pnl-line" data-sign={sign} className="flex items-start justify-between gap-3 py-1.5">
-      <span className="flex items-start gap-2 text-sm">
+      <span className="flex min-w-0 flex-1 items-start gap-2 text-sm">
         <span aria-hidden="true" className={`w-4 shrink-0 tabular font-semibold ${sign === '−' ? 'text-danger' : 'text-muted'}`}>{sign}</span>
         <span className="sr-only">{srSign}</span>
         <span className="text-muted">{label}</span>
@@ -60,14 +62,15 @@ function PnlIncluded({ label, value }: { label: string; value: string }) {
  * monto ⛔ NO es `pnl-amount`: el candado de la fórmula (UX-PNL-1) suma SOLO los `pnl-amount` dentro de los `pnl-line`, y
  * un subtotal NO forma parte de esa suma (es un total de ellos). La cifra viene del servidor tal cual — ⛔ el cliente no re-suma.
  */
-function PnlSubtotal({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function PnlSubtotal({ label, value, strong, cmp, pad }: { label: string; value: string; strong?: boolean; cmp?: React.ReactNode; pad?: boolean }) {
   return (
     <div
       data-testid="pnl-subtotal"
-      className={`flex items-start justify-between gap-3 border-t border-dashed border-border py-1.5 ${strong ? 'font-semibold' : 'font-medium'}`}
+      className={`flex items-start justify-between gap-x-3 border-t border-dashed border-border py-1.5 ${cmp ? 'flex-wrap sm:flex-nowrap' : ''} ${pad ? COL_PAD : ''} ${strong ? 'font-semibold' : 'font-medium'}`}
     >
-      <span className="text-sm text-text">{label}</span>
-      <span data-testid="pnl-subtotal-amount" className="tabular text-text">{value}</span>
+      <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
+      <span data-testid="pnl-subtotal-amount" className={`tabular text-text ${cmp ? COL_AMOUNT : ''}`}>{value}</span>
+      {cmp}
     </div>
   );
 }
@@ -76,11 +79,23 @@ function PnlSubtotal({ label, value, strong }: { label: string; value: string; s
  * §M10-IVA.8-bis (C), v1.95.2 — encabezado de GRUPO del waterfall (VENTAS, DEVOLUCIONES Y REEMBOLSOS, COSTO DE VENTA).
  * Solo rótulo (eyebrow); ⛔ sin monto y ⛔ sin `pnl-line`/`pnl-amount` (no forma parte de la suma de la fórmula, UX-PNL-1).
  */
-function StmtGroup({ label }: { label: string }) {
+function StmtGroup({ label, current, cmp }: { label: string; current?: string; cmp?: React.ReactNode }) {
+  if (!cmp) {
+    return (
+      <p data-testid="stmt-group" className="eyebrow mt-2 text-muted first:mt-0">
+        {label}
+      </p>
+    );
+  }
+  // F2a: el total del grupo (del servidor, `comparison.figures`) abre las columnas; NO es `stmt-amount` ni `pnl-amount`.
   return (
-    <p data-testid="stmt-group" className="eyebrow mt-2 text-muted first:mt-0">
-      {label}
-    </p>
+    <div className="mt-2 flex flex-wrap items-start justify-between gap-x-3 first:mt-0 sm:flex-nowrap">
+      <p data-testid="stmt-group" className="eyebrow min-w-0 flex-1 text-muted">
+        {label}
+      </p>
+      <span data-testid="cmp-current" className={`tabular text-xs text-muted ${COL_AMOUNT}`}>{current}</span>
+      {cmp}
+    </div>
   );
 }
 
@@ -90,21 +105,22 @@ function StmtGroup({ label }: { label: string }) {
  * duplicaría esa suma). `deduct` marca los que se muestran como **resta explícita** (devoluciones y tarifa retenida):
  * glifo `−` `aria-hidden` + `sr-only` «resta», monto en `text-danger` y `data-sign="−"`. Los demás van sin signo.
  */
-function StmtLine({ label, value, deduct, srSign }: { label: string; value: string; deduct?: boolean; srSign?: string }) {
+function StmtLine({ label, value, deduct, srSign, cmp, pad }: { label: string; value: string; deduct?: boolean; srSign?: string; cmp?: React.ReactNode; pad?: boolean }) {
   return (
     <div
       data-testid="stmt-line"
       {...(deduct ? { 'data-sign': '−' } : {})}
-      className="flex items-start justify-between gap-3 py-1 pl-4"
+      className={`flex items-start justify-between gap-x-3 py-1 pl-4 ${cmp ? 'flex-wrap sm:flex-nowrap' : ''} ${pad ? COL_PAD : ''}`}
     >
-      <span className="flex items-start gap-2 text-sm">
+      <span className="flex min-w-0 flex-1 items-start gap-2 text-sm">
         <span aria-hidden="true" className="w-4 shrink-0 tabular font-semibold text-danger">
           {deduct ? '−' : ''}
         </span>
         {deduct && <span className="sr-only">{srSign}</span>}
         <span className="text-muted">{label}</span>
       </span>
-      <span data-testid="stmt-amount" className={`tabular font-medium ${deduct ? 'text-danger' : 'text-text'}`}>{value}</span>
+      <span data-testid="stmt-amount" className={`tabular font-medium ${deduct ? 'text-danger' : 'text-text'} ${cmp ? COL_AMOUNT : ''}`}>{value}</span>
+      {cmp}
     </div>
   );
 }
@@ -118,6 +134,7 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
   const t = useTranslations('admin.m7');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
+  const tr = useTranslations('admin.reports');
   const locale = useLocale() as AppLocale;
   const adds = t('pnl.signAdds');
   const subtracts = t('pnl.signSubtracts');
@@ -126,7 +143,11 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
   const range: FinanceRange = financeRange(period);
 
   const pnl = useQuery({ queryKey: ['finance-pnl', range], queryFn: () => getPnl(range) });
+  const fallback = useInvalidPeriodFallback(pnl.error, period, setPeriod);
   const iva = useQuery({ queryKey: ['finance-iva', range], queryFn: () => getIvaReport(range) });
+  // §REPORTES-CEO F2a: contra el MISMO tramo del periodo anterior. Todo lo manda el servidor; `null` («Todo») ⇒ sin columnas.
+  const cmp = pnl.data?.comparison ?? null;
+  const cell = (k: keyof PnlComparisonDTO['figures']) => (cmp ? <CompareCells d={cmp.figures[k]} basis={cmp.basis} /> : undefined);
 
   const exportMutation = useMutation({
     mutationFn: async (report: FinanceCsvReport) => {
@@ -151,7 +172,15 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
       <h1 className="text-h1 font-bold">{tModules('m7')}</h1>
 
       {/* Periodo único (§REPORTES-CEO §2): aplica al P&L, al IVA y a las exportaciones */}
-      <PeriodSelector value={period} onChange={setPeriod} />
+      <PeriodSelector value={period} onChange={fallback.onChange} />
+      {fallback.notice && (
+        <Banner variant="warning" role="status">
+          {tr('period.fallback')}
+        </Banner>
+      )}
+      {pnl.data && (
+        <ComparisonNote preset={period.preset} period={pnl.data.period ?? period} previous={pnl.data.previousPeriod} comparison={pnl.data.comparison} testId="pnl-compare" />
+      )}
 
       {/* P&L con el desglose de la fórmula */}
       <section className="flex flex-col gap-3">
@@ -270,27 +299,32 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
                    * del `statement`. Devoluciones y la tarifa retenida (crédito que resta del costo) se pintan como resta.
                    */}
                   {/* ── VENTAS ─────────────────────────────────────────────────────────── */}
+                  {cmp && <CompareHeader />}
                   <StmtGroup label={t('statement.salesGroup')} />
-                  <StmtLine label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)} />
-                  <StmtLine label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)} />
-                  <PnlSubtotal label={t('statement.salesGroup')} value={formatMoneyCents(pnl.data.statement.salesCents, locale)} />
+                  <StmtLine label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)}  pad={!!cmp} />
+                  <StmtLine label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)}  pad={!!cmp} />
+                  <PnlSubtotal label={t('statement.salesGroup')} value={formatMoneyCents(pnl.data.statement.salesCents, locale)} cmp={cell('salesCents')} />
                   {/* ── (−) DEVOLUCIONES Y REEMBOLSOS (contra-ingreso) ─────────────────── */}
-                  <StmtGroup label={t('statement.returnsGroup')} />
-                  <StmtLine deduct srSign={subtracts} label={t('pnl.refunds')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.refundsCents, locale)} />
-                  <StmtLine deduct srSign={subtracts} label={t('pnl.refundedFees')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.refundedFeesCents, locale)} />
-                  <StmtLine deduct srSign={subtracts} label={t('pnl.compensations')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.compensationsCents, locale)} />
-                  <PnlSubtotal label={t('statement.netRevenue')} value={formatMoneyCents(pnl.data.statement.netRevenueCents, locale)} />
+                  <StmtGroup
+                    label={t('statement.returnsGroup')}
+                    current={cmp ? formatMoneyCents(cmp.figures.returnsAndRefundsCents.cents, locale) : undefined}
+                    cmp={cell('returnsAndRefundsCents')}
+                  />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.refunds')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.refundsCents, locale)}  pad={!!cmp} />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.refundedFees')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.refundedFeesCents, locale)}  pad={!!cmp} />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.compensations')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.compensationsCents, locale)}  pad={!!cmp} />
+                  <PnlSubtotal label={t('statement.netRevenue')} value={formatMoneyCents(pnl.data.statement.netRevenueCents, locale)} cmp={cell('netRevenueCents')} />
                   {/* ── (−) COSTO DE VENTA ─────────────────────────────────────────────── */}
                   <StmtGroup label={t('statement.costOfSalesGroup')} />
-                  <StmtLine label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.statement.costOfSales.cogsCents, locale)} />
-                  <StmtLine label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.statement.costOfSales.stripeFeesCents, locale)} />
-                  <StmtLine label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.statement.costOfSales.shippingCostCents, locale)} />
-                  <StmtLine label={t('pnl.buylistGuideCost')} value={formatMoneyCents(pnl.data.statement.costOfSales.buylistGuideCostCents, locale)} />
+                  <StmtLine label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.statement.costOfSales.cogsCents, locale)} cmp={cell('cogsCents')} />
+                  <StmtLine label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.statement.costOfSales.stripeFeesCents, locale)} cmp={cell('stripeFeesCents')} />
+                  <StmtLine label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.statement.costOfSales.shippingCostCents, locale)} cmp={cell('shippingCostCents')} />
+                  <StmtLine label={t('pnl.buylistGuideCost')} value={formatMoneyCents(pnl.data.statement.costOfSales.buylistGuideCostCents, locale)}  pad={!!cmp} />
                   {/* CRÉDITO: la tarifa retenida RESTA del costo del grupo (§ DECISIÓN (2)); se pinta como resta explícita. */}
-                  <StmtLine deduct srSign={subtracts} label={t('pnl.buylistFeeRetained')} value={formatMoneyCents(pnl.data.statement.costOfSales.buylistShippingFeeRetainedCents, locale)} />
-                  <PnlSubtotal label={t('statement.grossMargin')} value={formatMoneyCents(pnl.data.statement.grossMarginCents, locale)} />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.buylistFeeRetained')} value={formatMoneyCents(pnl.data.statement.costOfSales.buylistShippingFeeRetainedCents, locale)}  pad={!!cmp} />
+                  <PnlSubtotal label={t('statement.grossMargin')} value={formatMoneyCents(pnl.data.statement.grossMarginCents, locale)} cmp={cell('grossMarginCents')} />
                   {/* ── = EBITDA (= margen bruto: no hay opex fija modelada) ───────────── */}
-                  <PnlSubtotal label={t('statement.ebitda')} value={formatMoneyCents(pnl.data.statement.ebitdaCents, locale)} strong />
+                  <PnlSubtotal label={t('statement.ebitda')} value={formatMoneyCents(pnl.data.statement.ebitdaCents, locale)} strong  pad={!!cmp} />
                   {/* Ayuda honesta: el margen bruto es margen de CONTRIBUCIÓN; ⛔ no incluye gastos fijos (no se modelan). */}
                   <p data-testid="stmt-contribution-help" className="pt-1 text-xs text-muted">{t('statement.contributionHelp')}</p>
                   {/* ⛔⛔ Bloque IVA: informativo, NO es un gasto. ⛔ Nunca se resta del EBITDA ni del resultado. */}
@@ -321,6 +355,11 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
                   {formatMoneyCents(pnl.data.profitCents, locale)}
                 </span>
               </div>
+              {cmp && pnl.data.statement && (
+                <div data-testid="cmp-net" className="-mt-2 flex justify-end">
+                  <CompareCells d={cmp.figures.netResultCents} basis={cmp.basis} inline />
+                </div>
+              )}
               {pnl.data.feeIncludedSince && formatDateLongMx(pnl.data.feeIncludedSince, locale) && (
                 <p data-testid="pnl-fee-included-since" className="text-xs text-muted">
                   {t('pnl.feeIncludedSince', { date: formatDateLongMx(pnl.data.feeIncludedSince, locale) })}

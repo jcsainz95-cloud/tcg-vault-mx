@@ -3,7 +3,8 @@
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { SalesGroupBy, SalesReportDTO } from '@/types/contract';
-import { SALES_MAX_DAYS, addDays, todayMx, type ReportPeriod } from '@/lib/reports/period';
+import { SALES_MAX_DAYS, addDays, todayMx, type ReportPeriod, type ReportPreset } from '@/lib/reports/period';
+import { ComparisonNote } from '@/components/domain/ComparisonNote';
 import { PeriodSelector } from '@/components/domain/PeriodSelector';
 import { Segmented } from './SalesBarChart';
 import { capitalize, fmtDay, fmtRange } from './salesFormat';
@@ -50,7 +51,7 @@ export function SalesPeriodPicker({
  * Rótulo del periodo (criterio 286) — SIEMPRE de `period`/`previousPeriod` de la RESPUESTA (AN-4 / UX-AN-5): mientras
  * carga un periodo nuevo se ve el rótulo viejo con las cifras viejas, ⛔ nunca el rótulo nuevo sobre cifras viejas.
  */
-export function SalesPeriodLabel({ data }: { data: SalesReportDTO }) {
+export function SalesPeriodLabel({ data, preset }: { data: SalesReportDTO; preset: ReportPreset }) {
   const t = useTranslations('admin.m9.sales');
   const locale = useLocale() as AppLocale;
   const { period, previousPeriod } = data;
@@ -65,14 +66,17 @@ export function SalesPeriodLabel({ data }: { data: SalesReportDTO }) {
     const r = fmtRange(period.from, period.to, locale);
     main = t('label.range', { from: r.from, to: r.to, days: period.days });
   }
-  const cmp =
-    previousPeriod.from === previousPeriod.to
-      ? t('label.compareDay', { date: day(previousPeriod.from) })
-      : t('label.compareRange', fmtRange(previousPeriod.from, previousPeriod.to, locale));
   return (
     <div aria-live="polite" data-testid="sales-period-label" data-from={period.from} data-to={period.to}>
       <p className="text-sm font-medium text-text">{main}</p>
-      <p className="text-sm text-muted">{cmp}</p>
+      {/* F2a: contra qué se compara (mismo tramo, «contra lo que hay», «sin periodo anterior»), de la RESPUESTA. */}
+      <ComparisonNote
+        preset={preset}
+        period={period}
+        previous={previousPeriod}
+        comparison={data.comparison}
+        testId="sales-compare"
+      />
     </div>
   );
 }
