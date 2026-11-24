@@ -5,6 +5,7 @@ import { M7View } from './M7View';
 import * as api from '@/lib/api';
 import { mockPnl } from '@/lib/mock/fixtures';
 import { mockStatementOf } from '@/lib/mock/period-compare';
+import { expectOneDecimalPercents } from '@/test/pct';
 import { periodFor } from '@/lib/reports/period';
 import type { ComparisonBasis, MoneyDeltaDTO, PnlDTO } from '@/types/contract';
 
@@ -30,7 +31,7 @@ function pnl(over: Partial<PnlDTO> = {}, basis: ComparisonBasis = 'complete', da
   return {
     ...mockPnl,
     statement: mockStatementOf(mockPnl),
-    period: { from: '2026-11-01', to: '2026-11-23', kind: 'month', days: 23, timezone: 'America/Mexico_City' },
+    period: { from: '2026-11-01', to: '2026-11-23', kind: 'month', days: 23, timezone: 'America/Mexico_City', toDate: true },
     previousPeriod: PREV,
     comparison: { basis, dataSince, figures: FIG },
     ...over,
@@ -57,16 +58,43 @@ describe('§2 F2a · Finanzas: estado de resultados contra el periodo anterior',
     const cells = screen.getAllByTestId('cmp-cells');
     // 7 renglones del bloque (ventas, devoluciones, ventas netas, costo, comisión, envío, margen) + el resultado neto.
     expect(cells).toHaveLength(8);
-    const prev = (i: number) => within(cells[i]).getByTestId('cmp-prev').textContent ?? '';
-    const vari = (i: number) => within(cells[i]).getByTestId('cmp-var').textContent ?? '';
-    expect(prev(0)).toContain('10,000.00'); // 1,000,000 ¢ = $10,000.00 (ventas)
-    expect(vari(0)).toContain('+22.2 %'); // 2 222 pb tal cual, NO 111 111/1 000 000
-    expect(vari(0)).toContain('1,111.11'); // deltaCents del servidor, NO cents − previousCents
-    expect(vari(4)).toContain('+55.6 %');
-    expect(vari(5)).toContain('−6.7 %');
-    expect(vari(5)).toContain('18.00');
-    expect(prev(7)).toContain('−'); // anterior negativo se pinta con su signo
-    expect(vari(7)).toContain('+550 %');
+    // M-9: 7 porcentajes (el de devoluciones es «—»), todos con UN decimal fijo.
+    expect(expectOneDecimalPercents(document.body.textContent ?? '', 7)).toBe(7);
+  });
+
+  /**
+   * I-2 (qa): cada renglón lleva SU cifra — una mutación que cambie `cell('cogsCents')` por `cell('stripeFeesCents')` (o cualquier
+   * par) pinta el anterior/variación de otra fila. Los 8 anterior/variación del fixture son distintos entre sí y se verifican por
+   * rótulo (no por posición); `deltaBps` y `deltaCents` salen del JSON, no de cents − previousCents.
+   */
+  it('renglón ↔ cifra: cada una de las 8 filas pinta SU anterior, SU variación y SU diferencia (candado por rótulo)', async () => {
+    serve(pnl());
+    renderWithProviders(<M7View initialPeriod={month} />, 'es');
+    await screen.findByTestId('pnl-statement');
+    const rowOfSpan = (label: string) => screen.getAllByText(label, { selector: 'span' }).map((e) => e.closest('[data-testid="pnl-subtotal"],[data-testid="stmt-line"]')).find(Boolean) as HTMLElement;
+    const rows: [string, HTMLElement, string, string, string | null, string | null][] = [
+      ['salesCents', rowOfSpan('Ventas'), '10,000.00', '+22.2 %', '1,111.11', null],
+      ['returnsAndRefundsCents', screen.getByText('Devoluciones y reembolsos', { selector: 'p' }).parentElement as HTMLElement, '800.00', '—', null, '+'],
+      ['netRevenueCents', rowOfSpan('Ventas netas'), '9,200.00', '+33.3 %', '2,222.22', null],
+      ['cogsCents', rowOfSpan('Costo de lo vendido'), '5,000.00', '+44.4 %', '333.33', null],
+      ['stripeFeesCents', rowOfSpan('Comisiones Stripe'), '400.00', '+55.6 %', '83.00', null],
+      ['shippingCostCents', rowOfSpan('Costo de envío (paquetería, neto)'), '300.00', '−6.7 %', '18.00', null],
+      ['grossMarginCents', rowOfSpan('Margen bruto'), '3,000.00', '+50.0 %', '1,500.00', null],
+      ['netResultCents', screen.getByTestId('cmp-net'), '1,000.00', '+550.0 %', '5,500.00', null],
+    ].map(([k, el, a, b, c, d]) => [k, el, a, b, c, d] as [string, HTMLElement, string, string, string | null, string | null]);
+    expect(rows.every(([, el]) => !!el)).toBe(true);
+    for (const [fig, row, prev, pct, delta] of rows) {
+      const c = within(row).getByTestId('cmp-cells');
+      const p = within(c).getByTestId('cmp-prev').textContent ?? '';
+      const v = within(c).getByTestId('cmp-var').textContent ?? '';
+      expect(p, `${fig} anterior`).toContain(prev);
+      expect(v, `${fig} variación`).toContain(pct);
+      if (delta) expect(v, `${fig} diferencia`).toContain(delta);
+    }
+    // Ninguna fila repite el anterior de otra (si dos coincidieran, el candado no distinguiría un cruce).
+    const prevs = rows.map(([, row]) => within(within(row).getByTestId('cmp-cells')).getByTestId('cmp-prev').textContent);
+    expect(new Set(prevs).size).toBe(8);
+    expect(within(rows[7][1]).getByTestId('cmp-prev').textContent).toContain('−'); // anterior negativo con su signo
   });
 
   it('deltaBps null ⇒ «—» (nunca 0 %) pero el importe anterior se conserva', async () => {
@@ -100,12 +128,11 @@ describe('§2 F2a · Finanzas: estado de resultados contra el periodo anterior',
     expect(screen.queryByTestId('pnl-compare-clamped')).toBeNull();
     first.unmount();
 
-    serve(pnl({ previousPeriod: { ...PREV, clamped: true } }, 'partial', '2026-10-12'));
+    serve(pnl({}, 'partial', '2026-10-12'));
     renderWithProviders(<M7View initialPeriod={month} />, 'es');
     const partial = await screen.findByTestId('pnl-compare');
     expect(partial).toHaveTextContent('contra lo que hay (datos desde 12 oct 2026)');
     expect(partial).toHaveAttribute('data-basis', 'partial');
-    expect(screen.getByTestId('pnl-compare-clamped')).toHaveTextContent('El periodo anterior es más corto y se usó completo.');
     // Nunca jerga interna en pantalla.
     expect(document.body.textContent).not.toMatch(/MTD|YTD|basis|clamped/);
   });
@@ -168,5 +195,41 @@ describe('§2 F2a · Finanzas: estado de resultados contra el periodo anterior',
     await screen.findByTestId('pnl-statement');
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'month' }));
     expect(screen.getByRole('button', { name: 'Este mes' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  // M-8 (m-2, m-7): `toDate` y `clamped` salen de la respuesta; 30-mar-2027 recorta a «28 feb»; 31-mar es periodo cerrado.
+  const mar = (to: string, toDate: boolean, prevTo: string, clamped: boolean) =>
+    pnl({
+      period: { from: '2027-03-01', to, kind: 'month', days: Number(to.slice(8)), timezone: 'America/Mexico_City', toDate },
+      previousPeriod: { from: '2027-02-01', to: prevTo, clamped },
+    });
+  it('M-8 clamped (es): 30-mar-2027 ⇒ «no tiene día 30 … (28 feb)» y «Mes a la fecha»', async () => {
+    serve(mar('2027-03-30', true, '2027-02-28', true));
+    renderWithProviders(<M7View initialPeriod={month} />, 'es');
+    const note = await screen.findByTestId('pnl-compare');
+    expect(note).toHaveTextContent('Mes a la fecha');
+    expect(screen.getByTestId('pnl-compare-clamped')).toHaveTextContent('El mes de comparación no tiene día 30: se comparó hasta su último día (28 feb).');
+    expect(document.body.textContent).not.toMatch(/MTD|YTD|basis|clamped/);
+  });
+  it('M-8 clamped (en): «The comparison month has no day 30: compared through its last day (Feb 28).»', async () => {
+    serve(mar('2027-03-30', true, '2027-02-28', true));
+    renderWithProviders(<M7View initialPeriod={month} />, 'en');
+    await screen.findByTestId('pnl-compare');
+    expect(screen.getByTestId('pnl-compare-clamped')).toHaveTextContent('The comparison month has no day 30: compared through its last day (Feb 28).');
+  });
+  it('M-8 31-mar (periodo cerrado, toDate:false): sin «a la fecha», sin clamped y contra febrero completo', async () => {
+    serve(mar('2027-03-31', false, '2027-02-28', false));
+    renderWithProviders(<M7View initialPeriod={month} />, 'es');
+    const note = await screen.findByTestId('pnl-compare');
+    expect(note).not.toHaveTextContent('a la fecha');
+    expect(note).toHaveTextContent('comparado con 1–28 feb');
+    expect(screen.queryByTestId('pnl-compare-clamped')).toBeNull();
+  });
+  it('m-7: sin `toDate` en la respuesta (servidor viejo) o con toDate:false NUNCA hay «a la fecha», aunque el atajo sea «Este mes»', async () => {
+    const noFlag = pnl();
+    noFlag.period = { ...noFlag.period!, toDate: undefined };
+    serve(noFlag);
+    renderWithProviders(<M7View initialPeriod={month} />, 'es');
+    expect(await screen.findByTestId('pnl-compare')).not.toHaveTextContent('a la fecha');
   });
 });

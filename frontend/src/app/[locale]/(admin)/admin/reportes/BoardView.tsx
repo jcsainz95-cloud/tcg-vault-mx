@@ -7,11 +7,11 @@ import { usePickingSummary } from '@/hooks/usePickingSummary';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import { formatCount, formatMoneyCents } from '@/lib/format';
-import { SALES_MAX_DAYS, financeRange, periodSearch, type ReportPeriod } from '@/lib/reports/period';
+import { bpsOf, fmtPct } from '@/lib/reports/comparison';
+import { SALES_MAX_DAYS, financeRange, periodSearch, type PeriodNotice, type ReportPeriod } from '@/lib/reports/period';
 import { salesParamsFor } from '@/lib/reports/sales-params';
-import { PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { PeriodNoticeBanner, PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
 import type { LaunchMetricsDTO } from '@/types/contract';
-import { Banner } from '@/components/ui/Banner';
 import { ComparisonNote } from '@/components/domain/ComparisonNote';
 import { money } from '../m9/salesFormat';
 import { Figure, Franja } from './Figure';
@@ -34,10 +34,9 @@ const LAUNCH: { metric: LaunchMetric; goal: GoalKey }[] = [
  * (caja, dinero comprometido, inventario parado, clientes que regresan, alertas, metas) NO se pinta: llega en F2-F4.
  * Variación contra el MISMO tramo del periodo anterior (F2a) en Ventas y en el resultado de Finanzas; Compras y Operación sin ella.
  */
-export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
+export function BoardView({ initialPeriod, initialNotice = null }: { initialPeriod: ReportPeriod; initialNotice?: PeriodNotice | null }) {
   const t = useTranslations('admin.reports.board');
   const tm = useTranslations('admin.modules');
-  const tp = useTranslations('admin.reports.period');
   const locale = useLocale() as AppLocale;
   const [period, setPeriod] = useReportPeriod(initialPeriod);
   const { from, to } = period;
@@ -53,14 +52,14 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
   const inv = useQuery({ queryKey: ['finance-inventory-value'], queryFn: getInventoryValue });
   const custody = useQuery({ queryKey: ['finance-custody-value'], queryFn: getCustodyValue });
   const picking = usePickingSummary();
-  const fallback = useInvalidPeriodFallback(sales.error ?? pnl.error, period, setPeriod);
+  const fallback = useInvalidPeriodFallback([sales.error, pnl.error], period, setPeriod, initialNotice);
 
   const st = sales.data?.totals;
-  /** Avance contra la meta, tal cual de los conteos del servidor (el % solo formatea; sin meta ⇒ «Meta sin fijar»). */
+  /** Avance contra la meta, de los dos conteos del servidor (`bpsOf` + `fmtPct`, un decimal fijo; sin meta ⇒ «Meta sin fijar»). */
   function goalNote(d: LaunchMetricsDTO, metric: LaunchMetric, goal: GoalKey): string {
     const target = d.goals?.[goal];
     if (target == null) return t('launch.goalPending');
-    return t('launch.goalProgress', { current: d[metric], target, pct: target > 0 ? Math.round((d[metric] / target) * 100) : 0 });
+    return t('launch.goalProgress', { current: d[metric], target, pct: fmtPct(bpsOf(d[metric], target), locale, false) as string });
   }
   const sPrev = sales.data?.comparison;
 
@@ -75,21 +74,10 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
       </div>
 
       <PeriodSelector value={period} onChange={fallback.onChange} maxDays={SALES_MAX_DAYS} />
-      {fallback.notice && (
-        <Banner variant="warning" role="status">
-          {tp('fallback')}
-        </Banner>
-      )}
+      <PeriodNoticeBanner notice={fallback.notice} maxDays={SALES_MAX_DAYS} />
       {/* §2 (F2a): contra qué se compara, de la RESPUESTA (mismo tramo, «contra lo que hay», «sin periodo anterior»). */}
       {sales.data && (
-        <ComparisonNote
-          preset={period.preset}
-          period={sales.data.period}
-          previous={sales.data.previousPeriod}
-          comparison={sales.data.comparison}
-          kind={sales.data.period.kind}
-          testId="board-period"
-        />
+        <ComparisonNote period={sales.data.period} previous={sales.data.previousPeriod} comparison={sales.data.comparison} testId="board-period" />
       )}
 
       <Franja id="finance" title={tm('m7')} ask={t('areas.finance.ask')} href={`/admin/m7${search}`} seeFull={t('seeFull')} queries={[pnl]}>

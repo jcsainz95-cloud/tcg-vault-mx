@@ -7448,7 +7448,8 @@ export interface PnlDTO {
    * §REPORTES-CEO F2a — solo con `from`/`to` `YYYY-MM-DD`; sin ellos («Todo») o con servidor anterior: `null`/ausente.
    * ⛔ El cliente no calcula el periodo anterior ni las variaciones: pinta `comparison.figures` tal cual.
    */
-  period?: { from: string; to: string; kind: PeriodKind; days: number; timezone: 'America/Mexico_City' } | null;
+  /** `toDate` (§2 m-7): el servidor dice si es «a la fecha»; ausente (servidor viejo) ⇒ sin prefijo. */
+  period?: { from: string; to: string; kind: PeriodKind; days: number; timezone: 'America/Mexico_City'; toDate?: boolean } | null;
   previousPeriod?: { from: string; to: string; clamped: boolean } | null;
   comparison?: PnlComparisonDTO | null;
 }
@@ -7714,7 +7715,7 @@ export type SalesRowDTO = { from: SalesYmd; to: SalesYmd } & SalesFiguresDTO;
 
 export interface SalesReportDTO {
   /** F2a (m-3): `kind` EFECTIVO (cae a `span` si el pedido no cuadra con la unidad); léelo de aquí, no lo dedulzcas por fechas. Opcional: servidor anterior. */
-  period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City'; kind?: PeriodKind };
+  period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City'; kind?: PeriodKind; toDate?: boolean };
   /** F2a: `clamped` ⇒ el tramo anterior es más corto que lo transcurrido y se usó COMPLETO (31-mar vs febrero). Opcional: servidor anterior. */
   previousPeriod: { from: SalesYmd; to: SalesYmd; clamped?: boolean };
   /** F2a: día MX del primer pedido liquidado (`null` sin pedidos). Opcional: servidor anterior. */

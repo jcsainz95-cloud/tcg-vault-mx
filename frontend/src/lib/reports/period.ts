@@ -75,24 +75,46 @@ export function periodFor(preset: Exclude<ReportPreset, 'custom'>, today: string
 /** Tope de días de las pantallas cuyo endpoint lo aplica (Ventas y lo que lee de ella): `all` va desactivado ahí. */
 export const SALES_MAX_DAYS = 366;
 
+/** Aviso de una caída al defecto (§2 «Caídas del selector»): qué texto lleva el `Banner` bajo el selector. */
+export type PeriodNotice = 'invalid' | 'allUnavailable' | 'tooLong';
+
+type Raw = Record<string, string | string[] | undefined>;
+const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
+
 /**
- * Lee `?preset=&from=&to=`. Basura, fecha inexistente o rango al revés ⇒ el defecto (este mes). Con `maxDays`, un periodo
- * más largo (p. ej. «Todo» que venía del menú desde Finanzas) también cae al defecto en vez de pedir lo que el servidor topa.
+ * Lee `?preset=&from=&to=` y dice SI cayó al defecto y POR QUÉ (contrato §2, m-19; lo decide esta función, no el servidor):
+ * - `invalid`: `preset` desconocido; `custom` sin fechas, inexistentes, al revés o con `to` > hoy; `from`/`to` sin `preset`; ISO parcial.
+ * - `allUnavailable`: `preset=all` donde hay tope (`maxDays`). `tooLong`: `custom` válido con más de `maxDays` días.
+ * - Sin `preset`/`from`/`to`, o un atajo válido (aunque traiga `from`/`to` de sobra): sin aviso.
  */
-export function parsePeriod(
-  sp: Record<string, string | string[] | undefined>,
+export function parsePeriodNotice(
+  sp: Raw,
   today: string = todayMx(),
   opts: { maxDays?: number } = {},
-): ReportPeriod {
+): { period: ReportPeriod; notice: PeriodNotice | null } {
+  const fallback = periodFor('month', today);
+  const preset = first(sp.preset);
+  const from = first(sp.from);
+  const to = first(sp.to);
+  if (!preset && !from && !to) return { period: fallback, notice: null };
   const p = parseRaw(sp, today);
-  return opts.maxDays !== undefined && spanDays(p.from, p.to) > opts.maxDays ? periodFor('month', today) : p;
+  const named = !!preset && (REPORT_PRESETS as readonly string[]).includes(preset);
+  if (!named || (preset === 'custom' && p.preset !== 'custom')) return { period: fallback, notice: 'invalid' };
+  if (opts.maxDays !== undefined && spanDays(p.from, p.to) > opts.maxDays) {
+    return { period: fallback, notice: p.preset === 'all' ? 'allUnavailable' : 'tooLong' };
+  }
+  return { period: p, notice: null };
 }
 
-function parseRaw(sp: Record<string, string | string[] | undefined>, today: string): ReportPeriod {
-  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-  const preset = one(sp.preset);
-  const from = one(sp.from);
-  const to = one(sp.to);
+/** Como `parsePeriodNotice` pero solo el periodo (para quien no avisa). */
+export function parsePeriod(sp: Raw, today: string = todayMx(), opts: { maxDays?: number } = {}): ReportPeriod {
+  return parsePeriodNotice(sp, today, opts).period;
+}
+
+function parseRaw(sp: Raw, today: string): ReportPeriod {
+  const preset = first(sp.preset);
+  const from = first(sp.from);
+  const to = first(sp.to);
   if (preset === 'custom' && isRealYmd(from, today) && isRealYmd(to, today) && from <= to && to <= today) return { preset: 'custom', from, to };
   if (preset && (REPORT_PRESETS as readonly string[]).includes(preset) && preset !== 'custom') {
     return periodFor(preset as Exclude<ReportPreset, 'custom'>, today);

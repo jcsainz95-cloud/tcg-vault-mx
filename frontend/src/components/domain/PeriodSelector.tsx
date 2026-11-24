@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
+import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/cn';
 import { asApiError } from '@/lib/api-client';
-import { DEFAULT_PRESET, isRealYmd, periodFor, periodSearch, spanDays, todayMx, REPORT_PRESETS, type ReportPeriod, type ReportPreset } from '@/lib/reports/period';
+import { DEFAULT_PRESET, isRealYmd, periodFor, periodSearch, spanDays, todayMx, REPORT_PRESETS, type PeriodNotice, type ReportPeriod, type ReportPreset } from '@/lib/reports/period';
 import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { fmtRange } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
 
@@ -35,27 +36,53 @@ export function useReportPeriod(initial: ReportPeriod) {
   return [period, change] as const;
 }
 
+/** 400/422 `VALIDATION_ERROR` = el servidor no acepta el periodo (§2: se tratan igual; Ventas ya publicada conserva 400). */
+export function isPeriodRejection(e: unknown): boolean {
+  const a = e ? asApiError(e) : null;
+  return !!a && (a.status === 400 || a.status === 422) && a.code === 'VALIDATION_ERROR';
+}
+
 /**
- * §2 (m-19): si el servidor rechaza el periodo (`422 VALIDATION_ERROR`), la pantalla vuelve al defecto («Este mes») y lo
- * dice con un aviso que se va al elegir otro periodo. Devuelve el aviso y el `onChange` que hay que darle al selector.
+ * §2 «Caídas del selector» (m-19, I-1): toda caída al defecto «Este mes» se AVISA. El aviso viene de la URL (`initialNotice`, lo
+ * decide `parsePeriodNotice` en la `page.tsx`) o del respaldo del servidor: si CUALQUIERA de las consultas de periodo de la
+ * pantalla (`errors`: una o varias) responde 400/422 `VALIDATION_ERROR`, vuelve a «Este mes» con el aviso `invalid`.
+ * Se va al elegir otro periodo. Devuelve el aviso y el `onChange` que hay que darle al selector.
  */
-export function useInvalidPeriodFallback(error: unknown, period: ReportPeriod, change: (p: ReportPeriod) => void) {
-  const [notice, setNotice] = useState(false);
-  const status = error ? asApiError(error)?.status : undefined;
+export function useInvalidPeriodFallback(
+  errors: unknown,
+  period: ReportPeriod,
+  change: (p: ReportPeriod) => void,
+  initialNotice: PeriodNotice | null = null,
+) {
+  const [notice, setNotice] = useState<PeriodNotice | null>(initialNotice);
+  useEffect(() => setNotice(initialNotice), [initialNotice]);
+  const rejected = (Array.isArray(errors) ? errors : [errors]).some(isPeriodRejection);
   useEffect(() => {
-    if (status === 422 && period.preset !== DEFAULT_PRESET) {
+    if (rejected && period.preset !== DEFAULT_PRESET) {
       change(periodFor('month'));
-      setNotice(true);
+      setNotice('invalid');
     }
-  }, [status, period.preset, change]);
+  }, [rejected, period.preset, change]);
   const onChange = useCallback(
     (p: ReportPeriod) => {
-      setNotice(false);
+      setNotice(null);
       change(p);
     },
     [change],
   );
   return { notice, onChange };
+}
+
+/** El aviso de caída, con el MISMO `Banner` de Finanzas (`warning`, `role="status"`) bajo el selector. `maxDays` rellena `{days}`. */
+export function PeriodNoticeBanner({ notice, maxDays }: { notice: PeriodNotice | null; maxDays?: number }) {
+  const t = useTranslations('admin.reports.period');
+  if (!notice) return null;
+  const text = notice === 'invalid' ? t('fallback') : t(notice, { days: maxDays ?? 0 });
+  return (
+    <Banner variant="warning" role="status">
+      {text}
+    </Banner>
+  );
 }
 
 /**

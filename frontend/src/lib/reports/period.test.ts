@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { financeRange, isRealYmd, parsePeriod, periodFor, periodKind, periodSearch, SALES_MAX_DAYS, todayMx } from './period';
+import { financeRange, isRealYmd, parsePeriod, parsePeriodNotice, periodFor, periodKind, periodSearch, SALES_MAX_DAYS, todayMx } from './period';
 import { salesParamsFor } from './sales-params';
 
 describe('§REPORTES-CEO §2 · periodo único en días de México', () => {
@@ -89,5 +89,39 @@ describe('§REPORTES-CEO §2 · periodo único en días de México', () => {
     expect(financeRange(periodFor('quarter', t))).toEqual({ from: '2026-10-01', to: t, kind: 'quarter' });
     expect(financeRange(periodFor('last-month', t))).toEqual({ from: '2026-10-01', to: '2026-10-31', kind: 'month' });
     expect(financeRange(periodFor('all', t))).toEqual({});
+  });
+});
+
+describe('§2 caídas del selector (I-1, M-7): parsePeriodNotice, tabla de URLs', () => {
+  const today = '2026-11-23';
+  const month = periodFor('month', today);
+  const cap = { maxDays: SALES_MAX_DAYS };
+  type Row = [string, Record<string, string>, { maxDays?: number }, string, string | null];
+  const rows: Row[] = [
+    ['sin nada', {}, cap, 'month', null],
+    ['atajo válido', { preset: '7d' }, cap, '7d', null],
+    ['atajo válido con from/to de sobra', { preset: '7d', from: 'x', to: 'y' }, cap, '7d', null],
+    ['preset vacío', { preset: '' }, cap, 'month', null],
+    ['preset desconocido', { preset: 'hoy' }, cap, 'month', 'invalid'],
+    ['custom sin fechas', { preset: 'custom' }, cap, 'month', 'invalid'],
+    ['custom inexistente', { preset: 'custom', from: '2026-02-30', to: '2026-03-01' }, cap, 'month', 'invalid'],
+    ['custom al revés', { preset: 'custom', from: '2026-11-10', to: '2026-11-01' }, cap, 'month', 'invalid'],
+    ['custom con to > hoy', { preset: 'custom', from: '2026-11-01', to: '2026-11-24' }, cap, 'month', 'invalid'],
+    ['from/to sin preset', { from: '2026-11-01', to: '2026-11-10' }, cap, 'month', 'invalid'],
+    ['solo from', { from: '2026-11-01' }, cap, 'month', 'invalid'],
+    ['ISO parcial', { preset: 'custom', from: '2026-11', to: '2026-11-10' }, cap, 'month', 'invalid'],
+    ['all con tope', { preset: 'all' }, cap, 'month', 'allUnavailable'],
+    ['all sin tope (Finanzas)', { preset: 'all' }, {}, 'all', null],
+    ['custom válido de 367 días con tope', { preset: 'custom', from: '2025-11-22', to: '2026-11-23' }, cap, 'month', 'tooLong'],
+    ['custom válido de 366 días con tope', { preset: 'custom', from: '2025-11-23', to: '2026-11-23' }, cap, 'custom', null],
+    ['custom largo sin tope (Finanzas)', { preset: 'custom', from: '2021-01-01', to: '2026-11-23' }, {}, 'custom', null],
+    ['arreglo en la URL (primer valor)', { preset: ['30d', 'x'] } as unknown as Record<string, string>, cap, '30d', null],
+  ];
+  it.each(rows)('%s', (_n, sp, opts, preset, notice) => {
+    const r = parsePeriodNotice(sp, today, opts);
+    expect(r.period.preset).toBe(preset);
+    expect(r.notice).toBe(notice);
+    if (notice) expect(r.period).toEqual(month);
+    expect(parsePeriod(sp, today, opts)).toEqual(r.period); // el envoltorio descarta el aviso, nada más
   });
 });

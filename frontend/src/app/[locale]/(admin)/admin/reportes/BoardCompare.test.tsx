@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { expectOneDecimalPercents } from '@/test/pct';
 import { periodFor } from '@/lib/reports/period';
 import { BoardView } from './BoardView';
 import * as api from '@/lib/api';
@@ -80,6 +81,8 @@ describe('§2 F2a · Junta de dirección con comparación de mismo tramo', () =>
     // resultado del periodo: 1 234 pb del servidor ⇒ «12.3 %»; nunca un % sin su base («vs periodo anterior»).
     expect(await within(fin).findByTestId('delta')).toHaveTextContent(/12\.3 %\s*vs periodo anterior/);
     expect(within(screen.getByTestId('franja-sales')).getAllByTestId('delta')[0]).toHaveTextContent('vs periodo anterior');
+    expectOneDecimalPercents(screen.getByTestId('franja-finance').textContent ?? '');
+    expectOneDecimalPercents(screen.getByTestId('franja-sales').textContent ?? '');
   });
 
   it('contra lo que hay: el rótulo dice desde cuándo hay datos y cada % dice «vs lo que hay»', async () => {
@@ -109,6 +112,70 @@ describe('§2 F2a · Junta de dirección con comparación de mismo tramo', () =>
     vi.spyOn(api, 'getSalesReport').mockResolvedValue(sales('complete', null, true));
     vi.spyOn(api, 'getPnl').mockResolvedValue(pnl('complete'));
     renderWithProviders(<BoardView initialPeriod={month} />, 'es');
-    expect(await screen.findByTestId('board-period-clamped')).toHaveTextContent('El periodo anterior es más corto y se usó completo.');
+    expect(await screen.findByTestId('board-period-clamped')).toHaveTextContent('El mes de comparación no tiene día 23: se comparó hasta su último día (23 oct).');
+  });
+
+  // I-2 (qa): «a la fecha» sale de `period.toDate` de la RESPUESTA de Ventas (m-7), no del atajo ni del `kind` solo.
+  it('m-7: kind efectivo `span` o toDate:false ⇒ nunca «Mes a la fecha», aunque el atajo sea «Este mes»', async () => {
+    const base = sales('complete');
+    vi.spyOn(api, 'getSalesReport').mockResolvedValue({ ...base, period: { ...base.period, kind: 'span', toDate: true } });
+    vi.spyOn(api, 'getPnl').mockResolvedValue(pnl('complete'));
+    const first = renderWithProviders(<BoardView initialPeriod={month} />, 'es');
+    expect(await screen.findByTestId('board-period')).not.toHaveTextContent('a la fecha');
+    first.unmount();
+    vi.spyOn(api, 'getSalesReport').mockResolvedValue({ ...base, period: { ...base.period, kind: 'month', toDate: false } });
+    renderWithProviders(<BoardView initialPeriod={month} />, 'es');
+    expect(await screen.findByTestId('board-period')).not.toHaveTextContent('a la fecha');
+  });
+
+  // M-7 respaldo: CUALQUIERA de las dos consultas de periodo con 400/422 `VALIDATION_ERROR` ⇒ «Este mes» con aviso `fallback`.
+  it.each([
+    ['422 del P&L (finanzas)', 'pnl', 422],
+    ['400 de Ventas', 'sales', 400],
+    ['422 de Ventas', 'sales', 422],
+    ['400 del P&L', 'pnl', 400],
+  ] as const)('%s ⇒ vuelve a «Este mes» con el aviso', async (_n, which, status) => {
+    const { ApiClientError } = await import('@/lib/api-client');
+    const bad = new ApiClientError(status, { code: 'VALIDATION_ERROR', message: 'periodo' });
+    const s = vi.spyOn(api, 'getSalesReport').mockImplementation(async (p) => {
+      if (which === 'sales' && p?.kind === 'quarter') throw bad;
+      return sales('complete');
+    });
+    vi.spyOn(api, 'getPnl').mockImplementation(async (r) => {
+      if (which === 'pnl' && r?.kind === 'quarter') throw bad;
+      return pnl('complete');
+    });
+    renderWithProviders(<BoardView initialPeriod={periodFor('quarter', '2026-11-23')} />, 'es');
+    expect(await screen.findByText('Ese periodo no es válido: se muestra Este mes.')).toBeInTheDocument();
+    await screen.findByTestId('board-period');
+    expect(s).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'month' }));
+    expect(screen.getByRole('button', { name: 'Este mes' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('un error que NO es VALIDATION_ERROR (500, 403) no dispara el respaldo', async () => {
+    const { ApiClientError } = await import('@/lib/api-client');
+    vi.spyOn(api, 'getSalesReport').mockResolvedValue(sales('complete'));
+    vi.spyOn(api, 'getPnl').mockImplementation(async (r) => {
+      if (r?.kind === 'quarter') throw new ApiClientError(422, { code: 'OTHER', message: 'x' });
+      return pnl('complete');
+    });
+    renderWithProviders(<BoardView initialPeriod={periodFor('quarter', '2026-11-23')} />, 'es');
+    await screen.findByTestId('franja-sales');
+    expect(screen.queryByText('Ese periodo no es válido: se muestra Este mes.')).toBeNull();
+  });
+
+  // I-1: avisos de la URL (los tres), con el mismo Banner.
+  it.each([
+    ['fallback', 'invalid', 'Ese periodo no es válido: se muestra Este mes.'],
+    ['allUnavailable', 'allUnavailable', '«Todo» no está disponible aquí (máximo 366 días): se muestra Este mes.'],
+    ['tooLong', 'tooLong', 'Ese periodo pasa de 366 días: se muestra Este mes.'],
+  ] as const)('aviso de la URL %s', async (_k, notice, text) => {
+    vi.spyOn(api, 'getSalesReport').mockResolvedValue(sales('complete'));
+    vi.spyOn(api, 'getPnl').mockResolvedValue(pnl('complete'));
+    renderWithProviders(<BoardView initialPeriod={month} initialNotice={notice} />, 'es');
+    const b = await screen.findByText(text);
+    expect(b.closest('[role="status"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hoy' }));
+    await waitFor(() => expect(screen.queryByText(text)).toBeNull());
   });
 });

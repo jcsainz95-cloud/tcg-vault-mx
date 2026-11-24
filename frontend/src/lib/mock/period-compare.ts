@@ -78,6 +78,12 @@ export function mockPreviousRange(kind: PeriodKind | undefined, from: string, to
   return { from: prev.from, to: t.day, clamped: t.clamped, kind };
 }
 
+/** `period.toDate` del servidor (§2 m-7): `kind` EFECTIVO de calendario y `to` antes del último día de la unidad que empieza en `from`. */
+export function mockToDate(kind: PeriodKind, from: string, to: string): boolean {
+  if (kind !== 'month' && kind !== 'quarter' && kind !== 'semester' && kind !== 'year') return false;
+  return to < unitOf(kind, from).to;
+}
+
 export function mockBasis(first: string | null, prev: { from: string; to: string }): { basis: ComparisonBasis; dataSince: string | null } {
   if (first === null || first > prev.to) return { basis: 'none', dataSince: null };
   if (first <= prev.from) return { basis: 'complete', dataSince: null };
@@ -160,7 +166,7 @@ export function mockPnlWithComparison(base: PnlDTO, range: { from?: string; to?:
   return {
     ...base,
     ...withStatement,
-    period: { from: range.from, to: range.to, kind: pr.kind, days: span(range.from, range.to), timezone: 'America/Mexico_City' },
+    period: { from: range.from, to: range.to, kind: pr.kind, days: span(range.from, range.to), timezone: 'America/Mexico_City', toDate: mockToDate(pr.kind, range.from, range.to) },
     previousPeriod: { from: pr.from, to: pr.to, clamped: pr.clamped },
     comparison,
   };

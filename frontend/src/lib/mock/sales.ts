@@ -17,7 +17,7 @@
  * Fase del servidor (para ver la pantalla con y sin P2): `localStorage['tcg.salesPhase'] = 'A' | 'B' | 'C'`
  * (default `'B'`, lo que el servidor construye hoy: sin contracargos ni método de pago, que esperan a M-AN-1). Ningún dato de cliente sale de aquí: las llaves de cliente son internas.
  */
-import { mockBasis, mockFirstDataDay, mockPreviousRange } from './period-compare';
+import { mockBasis, mockFirstDataDay, mockPreviousRange, mockToDate } from './period-compare';
 import type {
   SalesBestDaysDTO,
   SalesDeltaDTO,
@@ -542,7 +542,7 @@ export function mockSalesReport(params: SalesReportParams, now: Date = new Date(
   const prev = figuresOf(prevFrom, prevTo);
   const rows: SalesRowDTO[] = buckets(r.from, r.to, r.groupBy).map((b) => ({ from: b.from, to: b.to, ...stripP2(figuresOf(b.from, b.to), phase) }));
   const report: SalesReportDTO = {
-    period: { preset: r.preset, from: r.from, to: r.to, days, timezone: 'America/Mexico_City', kind: pr.kind },
+    period: { preset: r.preset, from: r.from, to: r.to, days, timezone: 'America/Mexico_City', kind: pr.kind, toDate: mockToDate(pr.kind, r.from, r.to) },
     previousPeriod: { from: prevFrom, to: prevTo, clamped: pr.clamped },
     firstDataDay: mockFirstDataDay(),
     groupBy: r.groupBy,

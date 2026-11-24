@@ -6816,19 +6816,22 @@
         "mexicoTime": "Mexico City time",
         "resolved": "{from} to {to}",
         "allResolved": "Full history, up to {to}",
-        "fallback": "That period is not valid: showing This month."
+        "fallback": "That period is not valid: showing This month.",
+        "allUnavailable": "“All” is not available here (max {days} days): showing This month.",
+        "tooLong": "That period is longer than {days} days: showing This month."
       },
       "compare": {
         "toDate": {
           "month": "Month to date",
           "quarter": "Quarter to date",
+          "semester": "Semester to date",
           "year": "Year to date"
         },
         "complete": "{range} compared with {prev}",
         "partial": "{range} compared with {prev}, against what we have (data since {since})",
         "none": "No previous period to compare with",
         "noSales": "No sales in the previous period ({prev})",
-        "clamped": "The previous period is shorter and was used in full.",
+        "clamped": "The comparison month has no day {day}: compared through its last day ({last}).",
         "noBase": "No sales in the previous period",
         "noPrevious": "The previous period was zero: there is no base for a percentage",
         "cols": {
@@ -6866,7 +6869,7 @@
           "buylistPaid": "Seller purchases paid",
           "withdrawalsNoDispute": "Withdrawals without dispute",
           "goalPending": "Goal not set",
-          "goalProgress": "{current} of {target} · {pct}%",
+          "goalProgress": "{current} of {target} · {pct}",
           "goalsUnset": "No goals set yet: showing this period's counts only."
         },
         "areas": {

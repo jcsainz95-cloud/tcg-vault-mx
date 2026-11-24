@@ -60,13 +60,13 @@ describe('AN-1 · el ticket y las piezas por pedido son los del DTO (⛔ calcula
 });
 
 describe('UX-AN-2 (AN-F-1) · unidades ANTES que el %; sin anterior, sin %', () => {
-  it('3 vs 1 ⇒ «+2 pedidos» antes que «+200 %»', async () => {
+  it('3 vs 1 ⇒ «+2 pedidos» antes que «+200.0 %»', async () => {
     serve(report());
     mount();
     const txt = (await screen.findByTestId('sales-delta-orders')).textContent ?? '';
     expect(txt).toContain('+2 pedidos');
-    expect(txt).toContain('+200 %');
-    expect(txt.indexOf('+2 pedidos')).toBeLessThan(txt.indexOf('+200 %'));
+    expect(txt).toContain('+200.0 %');
+    expect(txt.indexOf('+2 pedidos')).toBeLessThan(txt.indexOf('+200.0 %'));
   });
   it('anterior con 0 pedidos ⇒ «sin ventas en el periodo anterior» y ningún «%»', async () => {
     serve(report({ previousTotals: figures(), comparison: { ...report().comparison, orders: { diff: 3, pct: null } } }));

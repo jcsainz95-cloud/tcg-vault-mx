@@ -3,9 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getPnl, getSalesReport } from '@/lib/api';
-import { SALES_MAX_DAYS, financeRange, periodSearch, type ReportPeriod } from '@/lib/reports/period';
+import { SALES_MAX_DAYS, financeRange, periodSearch, type PeriodNotice, type ReportPeriod } from '@/lib/reports/period';
 import { salesParamsFor } from '@/lib/reports/sales-params';
-import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { PeriodNoticeBanner, PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { QueryState } from '@/components/ui/QueryState';
@@ -18,7 +18,7 @@ import { Figure } from './Figure';
  * Reportes › Compras a vendedores (§REPORTES-CEO F1): lo pagado a vendedores (`/admin/reports/sales` › `buylist`, antes en Ventas)
  * y la tarifa de envío descontada y las guías de compra (`/admin/finance/pnl`). Sin cifras nuevas; sin variación (F2).
  */
-export function PurchasesView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
+export function PurchasesView({ initialPeriod, initialNotice = null }: { initialPeriod: ReportPeriod; initialNotice?: PeriodNotice | null }) {
   const t = useTranslations('admin.reports.purchases');
   const tm = useTranslations('admin.modules');
   const locale = useLocale() as AppLocale;
@@ -27,12 +27,14 @@ export function PurchasesView({ initialPeriod }: { initialPeriod: ReportPeriod }
   const range = financeRange(period);
   const pnl = useQuery({ queryKey: ['finance-pnl', range], queryFn: () => getPnl(range) });
   const sales = useQuery({ queryKey: ['board-sales', period.preset, from, to], queryFn: () => getSalesReport(salesParamsFor(period)) });
+  const fallback = useInvalidPeriodFallback([sales.error, pnl.error], period, setPeriod, initialNotice);
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-h1 font-bold">{tm('reportsPurchases')}</h1>
       <p className="max-w-2xl text-sm text-muted">{t('intro')}</p>
-      <PeriodSelector value={period} onChange={setPeriod} maxDays={SALES_MAX_DAYS} />
+      <PeriodSelector value={period} onChange={fallback.onChange} maxDays={SALES_MAX_DAYS} />
+      <PeriodNoticeBanner notice={fallback.notice} maxDays={SALES_MAX_DAYS} />
 
       <QueryState isLoading={sales.isLoading} isError={sales.isError} error={sales.error} onRetry={() => sales.refetch()}>
         {sales.data && (

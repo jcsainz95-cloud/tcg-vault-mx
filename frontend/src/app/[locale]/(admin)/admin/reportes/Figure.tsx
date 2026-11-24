@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
-import { fmtBps } from '@/lib/reports/comparison';
+import { fmtPct } from '@/lib/reports/comparison';
 import { Link } from '@/i18n/navigation';
 import type { ComparisonBasis, MoneyDeltaDTO, SalesDeltaDTO } from '@/types/contract';
 import { cn } from '@/lib/cn';
@@ -29,7 +29,7 @@ export function Delta({ delta, money, basis }: { delta?: SalesDeltaDTO; money?: 
     );
   }
   const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'same';
-  const text = money ? (fmtBps(Math.abs(money.deltaBps!), locale, false) as string) : t('pct', { pct: Math.abs(pct) });
+  const text = fmtPct(Math.abs(money ? money.deltaBps! : pct * 100), locale, false) as string; // un decimal fijo (§2 m-3); Ventas manda % entero
   return (
     <span className="font-mono text-xs text-muted" data-testid="delta">
       <span aria-hidden>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : '＝'} </span>

@@ -124,7 +124,7 @@ describe('§REPORTES-CEO CR-2b · metas de lanzamiento en la Junta, con el perio
     for (const l of ['Usuarios activos', 'Ventas liquidadas', 'Compras a vendedores pagadas', 'Retiros sin disputa']) {
       expect(await within(franja).findByText(l)).toBeInTheDocument();
     }
-    expect(await within(franja).findByText('42 de 100 · 42%')).toBeInTheDocument();
+    expect(await within(franja).findByText('42 de 100 · 42.0 %')).toBeInTheDocument();
     // Mismo periodo que el resto de la Junta (días de México).
     expect(spy).toHaveBeenCalledWith({ from: '2026-11-01', to: '2026-11-22' });
     spy.mockRestore();
