@@ -95,7 +95,7 @@
 - GET `/buylist/cards` · público
 - GET `/buylist/sets` · público
 - POST `/buylist/quote` · público
-- POST `/buylist/quote/batch` · público
+- POST `/buylist/quote/batch` · público · máx. 50 ítems · throttle 30/min por IP (§BUYLIST-429 en DECISIONES); 429 trae `Retry-After`
 - GET `/buylist/bounties` · público
 - GET `/buylist/quote-policy` · público
 - POST `/buylist/requests` · cuenta
