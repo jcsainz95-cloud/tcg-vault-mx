@@ -65,6 +65,8 @@ describe('CORS — cors.ts (S-M2 + Content-Disposition expuesta)', () => {
       .split(',')
       .map((s) => s.trim().toLowerCase());
     expect(exposed).toContain('content-disposition');
+    // §BUYLIST-429: el front lee `Retry-After` del 429 desde otro origen.
+    expect(exposed).toContain('retry-after');
     expect(h['content-disposition']).toContain('tcghunt_semana_2026-W42.xlsx');
   });
 
