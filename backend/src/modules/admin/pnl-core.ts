@@ -232,11 +232,22 @@ export interface RefundRow {
   channel: 'card' | 'spei';
   at: Date | null;
   amountCents: number;
-  /** Lo que M7 llama `refundsCents` de esta fila: mercancía + envío NETOS (SPEI: sin envío). */
+  /** Lo que M7 llama `refundsCents` de esta fila: mercancía + envío NETOS (SPEI: sin envío). = `merchNetCents + shippingNetCents`. */
   netCents: number;
   processingFeeCents: number;
   compensationCents: number;
   ivaCents: number;
+  // §REPORTES-CEO F2b (§3): separación mercancía/envío y a qué se le atribuye (sin schema; solo lectura de columnas que ya existen).
+  /** Mercancía neta (`merchandiseCents − merchandiseIvaCents`). */
+  merchNetCents: number;
+  /** Envío neto (`shippingCents − shippingIvaCents`); SPEI = 0. */
+  shippingNetCents: number;
+  /** El cobro que se reembolsa: pedido (o `null` si es de un retiro de bóveda / sin pedido). */
+  orderId: string | null;
+  orderItemId: string | null;
+  orderAccessoryLineId: string | null;
+  /** Solo `shipment_fee` de Stripe (el cobro propio de un retiro). */
+  shipmentRequestId: string | null;
 }
 
 /**
@@ -248,34 +259,58 @@ export async function refundRowsInPeriod(db: Db, period?: Prisma.DateTimeFilter)
   const [stripeRows, speiRows] = await Promise.all([
     db.paymentRefund.findMany({
       where: { status: { in: ['submitted', 'succeeded'] }, ...(period ? { submittedAt: period } : {}) },
-      select: { amountCents: true, merchandiseCents: true, merchandiseIvaCents: true, shippingCents: true, shippingIvaCents: true, processingFeeCents: true, compensationCents: true, submittedAt: true },
+      select: {
+        amountCents: true, merchandiseCents: true, merchandiseIvaCents: true, shippingCents: true, shippingIvaCents: true,
+        processingFeeCents: true, compensationCents: true, submittedAt: true,
+        orderId: true, orderItemId: true, orderAccessoryLineId: true, shipmentRequestId: true,
+      },
     }),
     db.manualRefund.findMany({
       where: { status: 'paid', ...(period ? { paidAt: period } : {}) },
-      select: { amountCents: true, merchandiseCents: true, merchandiseIvaCents: true, processingFeeCents: true, compensationCents: true, paidAt: true },
+      select: {
+        amountCents: true, merchandiseCents: true, merchandiseIvaCents: true, processingFeeCents: true, compensationCents: true, paidAt: true,
+        orderId: true,
+        // La sustituta SPEI de una fila `failed` de Stripe hereda la línea que esa fila causó.
+        paymentRefund: { select: { orderId: true, orderItemId: true, orderAccessoryLineId: true, shipmentRequestId: true } },
+      },
     }),
   ]);
   const rows: RefundRow[] = [];
   for (const r of stripeRows) {
+    const merchNetCents = r.merchandiseCents - r.merchandiseIvaCents;
+    const shippingNetCents = r.shippingCents - r.shippingIvaCents;
     rows.push({
       channel: 'card',
       at: r.submittedAt ?? null,
       amountCents: r.amountCents ?? 0,
-      netCents: r.merchandiseCents - r.merchandiseIvaCents + r.shippingCents - r.shippingIvaCents,
+      netCents: merchNetCents + shippingNetCents,
       processingFeeCents: r.processingFeeCents,
       compensationCents: r.compensationCents,
       ivaCents: r.merchandiseIvaCents + r.shippingIvaCents,
+      merchNetCents,
+      shippingNetCents,
+      orderId: r.orderId ?? null,
+      orderItemId: r.orderItemId ?? null,
+      orderAccessoryLineId: r.orderAccessoryLineId ?? null,
+      shipmentRequestId: r.shipmentRequestId ?? null,
     });
   }
   for (const r of speiRows) {
+    const merchNetCents = r.merchandiseCents - r.merchandiseIvaCents;
     rows.push({
       channel: 'spei',
       at: r.paidAt ?? null,
       amountCents: r.amountCents ?? 0,
-      netCents: r.merchandiseCents - r.merchandiseIvaCents,
+      netCents: merchNetCents,
       processingFeeCents: r.processingFeeCents,
       compensationCents: r.compensationCents,
       ivaCents: r.merchandiseIvaCents,
+      merchNetCents,
+      shippingNetCents: 0,
+      orderId: r.orderId ?? r.paymentRefund?.orderId ?? null,
+      orderItemId: r.paymentRefund?.orderItemId ?? null,
+      orderAccessoryLineId: r.paymentRefund?.orderAccessoryLineId ?? null,
+      shipmentRequestId: r.paymentRefund?.shipmentRequestId ?? null,
     });
   }
   return rows;
@@ -298,25 +333,17 @@ export async function refundsInPeriod(db: Db, period?: Prisma.DateTimeFilter) {
 }
 
 /**
- * 💰 El P&L de M7 por cubos. `keyOf(fecha)` decide el cubo de cada componente (ver la tabla de la cabecera); un cubo
- * sin movimientos NO aparece en el mapa (quien llama rellena con `zeroPnl()`).
- *
- * Los comentarios de dinero de cada línea son los que vivían en `AdminService.pnl()` (v1.4-finance, v1.64, D2f, v1.80):
- * se conservan aquí porque aquí vive ahora la regla.
+ * §D9 — el costo de Stripe de una fila `FEE_INCLUDED`: el REAL (`stripeFeeCents`) o, si Stripe aún no lo devolvió, el
+ * ESTIMADO con los diales (nunca 0 silencioso). Filas `FEE_ON_TOP` (migradas): `processingFeeCents` como siempre (los
+ * meses viejos no se reescriben). Los diales se leen UNA vez y solo si algún renglón necesita el estimado.
+ * §REPORTES-CEO F2b: extraído SIN cambiar una línea para que el P&L por línea use EXACTAMENTE la misma regla.
  */
-export async function pnlBuckets(
-  db: Db,
-  range: Prisma.DateTimeFilter | undefined,
-  keyOf: (d: Date | null) => string,
-  // §D9 8.1 (I2): marca a nivel de PERIODO (no dentro de `PnlComponents`, congelado AN-B-13): cuánto de `stripeFeesCents` es ESTIMADO.
+export function makeStripeCostOf(
+  db: Pick<PrismaService, 'configSetting'>,
   estimate?: { orders: number; cents: number },
-): Promise<Map<string, PnlComponents>> {
-  const out = new Map<string, PnlComponents>();
-  // §D9 — el costo de Stripe de una fila `FEE_INCLUDED`: el REAL (`stripeFeeCents`) o, si Stripe aún no lo devolvió, el
-  // ESTIMADO con los diales (nunca 0 silencioso). Filas `FEE_ON_TOP` (migradas): `processingFeeCents` como siempre (los
-  // meses viejos no se reescriben). Los diales se leen UNA vez y solo si algún renglón necesita el estimado.
+): (r: { feeConvention?: string; stripeFeeCents?: number | null; processingFeeCents: number; totalCents: number; stripePaymentIntentId?: string | null }) => Promise<number> {
   let feeCfg: StripeFeeConfig | null = null;
-  const stripeCostOf = async (r: { feeConvention?: string; stripeFeeCents?: number | null; processingFeeCents: number; totalCents: number; stripePaymentIntentId?: string | null }): Promise<number> => {
+  return async (r) => {
     if (r.feeConvention !== 'FEE_INCLUDED') return r.processingFeeCents;
     if (r.stripeFeeCents != null) return r.stripeFeeCents;
     // §D9 B1 — SIN COBRO de Stripe (sin PaymentIntent, o total 0) el gasto de Stripe es 0: ni real ni estimado.
@@ -337,6 +364,24 @@ export async function pnlBuckets(
     }
     return markEstimated(estimateStripeFeeCents(r.totalCents, feeCfg));
   };
+}
+
+/**
+ * 💰 El P&L de M7 por cubos. `keyOf(fecha)` decide el cubo de cada componente (ver la tabla de la cabecera); un cubo
+ * sin movimientos NO aparece en el mapa (quien llama rellena con `zeroPnl()`).
+ *
+ * Los comentarios de dinero de cada línea son los que vivían en `AdminService.pnl()` (v1.4-finance, v1.64, D2f, v1.80):
+ * se conservan aquí porque aquí vive ahora la regla.
+ */
+export async function pnlBuckets(
+  db: Db,
+  range: Prisma.DateTimeFilter | undefined,
+  keyOf: (d: Date | null) => string,
+  // §D9 8.1 (I2): marca a nivel de PERIODO (no dentro de `PnlComponents`, congelado AN-B-13): cuánto de `stripeFeesCents` es ESTIMADO.
+  estimate?: { orders: number; cents: number },
+): Promise<Map<string, PnlComponents>> {
+  const out = new Map<string, PnlComponents>();
+  const stripeCostOf = makeStripeCostOf(db, estimate);
   const at = (d: Date | null | undefined): PnlComponents => {
     const k = keyOf(d ?? null);
     let b = out.get(k);

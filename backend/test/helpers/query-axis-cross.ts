@@ -242,6 +242,13 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // 💰 §AN (API_CONTRACT §15.2: «`C-EQ-1` gana … `from`/`to` en su lista de no-enums»): días de México `YYYY-MM-DD` de la
   // analítica de ventas; fuera de forma o día imposible ⇒ `400 VALIDATION_ERROR {field}` sin `allowed` (`sales-period.ts`
   // `readYmd`; medido en `test/sales-analytics.units.spec.ts` AN-B-14 y por HTTP en `sales-analytics.e2e-spec.ts`).
+  // 💰 §REPORTES-CEO F2b: fechas `YYYY-MM-DD` (forma inválida ⇒ 400 {field}; inexistente o año fuera de 2020..2100 ⇒ 422 {field}), `count` (entero 1..12 ⇒ 400) y `asOf` (fecha ≤ hoy MX): no son enums.
+  'GET /admin/reports/finance/pnl::from',
+  'GET /admin/reports/finance/pnl::to',
+  'GET /admin/reports/finance/pnl/series::from',
+  'GET /admin/reports/finance/pnl/series::to',
+  'GET /admin/reports/finance/pnl/series::count',
+  'GET /admin/reports/finance/pnl/series::asOf',
   'GET /admin/reports/sales::from',
   'GET /admin/reports/sales::to',
   'GET /admin/reports/sales/export.csv::from',

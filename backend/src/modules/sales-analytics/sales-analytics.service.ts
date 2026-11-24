@@ -26,6 +26,7 @@ import {
   bucketsOf,
   comparisonBasis,
   isoWeekday,
+  isToDate,
   mxHour,
   mxRange,
   resolvePeriod,
@@ -216,7 +217,7 @@ export class SalesAnalyticsService {
     const top = this.top(cur.orders, items, period.topSort);
     const ppoDelta = delta(t.piecesPerOrder, p.piecesPerOrder);
     return {
-      period: { preset: period.preset, kind: period.kind, from: period.from, to: period.to, days: period.days, timezone: 'America/Mexico_City' },
+      period: { preset: period.preset, kind: period.kind, from: period.from, to: period.to, days: period.days, timezone: 'America/Mexico_City', toDate: isToDate(period.kind, period.from, period.to) },
       previousPeriod: { from: period.prev.from, to: period.prev.to, clamped: period.prevClamped },
       firstDataDay: firstDay,
       groupBy: period.groupBy,

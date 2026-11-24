@@ -120,6 +120,8 @@ export const SettingKey = {
   IVA_TRANSFER_PCT: 'iva_transfer_pct',
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
+  // §REPORTES-CEO F2b (§3b): mes (1..12) en que empieza el año de los consolidados. NO afecta precios. Ausente o inválido ⇒ 1.
+  FISCAL_YEAR_START_MONTH: 'fiscal_year_start_month',
   STRIPE_FEE_FIXED_CENTS: 'stripe_fee_fixed_cents',
   // v1.40 (Enmienda A, P-37): el dial `STRIPE_FEE_IVA_PCT` se RETIRA. El IVA que Stripe MX cobra
   // sobre su comisión se deriva ahora de `IVA_PCT` (fuente única; ver settings.service.getStripeFee).
@@ -475,6 +477,7 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.IVA_TRANSFER_PCT]: 100,
   [SettingKey.SALES_MARKUP_PCT]: 15, // markup de venta configurable
   [SettingKey.STRIPE_FEE_PCT]: 0.036, // 3.6% tarifa MX Stripe (fracción)
+  [SettingKey.FISCAL_YEAR_START_MONTH]: 1, // §REPORTES-CEO F2b: año calendario
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: 300, // MX$3.00 fija
   // v1.40 (P-37): STRIPE_FEE_IVA_PCT retirado — el IVA de la comisión Stripe deriva de IVA_PCT (16 ⇒ 0.16).
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 300000, // MX$3,000
@@ -1258,6 +1261,7 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // §D9 8.4: stripe_fee_pct es una FRACCIÓN en [0, 0.10] (Stripe MX cobra ~3.6 %); la condición cruzada con el IVA
   // (`pct × (1+IVA) ≤ 0.25`) se valida al guardar `stripe_fee_pct` o `iva_pct` (`validateStripeFeeCombination`).
   [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v <= 0.1 ? null : 'must be a fraction in [0, 0.10]'),
+  [SettingKey.FISCAL_YEAR_START_MONTH]: (v) => (isInt(v) && v >= 1 && v <= 12 ? null : 'must be an integer in [1, 12]'),
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   // v1.40 (P-37): STRIPE_FEE_IVA_PCT retirado (deriva de IVA_PCT); ya no hay validador para esa key.
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),

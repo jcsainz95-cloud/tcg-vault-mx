@@ -1768,6 +1768,8 @@ model Order {
   // v1.96⟨mkt-tienda⟩ (M-81, §13.1): el panel de Origen (OLA 2) agrupa por `utm_medium` sobre un periodo
   // acotado. Solo este eje se indexa (los otros tres se agrupan en memoria, patrón sales-analytics).
   @@index([firstUtmMedium])
+  // §REPORTES-CEO F2b: `MIN(settledAt)` (firstDataDay) y los barridos de `pnlBuckets` por rango.
+  @@index([settledAt])
 }
 
 model OrderItem {

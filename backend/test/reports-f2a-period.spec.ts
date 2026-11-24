@@ -161,7 +161,7 @@ describe('F2a — AdminService.pnlReport con comparación', () => {
   it('YMD + kind=month: period con kind efectivo, previousPeriod, previous y 8 cifras Delta; tienda nueva ⇒ partial con dataSince', async () => {
     const { service, prisma } = build(new Date('2026-10-20T12:00:00Z'));
     const r: any = await service.pnlReport('2026-11-01', '2026-11-23', 'month');
-    expect(r.period).toEqual({ from: '2026-11-01', to: '2026-11-23', kind: 'month', days: 23, timezone: 'America/Mexico_City' });
+    expect(r.period).toEqual({ from: '2026-11-01', to: '2026-11-23', kind: 'month', days: 23, timezone: 'America/Mexico_City', toDate: true });
     expect(r.previousPeriod).toEqual({ from: '2026-10-01', to: '2026-10-23', clamped: false });
     expect(r.previous.statement).toBeDefined();
     expect(r.previous).not.toHaveProperty('previous');
