@@ -3,6 +3,7 @@
 import { upgradeTcgplayerThumb } from '@/lib/tcgplayerImage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { withRateLimitRetry } from '@/lib/api/rate-limit-retry';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft } from 'lucide-react';
 import {
@@ -138,13 +139,16 @@ interface Props {
  * variante trae su cotización (`variants[].quote`, v. types/contract.ts) resuelta con
  * `POST /buylist/quote/batch` en TROCEADO de ≤`BUYLIST_QUOTE_BATCH_MAX` ítems.
  */
-async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinderResponse> {
+async function fetchQuoterBinder(
+  set: MasterSetSummaryDTO,
+  onWait?: (waiting: boolean) => void,
+): Promise<QuoterBinderResponse> {
   const PAGE_SIZE = 50;
   const cards: import('@/types/contract').CardDTO[] = [];
   let page = 1;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const res = await searchBuylistCards({ setId: set.setId, page, pageSize: PAGE_SIZE });
+    const res = await withRateLimitRetry(() => searchBuylistCards({ setId: set.setId, page, pageSize: PAGE_SIZE }), onWait);
     cards.push(...res.data);
     if (cards.length >= res.total || res.data.length === 0) break;
     page += 1;
@@ -172,7 +176,8 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinder
   for (let i = 0; i < items.length; i += BUYLIST_QUOTE_BATCH_MAX) {
     const chunk = items.slice(i, i + BUYLIST_QUOTE_BATCH_MAX);
     const chunkKeys = keys.slice(i, i + BUYLIST_QUOTE_BATCH_MAX);
-    const res = await batchQuote(chunk);
+    // §BUYLIST-429: lotes EN SERIE; un 429 espera `Retry-After` y reintenta el MISMO lote (lo ya cotizado se conserva).
+    const res = await withRateLimitRetry(() => batchQuote(chunk), onWait);
     res.results.forEach((r) => {
       const key = chunkKeys[r.index];
       if (key) quoteByKey.set(key, r);
@@ -265,8 +270,9 @@ function fetchBinder(
   mode: MasterSetViewMode,
   userId: string | undefined,
   set: MasterSetSummaryDTO,
+  onWait?: (waiting: boolean) => void,
 ): Promise<QuoterBinderResponse> {
-  if (mode === 'quoter') return fetchQuoterBinder(set);
+  if (mode === 'quoter') return fetchQuoterBinder(set, onWait);
   if (mode === 'user_vault_self') return getVaultMasterSetBinder(set.setId);
   if (mode === 'user_vault_admin') return getAdminVaultMasterSetBinder(userId ?? '', set.setId);
   return getMasterSetBinder(set.setId);
@@ -291,10 +297,19 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   // "Buscar carta" (SOLO quoter): el cotizador busca por nombre/número DENTRO del set elegido
   // (el índice de sets ya cubre "Filtrar por set"; ver mode.ts).
   const [nameFilter, setNameFilter] = useState('');
+  // §BUYLIST-429: true mientras se espera `Retry-After` de un 429 (estado «Cotizando… un momento»).
+  const [waiting, setWaiting] = useState(false);
 
   const binder = useQuery({
     queryKey: ['master-set-binder', mode, userId ?? null, set.setId],
-    queryFn: () => fetchBinder(mode, userId, set),
+    queryFn: () => fetchBinder(mode, userId, set, setWaiting),
+    // §BUYLIST-429: un set ya cotizado se reutiliza 10 min (reabrir/filtrar = 0 llamadas); sin refetch al enfocar/remontar.
+    staleTime: 10 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    // El reintento ante 429 ya lo hace `withRateLimitRetry`; el de react-query solo duplicaría la carga.
+    retry: false,
   });
 
   // N-16 REJILLA PLANA: el grid ya NO es una casilla por carta con sub-acabados, sino UNA TARJETA
@@ -551,6 +566,12 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           filtros y la grilla — no en cada teja. No sticky. Solo en el cotizador (BMK-UX-6). */}
       {isQuoter && (
         <p className="mt-2 max-w-prose text-xs leading-relaxed text-muted">{t('quoterPriceNote')}</p>
+      )}
+
+      {waiting && binder.isLoading && (
+        <p role="status" className="mt-3 text-sm text-muted">
+          {t('quoterRateLimitWait')}
+        </p>
       )}
 
       <QueryState

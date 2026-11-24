@@ -7,6 +7,8 @@ export class ApiClientError extends Error {
   code: string;
   status: number;
   details?: Record<string, unknown>;
+  /** Cabecera `Retry-After` (segundos o fecha HTTP) tal cual llegó, si vino (429/503). */
+  retryAfter?: string;
 
   constructor(status: number, error: ApiError) {
     super(error.message);
@@ -434,6 +436,11 @@ async function requestWithRefresh<T>(
   opts.onHeaders?.(res.headers);
   if (res.status === 204) return undefined as T;
   const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw toApiError(res.status, payload);
+  if (!res.ok) {
+    const err = toApiError(res.status, payload);
+    const ra = res.headers?.get?.('Retry-After');
+    if (ra) err.retryAfter = ra;
+    throw err;
+  }
   return payload as T;
 }
