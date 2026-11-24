@@ -375,6 +375,9 @@ import * as m4ship from './mock/m4-ship';
 import * as sdx from './mock/skydropx';
 import * as spendMock from './mock/spend-alerts';
 import { mockPnlWithComparison } from './mock/period-compare';
+import { mockPnlCalendar, mockPnlReport } from './mock/pnl-lines';
+import { fetchPnlCalendar, fetchPnlReport, type PnlCalendarParams, type PnlReportRange } from './api/reports-pnl';
+import type { PnlCalendarDTO, PnlReportDTO } from '@/types/reports-pnl';
 import * as salesMock from './mock/sales';
 import type { PeriodKind, SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
@@ -7573,6 +7576,22 @@ export async function getPnl(range: FinanceRange = {}): Promise<PnlDTO> {
   }
   // Modo demo (F2a): servidor falso con `period/previousPeriod/comparison` del MISMO tramo (`mock/period-compare.ts`).
   return delay(mockPnlWithComparison(fx.mockPnl, range));
+}
+
+/**
+ * §REPORTES-CEO F2b — `GET /admin/reports/finance/pnl`: resultado por línea de negocio (Sellado, Cartas raw, Gradeadas,
+ * Accesorios y «Sin línea»; la suma de las cinco es el total, al centavo). Solo `super_admin`. La pantalla no calcula nada.
+ * El cliente real vive en `lib/api/reports-pnl.ts`; el servidor falso (`mock/pnl-lines.ts`) solo existe en un build de mocks.
+ */
+export async function getPnlReport(range: PnlReportRange = {}): Promise<PnlReportDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) return fetchPnlReport(range);
+  return delay(mockPnlReport(range));
+}
+
+/** §REPORTES-CEO F2b (§3b) — consolidados: últimos periodos COMPLETOS + el en curso, por mes/trimestre/semestre/año. */
+export async function getPnlCalendar(params: PnlCalendarParams): Promise<PnlCalendarDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) return fetchPnlCalendar(params);
+  return delay(mockPnlCalendar(params));
 }
 
 /** Valor de inventario a referencia y a costo (contrato GET /admin/finance/inventory-value). */

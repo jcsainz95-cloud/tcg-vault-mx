@@ -6446,6 +6446,92 @@
       }
     },
     "m7": {
+      "lines": {
+        "title": "Resultado por línea de negocio",
+        "intro": "Cuánto vendiste, cuánto te costó y cuánto te quedó en cada línea. Las cinco columnas suman el total, al centavo.",
+        "rowHeader": "Renglón",
+        "tableLabel": "Resultado por línea de negocio: renglones por línea y total",
+        "pickLine": "Elige una línea para verla junto al total",
+        "phoneHint": "En el celular ves una línea junto al total; elígela arriba.",
+        "total": "Total",
+        "line": {
+          "sealed": "Sellado",
+          "raw": "Cartas raw",
+          "graded": "Gradeadas",
+          "accessory": "Accesorios",
+          "unassigned": "Sin línea"
+        },
+        "unassignedHelp": "«Sin línea» junta lo que no nace de un pedido de venta: envíos y cobros de retiros de bóveda, reembolsos sin pedido y compras a vendedores.",
+        "rows": {
+          "grossSales": "Ventas (sin IVA ni envío)",
+          "discounts": "Descuentos",
+          "refunds": "Reembolsos",
+          "netSales": "Ventas netas",
+          "cogs": "Costo de lo vendido",
+          "grossProfit": "Ganancia bruta",
+          "margin": "Margen",
+          "paymentFee": "Comisión de pago",
+          "shippingResult": "Resultado del envío",
+          "contribution": "Resultado antes de gastos fijos",
+          "fixedCosts": "Gastos fijos",
+          "result": "Resultado"
+        },
+        "srSubtracts": "resta",
+        "srEither": "suma o resta según el signo:",
+        "shippingResultHelp": "Si es positivo, el envío dejó ganancia; si es negativo, costó más de lo cobrado.",
+        "marginNote": "Margen {pct} sobre ventas netas",
+        "marginBefore": "antes {pct}",
+        "noMargin": "Sin ventas netas: no hay margen",
+        "beforeFixedHelp": "Todavía no se descuentan gastos fijos (renta, nómina, publicidad).",
+        "costMissing": "{count, plural, one {# pieza vendida sin costo capturado cuenta como $0} other {# piezas vendidas sin costo capturado cuentan como $0}}: la ganancia puede verse más alta de lo real.",
+        "feeEstimated": "{count, plural, one {# pedido con comisión estimada} other {# pedidos con comisión estimada}} (aún no llega la real).",
+        "allocationMismatch": "{count, plural, one {# pedido no cuadró al repartirse entre líneas} other {# pedidos no cuadraron al repartirse entre líneas}}: el total sigue siendo correcto, pero el reparto por línea puede diferir unos centavos.",
+        "memo": {
+          "title": "Informativo: no se suma al resultado",
+          "help": "Estas cifras te sirven de contexto; no suben ni bajan el resultado de arriba.",
+          "iva": "IVA (neto)",
+          "ivaSub": "Cobrado {collected} · reembolsado {refunded}",
+          "inventoryPurchases": "Compras de inventario",
+          "chargebacks": "Contracargos (por fecha de venta)",
+          "chargebacksSub": "{count, plural, one {# pedido} other {# pedidos}}",
+          "shrinkage": "Merma (cartas perdidas o dañadas)",
+          "insurance": "Seguro de envíos (ya está en el costo de envío)",
+          "adjustments": "Ajustes de guías (ya están en el costo de envío)",
+          "buylistFee": "Tarifa retenida a vendedores",
+          "buylistGuide": "Guías de compra a vendedores"
+        },
+        "marketplace": {
+          "title": "Marketplace",
+          "reserved": "Lugar reservado: todavía no hay ventas ni comisiones del marketplace.",
+          "available": "Cifras del marketplace.",
+          "gmv": "Ventas del marketplace",
+          "commission": "Comisión ganada",
+          "none": "Sin cifra todavía"
+        }
+      },
+      "consolidated": {
+        "title": "Consolidados",
+        "intro": "Mes, trimestre, semestre o año: periodos completos y, al final, el que va en curso «a la fecha». No depende del periodo elegido arriba.",
+        "unitLabel": "Ver por",
+        "unit": {
+          "month": "Mes",
+          "quarter": "Trimestre",
+          "semester": "Semestre",
+          "year": "Año"
+        },
+        "tableLabel": "Consolidados: un periodo por columna",
+        "quarterLabel": "T{n} {year}",
+        "semesterLabel": "S{n} {year}",
+        "yearLabel": "{year}",
+        "daysSoFar": "{days, plural, one {# día transcurrido} other {# días transcurridos}}",
+        "vs": "contra {prev}",
+        "noBaseHead": "sin periodo anterior para comparar",
+        "partialSince": "contra lo que hay desde {since}",
+        "clampedHead": "El mes de comparación no tiene día {day}: se comparó hasta su último día ({last}).",
+        "openLine": "{line}",
+        "rule": "Cada columna se compara con el mismo tramo del periodo anterior; el periodo en curso, con lo transcurrido del anterior.",
+        "scrollHint": "Desliza la tabla para ver más periodos; el que va en curso queda al final."
+      },
       "title": "Finanzas",
       "pnl": {
         "title": "Estado de resultados (P&L)",

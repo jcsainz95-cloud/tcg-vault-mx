@@ -6446,6 +6446,92 @@
       }
     },
     "m7": {
+      "lines": {
+        "title": "Result by line of business",
+        "intro": "How much you sold, what it cost and what was left in each line. The five columns add up to the total, to the cent.",
+        "rowHeader": "Row",
+        "tableLabel": "Result by line of business: rows by line and total",
+        "pickLine": "Pick a line to see it next to the total",
+        "phoneHint": "On a phone you see one line next to the total; pick it above.",
+        "total": "Total",
+        "line": {
+          "sealed": "Sealed",
+          "raw": "Raw cards",
+          "graded": "Graded",
+          "accessory": "Accessories",
+          "unassigned": "No line"
+        },
+        "unassignedHelp": "“No line” collects what does not come from a sales order: vault withdrawal shipping and charges, refunds without an order and purchases from sellers.",
+        "rows": {
+          "grossSales": "Sales (before tax and shipping)",
+          "discounts": "Discounts",
+          "refunds": "Refunds",
+          "netSales": "Net sales",
+          "cogs": "Cost of goods sold",
+          "grossProfit": "Gross profit",
+          "margin": "Margin",
+          "paymentFee": "Payment fee",
+          "shippingResult": "Shipping result",
+          "contribution": "Result before fixed costs",
+          "fixedCosts": "Fixed costs",
+          "result": "Result"
+        },
+        "srSubtracts": "subtracts",
+        "srEither": "adds or subtracts depending on its sign:",
+        "shippingResultHelp": "Positive: shipping left a profit; negative: it cost more than was charged.",
+        "marginNote": "Margin {pct} of net sales",
+        "marginBefore": "before {pct}",
+        "noMargin": "No net sales: no margin",
+        "beforeFixedHelp": "Fixed costs (rent, payroll, advertising) are not deducted yet.",
+        "costMissing": "{count, plural, one {# sold piece with no cost entered counts as $0} other {# sold pieces with no cost entered count as $0}}: profit may look higher than it is.",
+        "feeEstimated": "{count, plural, one {# order with an estimated fee} other {# orders with an estimated fee}} (the real one has not arrived yet).",
+        "allocationMismatch": "{count, plural, one {# order did not balance when split across lines} other {# orders did not balance when split across lines}}: the total is still correct, but the split by line may differ by a few cents.",
+        "memo": {
+          "title": "For information: not added to the result",
+          "help": "These figures are context; they do not raise or lower the result above.",
+          "iva": "VAT (net)",
+          "ivaSub": "Collected {collected} · refunded {refunded}",
+          "inventoryPurchases": "Inventory purchases",
+          "chargebacks": "Chargebacks (by sale date)",
+          "chargebacksSub": "{count, plural, one {# order} other {# orders}}",
+          "shrinkage": "Shrinkage (lost or damaged cards)",
+          "insurance": "Shipping insurance (already in shipping cost)",
+          "adjustments": "Label adjustments (already in shipping cost)",
+          "buylistFee": "Fee withheld from sellers",
+          "buylistGuide": "Purchase labels from sellers"
+        },
+        "marketplace": {
+          "title": "Marketplace",
+          "reserved": "Reserved spot: there are no marketplace sales or commissions yet.",
+          "available": "Marketplace figures.",
+          "gmv": "Marketplace sales",
+          "commission": "Commission earned",
+          "none": "No figure yet"
+        }
+      },
+      "consolidated": {
+        "title": "Consolidated",
+        "intro": "Month, quarter, semester or year: complete periods and, last, the one in progress “to date”. It does not depend on the period picked above.",
+        "unitLabel": "View by",
+        "unit": {
+          "month": "Month",
+          "quarter": "Quarter",
+          "semester": "Semester",
+          "year": "Year"
+        },
+        "tableLabel": "Consolidated: one period per column",
+        "quarterLabel": "Q{n} {year}",
+        "semesterLabel": "H{n} {year}",
+        "yearLabel": "{year}",
+        "daysSoFar": "{days, plural, one {# day so far} other {# days so far}}",
+        "vs": "vs {prev}",
+        "noBaseHead": "no previous period to compare with",
+        "partialSince": "against what we have since {since}",
+        "clampedHead": "The comparison month has no day {day}: compared through its last day ({last}).",
+        "openLine": "{line}",
+        "rule": "Each column is compared with the same stretch of the previous period; the one in progress, with what has elapsed of the previous one.",
+        "scrollHint": "Swipe the table to see more periods; the one in progress is last."
+      },
       "title": "Finance",
       "pnl": {
         "title": "Profit & loss (P&L)",
