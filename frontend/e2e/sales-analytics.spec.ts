@@ -34,7 +34,8 @@ test.describe('admin · Reportes › Ventas', () => {
 
     // §REPORTES-CEO F1 (CR-2b): el enlace guardado de «Actividad» ya no da 404: aterriza en las metas de lanzamiento de la Junta.
     await page.goto('/es/admin/m9?tab=actividad');
-    await expect(page).toHaveURL(/\/admin\/reportes#metas/);
+    // La Junta reescribe la URL con su periodo vigente (`?preset=month`, §2): el ancla se conserva.
+    await expect(page).toHaveURL(/\/admin\/reportes(\?preset=month)?#metas/);
     await expect(page.getByTestId('franja-metas')).toBeVisible();
   });
 

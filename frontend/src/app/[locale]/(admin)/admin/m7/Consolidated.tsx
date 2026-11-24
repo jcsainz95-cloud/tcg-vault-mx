@@ -82,7 +82,7 @@ export function Consolidated() {
       <QueryState isLoading={q.isLoading} isError={q.isError} error={q.error} onRetry={() => q.refetch()}>
         {d && (
           <div className="flex flex-col gap-2">
-            <div ref={scroller} className="overflow-x-auto border border-border bg-surface" tabIndex={0} role="region" aria-label={t('tableLabel')} data-testid="cons-scroller">
+            <div ref={scroller} className="relative overflow-x-auto border border-border bg-surface" tabIndex={0} role="region" aria-label={t('tableLabel')} data-testid="cons-scroller">
               <table className="min-w-full border-collapse text-sm" data-testid="cons-table" data-unit={d.unit}>
                 <caption className="sr-only">{t('tableLabel')}</caption>
                 <thead>

@@ -124,7 +124,7 @@ export function PnlByLine({ query }: { query: Pick<UseQueryResult<PnlReportDTO>,
                   </button>
                 ))}
               </div>
-              <div className="overflow-x-auto border border-border bg-surface" tabIndex={0} role="region" aria-label={t('tableLabel')}>
+              <div className="relative overflow-x-auto border border-border bg-surface" tabIndex={0} role="region" aria-label={t('tableLabel')}>
                 <table className="w-full min-w-full border-collapse text-sm" data-testid="pnl-lines-table">
                   <caption className="sr-only">{t('tableLabel')}</caption>
                   <thead>
