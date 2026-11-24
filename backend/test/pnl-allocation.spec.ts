@@ -79,6 +79,36 @@ describe('allocateLargestRemainder (mayor residuo, BigInt)', () => {
   });
 });
 
+describe('allocateLargestRemainder: casos de I-1 (qa)', () => {
+  it('un peso NEGATIVO cuenta 0 (no su valor absoluto): todo a la otra partida', () => {
+    expect(allocateLargestRemainder(300, [{ id: 'a', weight: -100 }, { id: 'b', weight: 100 }])).toEqual([0, 300]);
+    expect(allocateLargestRemainder(-300, [{ id: 'a', weight: -100 }, { id: 'b', weight: 100 }]).map((x) => x + 0)).toEqual([0, -300]); // (−0 + 0 ⇒ 0: el signo del cero no importa en JSON)
+    expect(allocateLargestRemainder(5, [{ id: 'a', weight: NaN }, { id: 'b', weight: 3 }])).toEqual([0, 5]);
+  });
+
+  it('el reparto es ENTERO exacto (BigInt), no de coma flotante: cifras calculadas con aritmética exacta cuando |A·w| pasa de 2^53', () => {
+    // A = 2^31−1, pesos 2^31−1, 2^31−2 y 1: cuotas exactas 1073741823.5, 1073741823.0 y 0.99999… ; residuos a=c ⇒ el centavo va al id menor
+    expect(allocateLargestRemainder(2_147_483_647, [{ id: 'a', weight: 2_147_483_647 }, { id: 'b', weight: 2_147_483_646 }, { id: 'c', weight: 1 }])).toEqual([1_073_741_824, 1_073_741_823, 0]);
+    // A·w ≈ 9·10^21: una división en doble pierde el residuo (que decide a quién va el centavo)
+    expect(allocateLargestRemainder(9_007_199_254_740_000, [{ id: 'a', weight: 1_000_001 }, { id: 'b', weight: 1_000_003 }])).toEqual([4_503_595_123_779_380, 4_503_604_130_960_620]);
+    // 3 partes con residuos casi iguales: el orden lo decide el residuo EXACTO
+    expect(allocateLargestRemainder(1_000_000_000_000_000, [{ id: 'a', weight: 999_999_937 }, { id: 'b', weight: 999_999_929 }, { id: 'c', weight: 999_999_893 }])).toEqual(
+      exactAllocation(1_000_000_000_000_000n, [999_999_937n, 999_999_929n, 999_999_893n]),
+    );
+  });
+});
+
+/** Oráculo exacto e independiente (BigInt, ids ya en orden ascendente): cuota entera + 1 a los mayores residuos. */
+function exactAllocation(a: bigint, w: bigint[]): number[] {
+  const W = w.reduce((x, y) => x + y, 0n);
+  const base = w.map((x) => (a * x) / W);
+  const rem = w.map((x) => (a * x) % W);
+  let left = a - base.reduce((x, y) => x + y, 0n);
+  const order = w.map((_, i) => i).sort((i, j) => (rem[i] === rem[j] ? i - j : rem[i] > rem[j] ? -1 : 1));
+  for (const i of order) if (left-- > 0n) base[i] += 1n;
+  return base.map(Number);
+}
+
 describe('bpsOf (mitad hacia afuera de cero)', () => {
   it('redondea mitad lejos de cero y respeta el signo', () => {
     expect(bpsOf(1, 8)).toBe(1250);

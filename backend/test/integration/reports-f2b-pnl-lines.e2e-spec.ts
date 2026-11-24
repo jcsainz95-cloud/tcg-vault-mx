@@ -361,11 +361,26 @@ describe('§REPORTES-CEO F2b — P&L por línea con dinero real (Postgres)', () 
       '/admin/reports/finance/pnl/series?groupBy=month&count=2&asOf=2021-05-31',
     ];
     it.each(ROUTES)('%s — operador 403 (user.admin_action_denied), cliente 403, sin token 401', async (url) => {
+      const opUser = await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.operator.email }, select: { id: true } });
+      const denied = () => h.prisma.auditLog.findMany({ where: { action: 'user.admin_action_denied', actorUserId: opUser.id }, orderBy: { createdAt: 'asc' } });
+      const antes = (await denied()).length;
       const op = await h.api('GET', url, { token: operatorToken });
       expect(op.status).toBe(403);
+      expect(op.body.error.code).toBe('FORBIDDEN');
       expect(op.text).not.toMatch(/Cents/);
+      // contrato §3: el 403 del operador deja UNA fila de auditoría, sin entidad ni parámetros de la consulta
+      const rows = await denied();
+      expect(rows).toHaveLength(antes + 1);
+      expect(rows[rows.length - 1]).toMatchObject({ actorRole: 'vault_operator', entityType: 'Report', entityId: null, after: { attempted: 'finance_report' } });
+      // el cliente: 403 sin fila (lo detiene el guard global de rol); sin token: 401 sin fila
+      const total = () => h.prisma.auditLog.count({ where: { action: 'user.admin_action_denied' } });
+      const n1 = await total();
       expect((await h.api('GET', url, { token: customerToken })).status).toBe(403);
       expect((await h.api('GET', url)).status).toBe(401);
+      expect(await total()).toBe(n1);
+      // el super_admin no deja fila de rechazo
+      expect((await h.api('GET', url, { token: adminToken })).status).toBe(200);
+      expect(await total()).toBe(n1);
     });
     it('super_admin 200 por HTTP: sin ningún `*Cents` no entero; claves de PnlReport; errores 400/422', async () => {
       for (const url of ROUTES) {

@@ -2185,7 +2185,7 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `revisedPriceCents` de `GET /admin/buylist/items/:itemId/revise-price/preview` (monto en centavos, formato `^\d{1,9}$`; no es un enum).
     // 💰 **120 → 122 (§FICHA-CLIENTE, contrato §1b; ⚠️ PENDIENTE de ratificar por el arquitecto):** `cursor` (id uuid opaco) y `limit` (entero 1..50) de
     // `GET /admin/users/:id/notes` — paginación, no conjunto de tokens; fuera de forma ⇒ `400 {field}`. ⛔ `QUERY_SIN_NOMBRE` NO sube.
-    // 💰 **122 → 128 (§REPORTES-CEO F2b; ⚠️ PENDIENTE de ratificar por el arquitecto):** `from`/`to` (días MX `YYYY-MM-DD`; forma ⇒ `400 {field}`, inexistente o año fuera de 2020..2100 ⇒ `422 {field}`) de
+    // 💰 **122 → 128 (§REPORTES-CEO F2b; ratificado por el arquitecto en el contrato, 4248ab2b):** `from`/`to` (días MX `YYYY-MM-DD`; forma ⇒ `400 {field}`, inexistente o año fuera de 2020..2100 ⇒ `422 {field}`) de
     // `GET /admin/reports/finance/pnl` y `/pnl/series`, y `count` (entero 1..12) y `asOf` (día ≤ hoy MX) de `/pnl/series`. No son conjuntos de tokens. ⛔ `QUERY_SIN_NOMBRE` NO sube.
     expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(128);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
