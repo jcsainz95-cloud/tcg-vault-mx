@@ -6,6 +6,7 @@ import { getPnlCalendar } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CALENDAR_UNITS, type CalendarBucketDTO } from '@/types/reports-pnl';
+import { fmtDay } from '../m9/salesFormat';
 import { Delta, Franja } from './Figure';
 
 /**
@@ -33,6 +34,11 @@ export function ToDateStrip({ href, seeFull }: { href: string; seeFull: string }
             <div className="flex flex-col gap-0.5">
               <span className="eyebrow">{b.toDate ? tc(`toDate.${b.kind}`) : tu(b.kind)}</span>
               <span className="text-xs text-muted">{t('days', { days: b.days })}</span>
+              {cmp.previous.clamped && (
+                <span className="text-xs text-muted" data-testid="to-date-clamped">
+                  {tc('clamped', { day: Number(b.to.slice(8, 10)), last: fmtDay(cmp.previous.to, locale) })}
+                </span>
+              )}
             </div>
             <Row label={t('net')} value={formatMoneyCents(b.total.netSalesCents, locale)} delta={cmp.total.netSalesCents} basis={cmp.basis} />
             <Row label={t('gross')} value={formatMoneyCents(b.total.grossProfitCents, locale)} delta={cmp.total.grossProfitCents} basis={cmp.basis} />

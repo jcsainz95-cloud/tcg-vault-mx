@@ -9,6 +9,7 @@ import { periodFor } from '@/lib/reports/period';
 import { PNL_FIGURES, PNL_LINES, type PnlColumnDTO, type PnlLineKey, type PnlReportDTO } from '@/types/reports-pnl';
 import { M7View } from './M7View';
 import { money } from '../m9/salesFormat';
+import { fmtPct } from '@/lib/reports/comparison';
 
 const role = vi.hoisted(() => ({ isSuperAdmin: true }));
 vi.mock('@/lib/role', () => ({ useRole: () => ({ role: role.isSuperAdmin ? 'super_admin' : 'vault_operator', setRole: () => {}, isSuperAdmin: role.isSuperAdmin, canSwitchRole: false }) }));
@@ -165,6 +166,60 @@ describe('F2b · Resultado por línea de negocio (Finanzas, súper-admin)', () =
     expect(screen.getByTestId('pl-delta-netSales-sealed')).toHaveTextContent('—');
     expect(screen.getByTestId('pl-delta-netSales-sealed').textContent).not.toMatch(/%/);
     expect(cell('margin', 'sealed').textContent).not.toContain('antes');
+  });
+
+  it('I-3: cada renglón con variación lleva la de SU cifra (costo ≠ ganancia bruta ≠ …), por línea y en el total', async () => {
+    const r = report();
+    serve(r);
+    mount();
+    await screen.findByTestId('pnl-lines-table');
+    const FIG: Record<string, (typeof PNL_FIGURES)[number]> = {
+      grossSales: 'grossSalesCents', discounts: 'discountsCents', refunds: 'refundsCents', netSales: 'netSalesCents', cogs: 'cogsCents',
+      grossProfit: 'grossProfitCents', paymentFee: 'paymentFeeCents', shippingResult: 'shippingResultCents', contribution: 'contributionCents',
+    };
+    for (const c of ['sealed', 'unassigned', 'total'] as ColKey[]) {
+      const d = c === 'total' ? r.comparison!.total : r.comparison!.byLine[c];
+      for (const [row, fig] of Object.entries(FIG)) {
+        expect(screen.getByTestId(`pl-delta-${row}-${c}`), `${row}/${c}`).toHaveTextContent(fmtPct(d[fig].deltaBps, 'es')!);
+      }
+    }
+  });
+
+  it('B-1: margen NEGATIVO conserva el «−» (por línea, «antes», titular y total)', async () => {
+    const r = report();
+    r.own.sealed = { ...r.own.sealed, marginBps: -8202 };
+    r.total.marginBps = -3500;
+    r.previous!.own.sealed = { ...r.previous!.own.sealed, marginBps: -1234 };
+    serve(r);
+    mount();
+    await screen.findByTestId('pnl-lines-table');
+    expect(cell('margin', 'sealed')).toHaveTextContent('−82.0 %');
+    expect(cell('margin', 'sealed').textContent).not.toMatch(/(^|[^−\d.])82\.0 %/);
+    expect(cell('margin', 'sealed')).toHaveTextContent('antes −12.3 %');
+    expect(cell('margin', 'total')).toHaveTextContent('−35.0 %');
+    expect(screen.getByTestId('pnl-lines-headline')).toHaveTextContent('Margen −35.0 % sobre ventas netas');
+  });
+
+  it('I-3: cada cifra-titular lleva SU variación (ventas netas, ganancia bruta, resultado), no la de otra', async () => {
+    const r = report();
+    serve(r);
+    mount();
+    const head = await screen.findByTestId('pnl-lines-headline');
+    const deltas = within(head).getAllByTestId('delta').map((e) => e.textContent);
+    const t = r.comparison!.total;
+    expect(deltas).toHaveLength(3);
+    [t.netSalesCents, t.grossProfitCents, t.contributionCents].forEach((d, i) => expect(deltas[i], `titular ${i}`).toContain(fmtPct(Math.abs(d.deltaBps!), 'es', false)!));
+    expect(new Set(deltas.map((x) => x!.match(/\d+\.\d %/)![0])).size).toBe(3);
+  });
+
+  it('I-3: el IVA del memo es el NETO; cobrado y reembolsado van en el subrótulo', async () => {
+    serve(report());
+    mount();
+    const memo = await screen.findByTestId('pnl-lines-memo');
+    const dt = within(memo).getByText('IVA (neto)');
+    expect(dt.nextElementSibling).toHaveTextContent(money(777_003, 'es'));
+    expect(dt.nextElementSibling).not.toHaveTextContent(money(777_001, 'es'));
+    expect(dt.closest('div')!.parentElement).toHaveTextContent(`Cobrado ${money(777_001, 'es')} · reembolsado ${money(777_002, 'es')}`);
   });
 
   it('«Todo» (sin comparación) y margen null ⇒ sin variaciones y «—» en el margen', async () => {

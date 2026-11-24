@@ -60,6 +60,30 @@ describe('F2b · Consolidados', () => {
     expectOneDecimalPercents(screen.getByTestId('cons-table').textContent ?? '', 20);
   });
 
+  it('I-3: la variación de una línea es la de ESA línea y la del Total la del total (no se cruzan)', async () => {
+    const cal = mockPnlCalendar({ unit: 'month', count: 6, asOf: '2026-11-23' });
+    const cur = cal.buckets.at(-1)!;
+    cur.comparison.total.netSalesCents = { ...cur.comparison.total.netSalesCents, deltaBps: 1111 };
+    cur.comparison.byLine.raw.netSalesCents = { ...cur.comparison.byLine.raw.netSalesCents, deltaBps: 2222 };
+    vi.spyOn(api, 'getPnlCalendar').mockResolvedValue(cal);
+    renderWithProviders(<Consolidated />, 'es');
+    await screen.findByTestId('cons-table');
+    fireEvent.click(screen.getByTestId('cons-toggle-raw'));
+    expect(screen.getByTestId(`cons-netSales-${cur.from}`)).toHaveTextContent('+11.1 %');
+    expect(screen.getByTestId(`cons-raw-netSales-${cur.from}`)).toHaveTextContent('+22.2 %');
+    expect(screen.getByTestId(`cons-raw-netSales-${cur.from}`)).not.toHaveTextContent('+11.1 %');
+  });
+
+  it('B-1: margen negativo conserva el «−» en la fila Margen', async () => {
+    const cal = mockPnlCalendar({ unit: 'month', count: 6, asOf: '2026-11-23' });
+    const cur = cal.buckets.at(-1)!;
+    cur.total.marginBps = -8202;
+    vi.spyOn(api, 'getPnlCalendar').mockResolvedValue(cal);
+    renderWithProviders(<Consolidated />, 'es');
+    await screen.findByTestId('cons-table');
+    expect(screen.getByTestId(`cons-margin-${cur.from}`)).toHaveTextContent('−82.0 %');
+  });
+
   it.each<[CalendarUnit, string, number, string]>([
     ['quarter', 'Trimestre', 4, 'T4 2026'],
     ['semester', 'Semestre', 3, 'S2 2026'],

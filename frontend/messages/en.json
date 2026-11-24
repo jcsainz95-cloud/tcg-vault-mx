@@ -6461,7 +6461,7 @@
           "accessory": "Accessories",
           "unassigned": "No line"
         },
-        "unassignedHelp": "“No line” collects what does not come from a sales order: vault withdrawal shipping and charges, refunds without an order and purchases from sellers.",
+        "unassignedHelp": "“No line” collects what does not come from a sales order: the retained fee and shipping labels of seller purchases, vault withdrawals and refunds without an order. Inventory purchases appear in the memo and do not subtract.",
         "rows": {
           "grossSales": "Sales (before tax and shipping)",
           "discounts": "Discounts",

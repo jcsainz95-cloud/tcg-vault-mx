@@ -6461,7 +6461,7 @@
           "accessory": "Accesorios",
           "unassigned": "Sin línea"
         },
-        "unassignedHelp": "«Sin línea» junta lo que no nace de un pedido de venta: envíos y cobros de retiros de bóveda, reembolsos sin pedido y compras a vendedores.",
+        "unassignedHelp": "«Sin línea» junta lo que no nace de un pedido de venta: la tarifa retenida y las guías de compras a vendedores, los retiros de bóveda y los reembolsos sin pedido. Las compras de inventario van en el informativo y no restan.",
         "rows": {
           "grossSales": "Ventas (sin IVA ni envío)",
           "discounts": "Descuentos",

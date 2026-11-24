@@ -54,4 +54,29 @@ describe('Junta · franja «A la fecha»', () => {
     expect(within(col).queryAllByTestId('delta')).toHaveLength(0);
     expect(col.textContent).toContain('—');
   });
+  it('I-3: cada fila lleva SU variación (ventas netas, ganancia bruta, resultado), no la de otra', async () => {
+    vi.spyOn(api, 'getPnlCalendar').mockImplementation(async (p) => {
+      const c = mockPnlCalendar({ ...p, asOf: '2026-11-24' });
+      const mk = (bps: number) => ({ cents: 1, previousCents: 1, deltaCents: 1, deltaBps: bps });
+      return { ...c, buckets: c.buckets.map((b) => ({ ...b, comparison: { ...b.comparison, basis: 'complete' as const, total: { ...b.comparison.total, netSalesCents: mk(1111), grossProfitCents: mk(2222), contributionCents: mk(3333) } } })) };
+    });
+    renderWithProviders(<ToDateStrip href="/admin/m7" seeFull="Ver" />);
+    const col = await screen.findByTestId('to-date-month');
+    const d = within(col).getAllByTestId('delta').map((e) => e.textContent);
+    expect(d).toHaveLength(3);
+    expect(d[0]).toContain('11.1 %');
+    expect(d[1]).toContain('22.2 %');
+    expect(d[2]).toContain('33.3 %');
+  });
+
+  it('m-2: previous.clamped ⇒ rotula el recorte con el texto del contrato; sin recorte, nada', async () => {
+    vi.spyOn(api, 'getPnlCalendar').mockImplementation(async (p) => {
+      const c = mockPnlCalendar({ ...p, asOf: '2026-11-24' });
+      return { ...c, buckets: c.buckets.map((b) => ({ ...b, to: p.unit === 'month' ? '2026-11-30' : b.to, comparison: { ...b.comparison, previous: { ...b.comparison.previous, to: '2026-10-31', clamped: p.unit === 'month' } } })) };
+    });
+    renderWithProviders(<ToDateStrip href="/admin/m7" seeFull="Ver" />);
+    const col = await screen.findByTestId('to-date-month');
+    expect(within(col).getByTestId('to-date-clamped')).toHaveTextContent('El mes de comparación no tiene día 30: se comparó hasta su último día (31 oct).');
+    expect(within(await screen.findByTestId('to-date-year')).queryByTestId('to-date-clamped')).toBeNull();
+  });
 });

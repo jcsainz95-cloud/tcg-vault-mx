@@ -68,13 +68,14 @@ const MINUS = '−';
 
 /**
  * Porcentaje ÚNICO de los reportes (§2 m-3): puntos base enteros del servidor ⇒ SIEMPRE un decimal fijo («12.0 %», «−3.5 %»;
- * es `12,0 %`). `null` ⇒ `null` («—»). `signed` pone «+»/«−» (0 sin signo). Sustituye a `fmtBps`, al `Math.round` de la meta y a Ventas.
+ * es `12,0 %`). `null` ⇒ `null` («—»). `signed` pone «+»/«−» (0 sin signo); `signed=false` omite solo el «+» y conserva el «−». Sustituye a `fmtBps`, al `Math.round` de la meta y a Ventas.
  */
 export function fmtPct(bps: number | null, locale: AppLocale, signed = true): string | null {
   if (bps === null || !Number.isFinite(bps)) return null;
   const n = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Math.abs(bps) / 100);
   const zero = Math.abs(bps) < 5; // se ve «0.0 %»: sin signo
-  return `${signed && !zero ? (bps > 0 ? '+' : MINUS) : ''}${n} %`;
+  const sign = zero ? '' : bps > 0 ? (signed ? '+' : '') : MINUS; // «sin signo» = sin «+»; el menos NUNCA se pierde
+  return `${sign}${n} %`;
 }
 
 /** Puntos base de `n/d` (avance contra meta: dos conteos), mitad hacia afuera de cero; `d ≤ 0` ⇒ 0. Con BigInt: sin pasar de 2^53. */

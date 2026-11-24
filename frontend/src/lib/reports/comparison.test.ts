@@ -57,6 +57,8 @@ describe('§2 F2a · formato de rango y de variación', () => {
     expect(fmtPct(1520, 'es')).toBe('+15.2 %');
     expect(fmtPct(-5000, 'en')).toBe('−50.0 %');
     expect(fmtPct(1200, 'es', false)).toBe('12.0 %');
+    expect(fmtPct(-8202, 'es', false)).toBe('−82.0 %'); // B-1: «sin signo» no pierde el menos
+    expect(fmtPct(-3, 'es', false)).toBe('0.0 %');
     expect(fmtPct(-350, 'en')).toBe('−3.5 %');
     expect(fmtPct(0, 'es')).toBe('0.0 %');
     expect(fmtPct(5, 'es')).toBe('+0.1 %'); // +0.05 ⇒ 0.1 (mitad hacia afuera)
