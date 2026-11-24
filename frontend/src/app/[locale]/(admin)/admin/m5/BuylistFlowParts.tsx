@@ -298,6 +298,19 @@ export function useMarketToday(requestId: string, enabled: boolean): Record<stri
   return out;
 }
 
+/** Baja aceptada: el ofertado original en chico bajo el pactado. Solo campos del servidor; sin aritmética. */
+export function OfferedOriginal({ item }: { item: AdminSellItemDTO }) {
+  const t = useTranslations('admin.m5.flow.line');
+  const locale = useLocale() as AppLocale;
+  const { agreedPriceCents: agreed, offeredPriceCents: offered } = item;
+  if (agreed == null || offered == null || agreed === offered) return null;
+  return (
+    <span className="tabular text-xs text-muted" data-testid={`offered-original-${item.id}`}>
+      {t('offeredOriginal', { amount: formatMoneyCents(offered, locale) })}
+    </span>
+  );
+}
+
 /** Precio pactado (NO el cotizado) + mercado de hoy con chip ±%. */
 export function ReviewLineFacts({ requestId, item }: { requestId: string; item: AdminSellItemDTO }) {
   const marketCents = useMarketToday(requestId, true)[item.id];
@@ -323,8 +336,9 @@ export function ReviewLineFacts({ requestId, item }: { requestId: string; item: 
             {formatMoneyCents(agreed, locale)}
           </span>
           <span className="text-xs text-muted">
-            {t('agreed')} · {t('agreedCaption')}
+            {item.offeredPriceCents != null && item.offeredPriceCents !== agreed ? t('agreed') : `${t('agreed')} · ${t('agreedCaption')}`}
           </span>
+          <OfferedOriginal item={item} />
         </div>
       )}
       <div className="flex flex-col">

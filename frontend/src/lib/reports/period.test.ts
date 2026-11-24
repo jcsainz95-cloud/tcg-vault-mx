@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { financeRange, isRealYmd, parsePeriod, periodFor, periodSearch, SALES_MAX_DAYS, todayMx } from './period';
+import { financeRange, isRealYmd, parsePeriod, periodFor, periodKind, periodSearch, SALES_MAX_DAYS, todayMx } from './period';
 import { salesParamsFor } from './sales-params';
 
 describe('§REPORTES-CEO §2 · periodo único en días de México', () => {
@@ -43,7 +43,7 @@ describe('§REPORTES-CEO §2 · periodo único en días de México', () => {
     expect(periodFor('all', t).to).toBe(t);
     // «Todo» = sin from/to hacia Finanzas; los demás mandan fechas.
     expect(financeRange(periodFor('all', t))).toEqual({});
-    expect(financeRange(periodFor('7d', t))).toEqual({ from: '2026-11-16', to: t });
+    expect(financeRange(periodFor('7d', t))).toEqual({ from: '2026-11-16', to: t, kind: 'rolling' });
   });
 
   it('fecha REAL, no solo forma: 2026-02-30 y años fuera de 2020..año+1 no valen (m-6, I-3)', () => {
@@ -66,5 +66,28 @@ describe('§REPORTES-CEO §2 · periodo único en días de México', () => {
       expect(q.preset).toBe('custom');
       expect(q.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
+  });
+
+  it('§2 F2a · cada atajo manda su `kind`: hoy→day; 7d/30d→rolling; mes/mes pasado→month; trimestre→quarter; año→year; fechas→span; Todo→ninguno', () => {
+    const t = '2026-11-23';
+    expect(periodKind(periodFor('today', t))).toBe('day');
+    expect(periodKind(periodFor('7d', t))).toBe('rolling');
+    expect(periodKind(periodFor('30d', t))).toBe('rolling');
+    expect(periodKind(periodFor('month', t))).toBe('month');
+    expect(periodKind(periodFor('last-month', t))).toBe('month');
+    expect(periodKind(periodFor('quarter', t))).toBe('quarter');
+    expect(periodKind(periodFor('year', t))).toBe('year');
+    expect(periodKind({ preset: 'custom' })).toBe('span');
+    expect(periodKind(periodFor('all', t))).toBeUndefined();
+  });
+
+  it('§2 F2a · `kind` viaja a Ventas (salesParamsFor) y a Finanzas (financeRange); «Todo» a Finanzas va sin from/to/kind', () => {
+    const t = '2026-11-23';
+    expect(salesParamsFor(periodFor('month', t)).kind).toBe('month');
+    expect(salesParamsFor(periodFor('7d', t)).kind).toBe('rolling');
+    expect(salesParamsFor({ preset: 'custom', from: '2026-10-01', to: '2026-10-15' }).kind).toBe('span');
+    expect(financeRange(periodFor('quarter', t))).toEqual({ from: '2026-10-01', to: t, kind: 'quarter' });
+    expect(financeRange(periodFor('last-month', t))).toEqual({ from: '2026-10-01', to: '2026-10-31', kind: 'month' });
+    expect(financeRange(periodFor('all', t))).toEqual({});
   });
 });

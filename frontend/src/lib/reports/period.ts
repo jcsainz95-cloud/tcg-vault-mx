@@ -3,6 +3,8 @@
  * Días civiles de `America/Mexico_City` (`YYYY-MM-DD`, ambos incluidos). El servidor sigue siendo la regla (periodo anterior,
  * 422 de fechas inexistentes); aquí solo se arman las fechas del selector. ÚNICA implementación de «hoy en México».
  */
+import type { PeriodKind } from '@/types/contract';
+
 export const REPORT_PRESETS = ['today', '7d', '30d', 'month', 'last-month', 'quarter', 'year', 'all', 'custom'] as const;
 export type ReportPreset = (typeof REPORT_PRESETS)[number];
 export const DEFAULT_PRESET: ReportPreset = 'month';
@@ -103,7 +105,33 @@ export function periodSearch(p: ReportPeriod): string {
   return p.preset === 'custom' ? `?preset=custom&from=${p.from}&to=${p.to}` : `?preset=${p.preset}`;
 }
 
-/** Rango que se manda a las rutas de finanzas: «Todo» = sin `from/to` (todo el histórico, como siempre). */
-export function financeRange(p: ReportPeriod): { from?: string; to?: string } {
-  return p.preset === 'all' ? {} : { from: p.from, to: p.to };
+/**
+ * §REPORTES-CEO §2 (F2a) — forma del periodo que el selector manda como `kind`, para que el servidor compare el MISMO tramo
+ * del periodo anterior. Hoy→`day`, 7/30 días→`rolling`, este mes/mes pasado→`month`, trimestre→`quarter`, año→`year`,
+ * fechas a elegir→`span`; «Todo» no se compara (`undefined`). El servidor decide el tramo; aquí solo se dice qué forma tiene.
+ */
+export function periodKind(p: Pick<ReportPeriod, 'preset'>): PeriodKind | undefined {
+  switch (p.preset) {
+    case 'today':
+      return 'day';
+    case '7d':
+    case '30d':
+      return 'rolling';
+    case 'month':
+    case 'last-month':
+      return 'month';
+    case 'quarter':
+      return 'quarter';
+    case 'year':
+      return 'year';
+    case 'custom':
+      return 'span';
+    case 'all':
+      return undefined;
+  }
+}
+
+/** Rango que se manda a las rutas de finanzas: «Todo» = sin `from/to` ni `kind` (todo el histórico, sin comparación). */
+export function financeRange(p: ReportPeriod): { from?: string; to?: string; kind?: PeriodKind } {
+  return p.preset === 'all' ? {} : { from: p.from, to: p.to, kind: periodKind(p) };
 }

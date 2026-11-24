@@ -144,7 +144,7 @@ import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } fro
 // 💰 v1.110⟨descuentos⟩ (§DSC.7) — el `?state=` L de `GET /admin/discount-codes`.
 import { DISCOUNT_CODE_STATE_FILTER_VALUES } from '../../src/modules/discounts/discount-admin-view';
 // 💰 §AN (API_CONTRACT §15.2) — los ejes L de la analítica de ventas.
-import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
+import { PERIOD_KIND_VALUES, SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
 // 💰 v1.86.5⟨accesorios⟩ (§AC.11): dominio L `true | false` de `?active=`/`?soldOut=` del panel de accesorios.
 import { ACCESSORY_BOOLEAN_FILTER_VALUES } from '../../src/modules/accessories/accessory-input';
 // 💰 rev v1.87⟨wishlist⟩ (§WSH.8): `?sort=`/`?dir=` de la lista de compra del dueño (y su CSV).
@@ -370,6 +370,11 @@ const OBS_BRACKETS: Obs = {
 const OBS_SALES: Obs = {
   huella: (res) => JSON.stringify(res.body),
   hayDatos: (res) => (((res.body as unknown as { rows?: unknown[] })?.rows?.length) ?? 0) > 0,
+};
+/** 💰 §REPORTES-CEO F2a — `GET /admin/finance/pnl`: el cuerpo entero (`kind` cambia `previousPeriod`/`previous`/`comparison`). */
+const OBS_PNL: Obs = {
+  huella: (res) => JSON.stringify(res.body),
+  hayDatos: (res) => ((res.body as unknown as { previous?: unknown })?.previous ?? null) !== null,
 };
 /** 💰 §AN — `GET /admin/reports/sales/export.csv`: el texto entero (una fila por cubo + `total`, §15.7). */
 const OBS_SALES_CSV: Obs = {
@@ -868,6 +873,9 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/reports/sales', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
   { route: 'GET /admin/reports/sales', param: 'topSort', clazz: 'L', allowed: SALES_TOP_SORT_VALUES, valid: 'pieces', alterno: 'net', obs: OBS_SALES, auth: 'admin', echoValue: false },
+  // §REPORTES-CEO F2a — `kind` (periodo anterior = mismo tramo): con 1..7 de marzo `month` compara contra 1..7 de feb, `span` contra 22..28.
+  { route: 'GET /admin/reports/sales', param: 'kind', clazz: 'L', allowed: PERIOD_KIND_VALUES, valid: 'month', alterno: 'span', obs: OBS_SALES, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-07' },
+  { route: 'GET /admin/finance/pnl', param: 'kind', clazz: 'L', allowed: PERIOD_KIND_VALUES, valid: 'month', alterno: 'span', obs: OBS_PNL, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-07' },
   { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
 
@@ -2075,7 +2083,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // ⭐ v1.116.3⟨ids⟩ — 95 fijo y 22 → **18**: el arquitecto escribió las cuatro filas en §0-Q punto 4. Se pagó una deuda.
     // ⭐ §DEMANDA (C-EQ-1, API_CONTRACT_DEMANDA §1) — 96 → **101** y 19 fijo: `sort`/`dir`/`limit` de `GET /admin/reports/demand-gaps` y `sort`/`dir` de su CSV
     // (clase ORDEN, decidida por el arquitecto en el anexo ⇒ `transcrita`). No sube ningún pendiente.
-    expect(REGISTRO.length).toBe(101);
+    // ⭐ §REPORTES-CEO F2a — 101 → **103** y 19 fijo: `kind` de `GET /admin/reports/sales` y de `GET /admin/finance/pnl` (clase L, dominio en `sales-period.ts`;
+    // API_CONTRACT_REPORTES §2). Sin fila propia en la tabla de §0-Q aún: se anota para el arquitecto en STATUS.
+    expect(REGISTRO.length).toBe(103);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(19);
     // PSA-ACABADO: 95 → 96 y 18 → 19 — `?finish=` del DELETE de estimados (SELECTOR, dominio `Finish`; contrato §4 vigente, fila de §0-Q aún no escrita).
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con

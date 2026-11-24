@@ -30,6 +30,14 @@ describe('card-show · torneos (JC 2026-10-21)', () => {
     for (const d of [sat, sun]) {
       for (const t of d.torneos) {
         if (t.id === 'pokemon') expect(t).toMatchObject({ horas: '14:00–18:00', precio: 'MX$200', cupo: 64 });
+        else if (t.id === 'magic')
+          expect(t).toMatchObject({
+            horas: '11:00–14:00',
+            precio: 'Gratis',
+            cupo: 32,
+            formato: 'Commander Bracket 3 · 1v1',
+            premios: ['MX$8,000 en producto sellado de Magic (el reparto se define en el torneo)'],
+          });
         else expect(t).toMatchObject({ horas: '11:00–14:00', precio: 'Gratis', cupo: 32, premios: ['Premios por anunciar'] });
       }
     }
@@ -69,5 +77,15 @@ describe('card-show · pie: correo de la fuente única (TL-MKT7-1)', () => {
     expect(CARD_SHOW.footer.contactoEmail).toBe(PUBLIC_CONTACT_EMAIL);
     expect(CARD_SHOW.footer.contactoEmailHref).toBe(`mailto:${PUBLIC_CONTACT_EMAIL}`);
     expect(all).not.toContain('hola@');
+  });
+
+  it('tarjeta de Magic (JC 2026-11-23): Commander Bracket 3 · 1v1, MX$8,000 sellado, bracket3.net; sin Standard ni número de mesa', () => {
+    const g = CARD_SHOW.torneos.juegos.find((x) => x.id === 'magic');
+    if (!g || !('magic' in g)) throw new Error('falta la tarjeta de Magic');
+    expect(g.magic.formato).toBe('Commander Bracket 3 · 1v1');
+    expect(g.magic.premio).toBe('MX$8,000 en producto sellado de Magic');
+    expect(g.magic.url).toBe('https://bracket3.net');
+    const blob = JSON.stringify([g, CARD_SHOW.torneos.programa[0].torneos[0]]);
+    expect(blob).not.toMatch(/standard|por anunciar|mesa\s*\d|mesa n/i);
   });
 });

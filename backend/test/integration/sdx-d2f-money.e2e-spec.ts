@@ -158,7 +158,7 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
       const [head, line] = text.trim().split('\n');
       // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): el JSON gana `statement` (solo-JSON); el CSV NO cambia (plano).
       // D9 (§8.4): `stripeFeeEstimatedOrders`/`Cents` (comisión estimada de Stripe, informativas) también son solo-JSON.
-      const JSON_ONLY = new Set(['statement', 'stripeFeeEstimatedOrders', 'stripeFeeEstimatedCents', 'feeIncludedSince']);
+      const JSON_ONLY = new Set(['statement', 'stripeFeeEstimatedOrders', 'stripeFeeEstimatedCents', 'feeIncludedSince', 'period', 'previousPeriod', 'previous', 'comparison']);
       const flatEntries = Object.entries(after).filter(([k]) => !JSON_ONLY.has(k));
       expect(head.split(',')).toEqual(['report', ...flatEntries.map(([k]) => k)]);
       expect(line.split(',')).toEqual(['pnl', ...flatEntries.map(([, v]) => String(v))]);

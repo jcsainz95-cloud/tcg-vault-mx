@@ -27,6 +27,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
 import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
+import { PERIOD_KIND_VALUES } from '../sales-analytics/sales-period';
 import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { AuditService } from '../audit/audit.service';
 import { UserAuditScope, USER_AUDIT_SCOPE_VALUES } from '../audit/audit.service';
@@ -551,9 +552,10 @@ export class AdminFinanceController {
   }
 
   @Get('pnl')
-  pnl(@Query('from') from?: string, @Query('to') to?: string) {
+  pnl(@Query('from') from?: string, @Query('to') to?: string, @Query('kind') kind?: string) {
     // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): campos planos SIN cambio + `statement` derivado (aditivo).
-    return this.admin.pnlReport(from, to);
+    // §REPORTES-CEO F2a: `kind` (enum §0-Q, vacío = span) y, con `from/to` YMD, `period/previousPeriod/previous/comparison`.
+    return this.admin.pnlReport(from, to, parseEnumFilter('kind', kind, PERIOD_KIND_VALUES));
   }
 
   @Get('inventory-value')
@@ -606,8 +608,9 @@ export class AdminReportsController {
     @Query('to') to?: string,
     @Query('groupBy') groupBy?: string,
     @Query('topSort') topSort?: string,
+    @Query('kind') kind?: string,
   ) {
-    return this.sales.report({ preset, from, to, groupBy, topSort }, new Date());
+    return this.sales.report({ preset, from, to, groupBy, topSort, kind }, new Date());
   }
 
   /**

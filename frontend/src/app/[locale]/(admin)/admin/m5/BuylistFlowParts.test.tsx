@@ -132,6 +132,47 @@ describe('F1b · fila de revisión', () => {
   });
 });
 
+describe('F1b · ofertado original en revisión', () => {
+  const base = () => ({ ...reqOf('sr-3003').items[0], id: 'it-1', quotedPriceCents: 2000000, offeredPriceCents: 1850000 });
+  beforeEach(() => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue({ sellRequestId: 'x', lines: [] } as never);
+  });
+  it('baja aceptada: pactado y ofertado original', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1500000 }} />, 'es');
+    expect(screen.getByTestId('agreed-it-1')).toHaveTextContent(formatMoneyCents(1500000, 'es'));
+    expect(screen.getByTestId('offered-original-it-1')).toHaveTextContent(`Ofertado: ${formatMoneyCents(1850000, 'es')}`);
+    // m-29: con baja aceptada el rótulo NO dice «lo que ofrecimos» (contradiría al ofertado original).
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('lo que ofrecimos');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Precio pactado');
+  });
+  it('sin baja: el rótulo sigue «Precio pactado · lo que ofrecimos»', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'es');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Precio pactado · lo que ofrecimos');
+  });
+  it('m-34: en inglés el rótulo es «Agreed price» (con baja) y «Agreed price · what we offered» (sin baja)', () => {
+    const a = renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1500000 }} />, 'en');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Agreed price');
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('what we offered');
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('Precio pactado');
+    a.unmount();
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'en');
+    expect(screen.getByTestId('review-facts-it-1')).toHaveTextContent('Agreed price · what we offered');
+  });
+  it('m-27: sin ofertado (null) no pinta «MX$0.00» ni línea extra', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), offeredPriceCents: null, agreedPriceCents: 1500000 }} />, 'es');
+    expect(screen.queryByTestId('offered-original-it-1')).toBeNull();
+    expect(screen.getByTestId('review-facts-it-1')).not.toHaveTextContent('MX$0.00');
+  });
+  it('m-27: sin pactado (null) no pinta el ofertado original', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: null }} />, 'es');
+    expect(screen.queryByTestId('offered-original-it-1')).toBeNull();
+  });
+  it('iguales o sin pactado: sin línea extra', () => {
+    renderWithProviders(<ReviewLineFacts requestId="x" item={{ ...base(), agreedPriceCents: 1850000 }} />, 'es');
+    expect(screen.queryByTestId('offered-original-it-1')).toBeNull();
+  });
+});
+
 describe('comprobantes y cinta', () => {
   it('comprobante de pago SPEI: referencia, fecha y neto', () => {
     const req = reqOf('sr-3003', { status: 'pagada', speiReference: 'MBAN-9', paidAt: '2026-11-20T18:00:00Z', payout: PAYOUT });

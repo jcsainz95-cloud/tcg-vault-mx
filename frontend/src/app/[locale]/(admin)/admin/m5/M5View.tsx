@@ -41,6 +41,7 @@ import {
   PaymentReceipt,
   RequestRibbon,
   ReviewLineFacts,
+  OfferedOriginal,
   ReviewPhoto,
   ShipmentReceipt,
   SpeiPayModal,
@@ -1608,6 +1609,7 @@ export function M5View() {
                             {pactado != null ? formatMoneyCents(pactado, locale) : '—'}
                           </span>
                         )}
+                        {!reviewMode && <OfferedOriginal item={it} />}
                         {it.approvedPriceCents != null && it.approvedPriceCents !== pactado && (
                           <span className="tabular text-xs text-success">
                             {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}

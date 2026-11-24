@@ -17,6 +17,7 @@
  * Fase del servidor (para ver la pantalla con y sin P2): `localStorage['tcg.salesPhase'] = 'A' | 'B' | 'C'`
  * (default `'B'`, lo que el servidor construye hoy: sin contracargos ni método de pago, que esperan a M-AN-1). Ningún dato de cliente sale de aquí: las llaves de cliente son internas.
  */
+import { mockBasis, mockFirstDataDay, mockPreviousRange } from './period-compare';
 import type {
   SalesBestDaysDTO,
   SalesDeltaDTO,
@@ -532,18 +533,24 @@ export function mockSalesReport(params: SalesReportParams, now: Date = new Date(
   const r = resolve(params, today);
   const phase = mockSalesPhase();
   const days = daysBetween(r.from, r.to);
-  const prevTo = addDays(r.from, -1);
-  const prevFrom = addDays(r.from, -days);
+  // F2a: el MISMO tramo del periodo anterior (`kind`), como el servidor; sin `kind` ⇒ `span` (misma duración inmediatamente antes).
+  const pr = mockPreviousRange(params.kind, r.from, r.to);
+  const prevFrom = pr.from;
+  const prevTo = pr.to;
+  const basis = mockBasis(mockFirstDataDay(), pr);
   const totals = figuresOf(r.from, r.to);
   const prev = figuresOf(prevFrom, prevTo);
   const rows: SalesRowDTO[] = buckets(r.from, r.to, r.groupBy).map((b) => ({ from: b.from, to: b.to, ...stripP2(figuresOf(b.from, b.to), phase) }));
   const report: SalesReportDTO = {
-    period: { preset: r.preset, from: r.from, to: r.to, days, timezone: 'America/Mexico_City' },
-    previousPeriod: { from: prevFrom, to: prevTo },
+    period: { preset: r.preset, from: r.from, to: r.to, days, timezone: 'America/Mexico_City', kind: pr.kind },
+    previousPeriod: { from: prevFrom, to: prevTo, clamped: pr.clamped },
+    firstDataDay: mockFirstDataDay(),
     groupBy: r.groupBy,
     totals: stripP2(totals, phase),
     previousTotals: stripP2(prev, phase),
     comparison: {
+      basis: basis.basis,
+      dataSince: basis.dataSince,
       orders: delta(totals.orders, prev.orders),
       chargedCents: delta(totals.chargedCents, prev.chargedCents),
       netSalesCents: delta(totals.netSalesCents, prev.netSalesCents),

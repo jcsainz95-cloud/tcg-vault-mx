@@ -213,7 +213,7 @@ describe('💰 BSD-B32…B36 — guía y tarifa del buylist en el P&L (Postgres 
     // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): el JSON gana `statement` (solo-JSON); el CSV NO cambia (sigue plano).
     // Por eso la paridad columna⇄DTO se mide sobre los campos PLANOS, excluyendo `statement`.
     // D9 (§8.4): `stripeFeeEstimatedOrders`/`stripeFeeEstimatedCents` (comisión estimada de Stripe, informativas) son también solo-JSON.
-    const JSON_ONLY = new Set(['statement', 'stripeFeeEstimatedOrders', 'stripeFeeEstimatedCents', 'feeIncludedSince']);
+    const JSON_ONLY = new Set(['statement', 'stripeFeeEstimatedOrders', 'stripeFeeEstimatedCents', 'feeIncludedSince', 'period', 'previousPeriod', 'previous', 'comparison']);
     const flatKeys = (o: Record<string, unknown>) => Object.keys(o).filter((k) => !JSON_ONLY.has(k));
     const flatVals = (o: Record<string, unknown>) =>
       Object.entries(o).filter(([k]) => !JSON_ONLY.has(k)).map(([, v]) => String(v));

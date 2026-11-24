@@ -176,7 +176,7 @@ describe('§AN fase A — cifras por día (Postgres real)', () => {
 
   it('AN-B-7 (por HTTP de servicio): comparación con el periodo anterior del mismo largo', async () => {
     const r = await svc.report(P, NOW_MARCH);
-    expect(r.previousPeriod).toEqual({ from: '2021-02-22', to: '2021-02-28' });
+    expect(r.previousPeriod).toEqual({ from: '2021-02-22', to: '2021-02-28', clamped: false }); // F2a: `clamped` aditivo (sin `kind` = span)
     expect(r.previousTotals.orders).toBe(1); // O0b
     expect(r.comparison.orders).toEqual({ diff: 5, pct: 500 });
     const empty = await svc.report({ from: '2021-03-01', to: '2021-03-02' }, NOW_MARCH);

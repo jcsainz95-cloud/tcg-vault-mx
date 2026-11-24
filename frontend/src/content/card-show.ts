@@ -6,9 +6,10 @@
  * Quitados: precios de mesa, plano de 23 mesas, montos de patrocinio y sus helpers.
  * Conservados: fecha/sede/entrada, cuenta regresiva, torneos por juego (horarios y premios finales, JC 2026-10-21),
  * rifa informal y datos públicos de Jakomi (nombre + logo, SIN enlaces a sus redes — decisión JC).
+ * Magic (JC 2026-11-23) publica bracket3.net y TCG Wolf como patrocinio del torneo; es dato público.
  *
- * ⛔ ÚNICO SECRETO QUE QUEDA: los NOMBRES DE PATROCINADORES (no viven en el repo). Las únicas marcas
- * nombradas son **TCG HUNT** y **Jakomi**. El candado de secreto del CI (devops) hace grep de los
+ * ⛔ ÚNICO SECRETO QUE QUEDA: los NOMBRES DE PATROCINADORES (no viven en el repo). Las marcas
+ * nombradas son **TCG HUNT**, **Jakomi** y, solo en la tarjeta de Magic, bracket3.net y TCG Wolf (publicados por el dueño). El candado de secreto del CI (devops) hace grep de los
  * nombres de patrocinador (env `CARDSHOW_SECRET_TERMS`) sobre esta rama.
  */
 import { CONTACT_PHONE, PUBLIC_CONTACT_EMAIL, whatsappHref } from '@/lib/about';
@@ -40,6 +41,8 @@ export function cardShowGameLabel(id: string): string {
 export interface TorneoProgramado {
   id: CardShowGame;
   nombre: string;
+  /** Formato de juego, si el torneo lo declara (hoy solo Magic). */
+  formato?: string;
   horas: string;
   cupo: number;
   precio: string;
@@ -181,7 +184,8 @@ export const CARD_SHOW = {
       'Cinco juegos sobre la mesa. Pokémon cuesta MX$200; Magic, Shard Bugs, Lorcana y Riftbound son gratis. Preinscríbete aquí y haz tu registro final en el lugar.',
     /**
      * Una tarjeta por juego (los cinco valores del enum). Pokémon MX$200 los dos días (JC 2026-10-17,
-     * sin cambio 2026-10-21); los demás GRATIS con «premios por anunciar» (JC 2026-10-21).
+     * sin cambio 2026-10-21); Magic GRATIS con premio publicado (JC 2026-11-23); Shard Bugs, Lorcana y Riftbound GRATIS con
+     * «premios por anunciar» (JC 2026-10-21).
      */
     juegos: [
       {
@@ -199,7 +203,16 @@ export const CARD_SHOW = {
         pill: 'Sábado 11:00–14:00',
         principal: false,
         precio: 'Gratis',
-        linea: '32 jugadores. Premios por anunciar. Preinscríbete aquí; registro final en el lugar.',
+        linea: '32 jugadores. Preinscríbete aquí; registro final en el lugar.',
+        /** Dueño JC 2026-11-23 (HECHOS «tarjeta de Magic del sábado 5»). Sin número de mesa. */
+        magic: {
+          formato: 'Commander Bracket 3 · 1v1',
+          premio: 'MX$8,000 en producto sellado de Magic',
+          premioNota: 'El reparto se define en el torneo.',
+          inscripcion: { antes: 'Revisa tu deck e inscríbete en ', enlace: 'bracket3.net', despues: '.' },
+          patrocinio: { antes: 'Patrocinado por ', enlace: 'bracket3.net', y: ' y TCG Wolf' },
+          url: 'https://bracket3.net',
+        },
       },
       {
         id: 'shardbugs' as CardShowGame,
@@ -232,7 +245,15 @@ export const CARD_SHOW = {
         id: 'sat' as CardShowDayId,
         titulo: 'Sábado 5 de diciembre',
         torneos: [
-          { id: 'magic', nombre: 'Magic: The Gathering', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
+          {
+            id: 'magic',
+            nombre: 'Magic: The Gathering',
+            formato: 'Commander Bracket 3 · 1v1',
+            horas: '11:00–14:00',
+            cupo: 32,
+            precio: 'Gratis',
+            premios: ['MX$8,000 en producto sellado de Magic (el reparto se define en el torneo)'],
+          },
           { id: 'shardbugs', nombre: 'Shard Bugs', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
           {
             id: 'pokemon',

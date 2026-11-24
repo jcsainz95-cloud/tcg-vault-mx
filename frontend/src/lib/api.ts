@@ -374,8 +374,9 @@ import type {
 import * as m4ship from './mock/m4-ship';
 import * as sdx from './mock/skydropx';
 import * as spendMock from './mock/spend-alerts';
+import { mockPnlWithComparison } from './mock/period-compare';
 import * as salesMock from './mock/sales';
-import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
+import type { PeriodKind, SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import type { PublicShippingRuleDTO } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
@@ -7561,14 +7562,17 @@ export async function getAuditLog(filters: AuditLogFilters = {}): Promise<Pagina
 export interface FinanceRange {
   from?: string;
   to?: string;
+  /** §REPORTES-CEO F2a: forma del periodo (el servidor elige el MISMO tramo anterior). Solo lo usa el P&L. */
+  kind?: PeriodKind;
 }
 
 /** P&L por rango (contrato GET /admin/finance/pnl). */
 export async function getPnl(range: FinanceRange = {}): Promise<PnlDTO> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<PnlDTO>('/admin/finance/pnl', { query: { from: range.from, to: range.to } });
+    return apiRequest<PnlDTO>('/admin/finance/pnl', { query: { from: range.from, to: range.to, kind: range.from && range.to ? range.kind : undefined } });
   }
-  return delay(fx.mockPnl);
+  // Modo demo (F2a): servidor falso con `period/previousPeriod/comparison` del MISMO tramo (`mock/period-compare.ts`).
+  return delay(mockPnlWithComparison(fx.mockPnl, range));
 }
 
 /** Valor de inventario a referencia y a costo (contrato GET /admin/finance/inventory-value). */
@@ -7634,6 +7638,7 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
 function salesQuery(p: SalesReportParams): Record<string, string | undefined> {
   const custom = !!(p.from && p.to);
   return {
+    kind: custom ? p.kind : undefined,
     preset: custom ? 'custom' : p.preset,
     from: custom ? p.from : undefined,
     to: custom ? p.to : undefined,
@@ -7655,7 +7660,7 @@ export async function getSalesReport(params: SalesReportParams = {}): Promise<Sa
  */
 export async function exportSalesCsv(params: SalesReportParams = {}): Promise<BlobResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return requestBlob('/admin/reports/sales/export.csv', { query: salesQuery({ ...params, topSort: undefined }) });
+    return requestBlob('/admin/reports/sales/export.csv', { query: salesQuery({ ...params, topSort: undefined, kind: undefined }) });
   }
   return mockSdx(() => {
     const { text, filename } = salesMock.mockSalesCsv(params);

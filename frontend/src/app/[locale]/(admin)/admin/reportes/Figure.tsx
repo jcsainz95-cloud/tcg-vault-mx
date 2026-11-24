@@ -1,31 +1,41 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
+import type { AppLocale } from '@/i18n/routing';
+import { fmtBps } from '@/lib/reports/comparison';
 import { Link } from '@/i18n/navigation';
-import type { SalesDeltaDTO } from '@/types/contract';
+import type { ComparisonBasis, MoneyDeltaDTO, SalesDeltaDTO } from '@/types/contract';
 import { cn } from '@/lib/cn';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 
-/** Variación contra el periodo anterior, tal cual la da el servidor (`pct` entero; `null` ⇒ «—», nunca 0 %). */
-export function Delta({ delta }: { delta: SalesDeltaDTO | undefined }) {
+/**
+ * Variación contra el periodo anterior, tal cual la da el servidor: `delta` (Ventas, `pct` entero) o `money` (F2a, `deltaBps`);
+ * `null` ⇒ «—», nunca 0 %. §2 (F2a): NUNCA un porcentaje sin su base — `basis: none` ⇒ «—» aunque llegue un número, y
+ * `partial` ⇒ «vs lo que hay» (en vez de «vs periodo anterior»).
+ */
+export function Delta({ delta, money, basis }: { delta?: SalesDeltaDTO; money?: MoneyDeltaDTO; basis?: ComparisonBasis }) {
   const t = useTranslations('admin.reports.board.delta');
-  if (!delta) return null;
-  if (delta.pct == null) {
+  const locale = useLocale() as AppLocale;
+  if (!delta && !money) return null;
+  const pct = money ? money.deltaBps : delta!.pct;
+  if (basis === 'none' || pct == null) {
+    const why = basis === 'none' ? t('noBase') : t('noPrevious');
     return (
-      <span className="font-mono text-xs text-muted" title={t('noPrevious')}>
+      <span className="font-mono text-xs text-muted" title={why}>
         <span aria-hidden>—</span>
-        <span className="sr-only">{t('noPrevious')}</span>
+        <span className="sr-only">{why}</span>
       </span>
     );
   }
-  const dir = delta.pct > 0 ? 'up' : delta.pct < 0 ? 'down' : 'same';
+  const dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'same';
+  const text = money ? (fmtBps(Math.abs(money.deltaBps!), locale, false) as string) : t('pct', { pct: Math.abs(pct) });
   return (
     <span className="font-mono text-xs text-muted" data-testid="delta">
       <span aria-hidden>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : '＝'} </span>
       <span className="sr-only">{t(dir)} </span>
-      {t('pct', { pct: Math.abs(delta.pct) })}
-      <span className="ml-1">{t('vsPrevious')}</span>
+      {text}
+      <span className="ml-1">{basis === 'partial' ? t('vsPartial') : t('vsPrevious')}</span>
     </span>
   );
 }
@@ -35,12 +45,17 @@ export function Figure({
   label,
   value,
   delta,
+  money,
+  basis,
   note,
   className,
 }: {
   label: string;
   value: React.ReactNode;
   delta?: SalesDeltaDTO;
+  /** F2a: variación en el formato nuevo (`deltaBps`). */
+  money?: MoneyDeltaDTO;
+  basis?: ComparisonBasis;
   note?: React.ReactNode;
   className?: string;
 }) {
@@ -48,7 +63,7 @@ export function Figure({
     <div className={cn('flex flex-col gap-1.5 px-5 py-5', className)}>
       <span className="eyebrow">{label}</span>
       <span className="tabular font-serif text-[24px] leading-tight text-text">{value}</span>
-      <Delta delta={delta} />
+      <Delta delta={delta} money={money} basis={basis} />
       {note && <span className="text-xs leading-relaxed text-muted">{note}</span>}
     </div>
   );

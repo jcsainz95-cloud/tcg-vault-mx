@@ -3787,6 +3787,7 @@
         "line": {
           "agreed": "Precio pactado",
           "agreedCaption": "lo que ofrecimos",
+          "offeredOriginal": "Ofertado: {amount}",
           "market": "Mercado hoy",
           "marketUnknown": "sin dato",
           "chipUp": "Mercado {pct} % arriba del pactado",
@@ -6521,9 +6522,7 @@
           "oneDayToday": "Hoy, {date}",
           "oneDayYesterday": "Ayer, {date}",
           "oneDay": "{date}",
-          "range": "Del {from} al {to} · {days, plural, one {# día} other {# días}} · hora del centro de México",
-          "compareRange": "Se compara con: del {from} al {to}",
-          "compareDay": "Se compara con: {date}"
+          "range": "Del {from} al {to} · {days, plural, one {# día} other {# días}} · hora del centro de México"
         },
         "summary": {
           "title": "Resumen del periodo"
@@ -6816,13 +6815,37 @@
         "maxDays": "máx. {days} días",
         "mexicoTime": "Hora de México",
         "resolved": "Del {from} al {to}",
-        "allResolved": "Todo el historial, hasta el {to}"
+        "allResolved": "Todo el historial, hasta el {to}",
+        "fallback": "Ese periodo no es válido: se muestra Este mes."
+      },
+      "compare": {
+        "toDate": {
+          "month": "Mes a la fecha",
+          "quarter": "Trimestre a la fecha",
+          "year": "Año a la fecha"
+        },
+        "complete": "{range} comparado con {prev}",
+        "partial": "{range} comparado con {prev}, contra lo que hay (datos desde {since})",
+        "none": "Sin periodo anterior para comparar",
+        "noSales": "Sin ventas en el periodo anterior ({prev})",
+        "clamped": "El periodo anterior es más corto y se usó completo.",
+        "noBase": "Sin ventas en el periodo anterior",
+        "noPrevious": "El periodo anterior estaba en cero: no hay con qué calcular el porcentaje",
+        "cols": {
+          "current": "Este periodo",
+          "previous": "Periodo anterior",
+          "variation": "Variación",
+          "before": "Antes"
+        },
+        "dir": {
+          "up": "subió",
+          "down": "bajó",
+          "same": "igual"
+        }
       },
       "board": {
         "breadcrumb": "Reportes",
         "intro": "Los resultados de cada área, en el mismo periodo. Toca «Ver el informe completo» para bajar al detalle.",
-        "comparedWith": "Comparado con del {prevFrom} al {prevTo}",
-        "noComparison": "Sin periodo anterior con qué comparar",
         "seeFull": "Ver el informe completo",
         "delta": {
           "up": "subió",
@@ -6830,6 +6853,8 @@
           "same": "igual",
           "pct": "{pct} %",
           "vsPrevious": "vs periodo anterior",
+          "vsPartial": "vs lo que hay",
+          "noBase": "Sin ventas en el periodo anterior",
           "noPrevious": "Sin ventas en el periodo anterior con qué comparar"
         },
         "launch": {

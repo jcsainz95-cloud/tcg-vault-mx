@@ -31,7 +31,7 @@ import { assertValidPhone, isValidMxPhone, maskPhone } from '../users/phone-mx';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
 import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
-import { buildStatement, pnlBuckets, refundsInPeriod, zeroPnl } from './pnl-core';
+import { buildStatement, deltaOf, pnlBuckets, refundsInPeriod, zeroPnl, type PnlStatement } from './pnl-core';
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -54,7 +54,8 @@ import { FeaturedHealth, FeaturedService } from '../catalog/featured.service';
 import { ListingPriceService, ListingPricesHealth } from '../pricing/listing-price.service';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
 import { isYmd } from '../spend-alerts/mx-day';
-import { mxRange, todayMx } from '../sales-analytics/sales-period';
+import { comparisonBasis, daysBetween, mxRange, previousRange, todayMx, type PeriodKind } from '../sales-analytics/sales-period';
+import { firstDataDay } from '../sales-analytics/first-data-day';
 import { withAccountGate } from '../auth/account-gate';
 
 /**
@@ -1774,18 +1775,62 @@ export class AdminService {
    * /admin/finance/iva` para el MISMO rango (garantiza `statement.iva.ivaCollectedCents == /finance/iva`), no una
    * segunda cuenta. ⛔ `statement` es solo-JSON: no toca `exportCsv`.
    */
-  async pnlReport(from?: string, to?: string) {
+  async pnlReport(from?: string, to?: string, kind?: PeriodKind) {
     // §D9 8.1 (I2): cuánto del gasto de Stripe es ESTIMADO (0 ⇒ sin marca). Aditivo, junto a los componentes.
     const est = { orders: 0, cents: 0 };
     const [p, iva] = await Promise.all([this.pnl(from, to, est), this.ivaReport(from, to)]);
     // §D9 spec §5: desde cuándo la comisión va DENTRO del precio = el primer pedido `FEE_INCLUDED` (toda la historia, no el periodo); null si aún no hay.
     const first = await this.prisma.order.aggregate({ where: { feeConvention: 'FEE_INCLUDED' }, _min: { createdAt: true } });
+    const statement = buildStatement(p, iva);
     return {
       ...p,
       stripeFeeEstimatedOrders: est.orders,
       stripeFeeEstimatedCents: est.cents,
       feeIncludedSince: first._min.createdAt ? first._min.createdAt.toISOString() : null,
-      statement: buildStatement(p, iva),
+      statement,
+      ...(await this.pnlComparison(from, to, kind, statement)),
+    };
+  }
+
+  /**
+   * §REPORTES-CEO F2a — comparación del P&L contra el MISMO tramo del periodo anterior (API_CONTRACT_REPORTES §2 «forma exacta»).
+   * Solo con `from` y `to` en `YYYY-MM-DD`; sin ellos (histórico) o con ISO ⇒ las cuatro claves `null`. El tramo anterior es una
+   * SEGUNDA lectura del mismo `pnl()`/`ivaReport()` con su rango: ninguna fórmula nueva. CSV y dashboard no pasan por aquí.
+   */
+  private async pnlComparison(from: string | undefined, to: string | undefined, kind: PeriodKind | undefined, cur: PnlStatement) {
+    if (!from || !to || !isYmd(from) || !isYmd(to)) return { period: null, previousPeriod: null, previous: null, comparison: null };
+    const pr = previousRange(kind, from, to);
+    // `range()` no acepta años < 2020 (contrato §2): un tramo anterior que los toca se lee desde 2020-01-01 (no hay datos antes) y,
+    // si cae entero antes, es un P&L vacío (`basis:'none'`). `previousPeriod` conserva las fechas reales.
+    const FLOOR = '2020-01-01';
+    const entirelyBefore = pr.to < FLOOR;
+    const qFrom = pr.from < FLOOR ? FLOOR : pr.from;
+    const [p2, iva2, firstDay] = await Promise.all([
+      entirelyBefore ? Promise.resolve(zeroPnl()) : this.pnl(qFrom, pr.to),
+      entirelyBefore ? Promise.resolve({ ivaCollectedCents: 0, ivaRefundedCents: 0, ivaNetCents: 0 }) : this.ivaReport(qFrom, pr.to),
+      firstDataDay(this.prisma),
+    ]);
+    const prev = buildStatement(p2, iva2);
+    const basis = comparisonBasis(firstDay, pr);
+    const d = (c: number, p: number) => deltaOf(c, p);
+    return {
+      period: { from, to, kind: pr.kind, days: daysBetween(from, to) + 1, timezone: 'America/Mexico_City' as const },
+      previousPeriod: { from: pr.from, to: pr.to, clamped: pr.clamped },
+      previous: { ...p2, statement: prev },
+      comparison: {
+        basis: basis.basis,
+        dataSince: basis.dataSince,
+        figures: {
+          salesCents: d(cur.salesCents, prev.salesCents),
+          returnsAndRefundsCents: d(cur.returnsAndRefunds.totalCents, prev.returnsAndRefunds.totalCents),
+          netRevenueCents: d(cur.netRevenueCents, prev.netRevenueCents),
+          cogsCents: d(cur.costOfSales.cogsCents, prev.costOfSales.cogsCents),
+          stripeFeesCents: d(cur.costOfSales.stripeFeesCents, prev.costOfSales.stripeFeesCents),
+          shippingCostCents: d(cur.costOfSales.shippingCostCents, prev.costOfSales.shippingCostCents),
+          grossMarginCents: d(cur.grossMarginCents, prev.grossMarginCents),
+          netResultCents: d(cur.netResultCents, prev.netResultCents),
+        },
+      },
     };
   }
 

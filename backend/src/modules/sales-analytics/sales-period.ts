@@ -17,6 +17,9 @@ import { isYmd, mxDayStart, nextYmd, prevYmd } from '../spend-alerts/mx-day';
 export const SALES_PRESET_VALUES = ['today', 'yesterday', 'last7', 'last30', 'this_month', 'last_month', 'custom'] as const;
 export const SALES_GROUP_BY_VALUES = ['day', 'week', 'month'] as const;
 export const SALES_TOP_SORT_VALUES = ['net', 'pieces'] as const;
+/** §REPORTES-CEO F2a (API_CONTRACT_REPORTES §2) — cómo se elige el periodo anterior. Vacío = `span` = comportamiento de siempre. */
+export const PERIOD_KIND_VALUES = ['day', 'rolling', 'month', 'quarter', 'semester', 'year', 'span'] as const;
+export type PeriodKind = (typeof PERIOD_KIND_VALUES)[number];
 export type SalesPreset = (typeof SALES_PRESET_VALUES)[number];
 export type SalesGroupBy = (typeof SALES_GROUP_BY_VALUES)[number];
 export type SalesTopSort = (typeof SALES_TOP_SORT_VALUES)[number];
@@ -37,6 +40,9 @@ export interface SalesPeriod {
   to: Ymd;
   days: number;
   prev: { from: Ymd; to: Ymd };
+  /** F2a: `kind` EFECTIVO (cae a `span` si el periodo no calza con su unidad de calendario) y si el tramo anterior se recortó. */
+  kind: PeriodKind;
+  prevClamped: boolean;
   groupBy: SalesGroupBy;
   topSort: SalesTopSort;
   buckets: SalesBucket[];
@@ -48,6 +54,7 @@ export interface SalesQuery {
   to?: unknown;
   groupBy?: unknown;
   topSort?: unknown;
+  kind?: unknown;
 }
 
 const ymdParts = (ymd: Ymd) => ymd.split('-').map(Number) as [number, number, number];
@@ -122,6 +129,70 @@ export function bucketKeyOf(instant: Date, groupBy: SalesGroupBy, periodFrom: Ym
   return bucketStartOf(toMexicoCityDateKey(instant), groupBy, periodFrom);
 }
 
+const CALENDAR_MONTHS: Partial<Record<PeriodKind, number>> = { month: 1, quarter: 3, semester: 6, year: 12 };
+
+/** Inicio (día 1) de la unidad de calendario de `kind` que contiene `day`. */
+export function unitStart(kind: PeriodKind, day: Ymd): Ymd {
+  const n = CALENDAR_MONTHS[kind]!;
+  const [y, m] = ymdParts(day);
+  const m0 = Math.floor((m - 1) / n) * n + 1;
+  return `${String(y).padStart(4, '0')}-${String(m0).padStart(2, '0')}-01`;
+}
+
+/** Último día de la unidad que empieza en `start`. */
+export function unitEnd(kind: PeriodKind, start: Ymd): Ymd {
+  const n = CALENDAR_MONTHS[kind]!;
+  const [y, m] = ymdParts(start);
+  return ymdOfUtc(Date.UTC(y, m - 1 + n, 0));
+}
+
+/** Días del mes `m` (1..12) del año `y`. */
+const monthLength = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+
+/**
+ * `ymd` desplazado `-months` meses de calendario (mismo día; si no existe en el mes destino ⇒ fin de ese mes, `clamped:true`).
+ * Un día que ES el último de su mes va al último del mes destino SIN rótulo (el periodo cerrado nunca se rotula).
+ */
+function shiftBackMonths(ymd: Ymd, months: number): { ymd: Ymd; clamped: boolean } {
+  const [y, m, d] = ymdParts(ymd);
+  const total = y * 12 + (m - 1) - months;
+  const ty = Math.floor(total / 12);
+  const tm = (total % 12) + 1;
+  const tLen = monthLength(ty, tm);
+  const fmt = (day: number) => `${String(ty).padStart(4, '0')}-${String(tm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (d === monthLength(y, m)) return { ymd: fmt(tLen), clamped: false };
+  if (d > tLen) return { ymd: fmt(tLen), clamped: true };
+  return { ymd: fmt(d), clamped: false };
+}
+
+/**
+ * §REPORTES-CEO F2a — el periodo anterior = el MISMO TRAMO (puro). Regla única de calendario: «el mismo día, un mes/trimestre/
+ * semestre/año antes» (`from`/`to` desplazados −1/−3/−6/−12 meses); `clamped` solo si la FECHA se recorta (30-mar vs 28-feb).
+ * Un periodo cerrado (`to` = fin de la unidad) ⇒ la unidad anterior completa, sin rótulo. `kind` de calendario cuyo `from` no es el
+ * inicio de la unidad, o cuyo `to` pasa el fin de la unidad ⇒ `span`. `day` solo admite UN día (−7 d); con más ⇒ `span`.
+ */
+export function previousRange(kind: PeriodKind | undefined, from: Ymd, to: Ymd): { kind: PeriodKind; from: Ymd; to: Ymd; clamped: boolean } {
+  const days = daysBetween(from, to) + 1;
+  const span = (k: PeriodKind) => ({ kind: k, from: addDays(from, -days), to: prevYmd(from), clamped: false });
+  if (kind === undefined || kind === 'span') return span('span');
+  if (kind === 'rolling') return span('rolling');
+  if (kind === 'day') return from === to ? { kind, from: addDays(from, -7), to: addDays(to, -7), clamped: false } : span('span');
+  if (unitStart(kind, from) !== from || to > unitEnd(kind, from)) return span('span');
+  const months = CALENDAR_MONTHS[kind]!;
+  const f = shiftBackMonths(from, months);
+  const t = shiftBackMonths(to, months);
+  return { kind, from: f.ymd, to: t.ymd, clamped: f.clamped || t.clamped };
+}
+
+export type ComparisonBasis = 'complete' | 'partial' | 'none';
+
+/** `basis` de la comparación según el primer día con datos (`null` = sin pedidos ⇒ `none`). Nunca un delta sin `basis`. */
+export function comparisonBasis(firstDataDay: Ymd | null, prev: { from: Ymd; to: Ymd }): { basis: ComparisonBasis; dataSince: Ymd | null } {
+  if (firstDataDay === null || prev.to < firstDataDay) return { basis: 'none', dataSince: null };
+  if (firstDataDay <= prev.from) return { basis: 'complete', dataSince: null };
+  return { basis: 'partial', dataSince: firstDataDay };
+}
+
 function badDate(field: 'from' | 'to', msg: string): never {
   throw BusinessException.badRequest('VALIDATION_ERROR', msg, { field });
 }
@@ -145,6 +216,7 @@ export function resolvePeriod(q: SalesQuery, now: Date): SalesPeriod {
   const topSort = parseEnumFilter('topSort', q.topSort, SALES_TOP_SORT_VALUES) ?? 'net';
   const fromIn = readYmd(q.from, 'from');
   const toIn = readYmd(q.to, 'to');
+  const kindIn = parseEnumFilter('kind', q.kind, PERIOD_KIND_VALUES);
   const today = todayMx(now);
 
   let preset: SalesPreset;
@@ -198,6 +270,8 @@ export function resolvePeriod(q: SalesQuery, now: Date): SalesPeriod {
   }
   const days = daysBetween(from, to) + 1;
   // Periodo anterior (criterio 606, P-AN-3): los MISMOS N días inmediatamente antes de `from`.
-  const prev = { from: addDays(from, -days), to: prevYmd(from) };
-  return { preset, from, to, days, prev, groupBy, topSort, buckets: bucketsOf(from, to, groupBy) };
+  // F2a: sin `kind` = `span` = exactamente lo de siempre.
+  const pr = previousRange(kindIn, from, to);
+  const prev = { from: pr.from, to: pr.to };
+  return { preset, from, to, days, prev, kind: pr.kind, prevClamped: pr.clamped, groupBy, topSort, buckets: bucketsOf(from, to, groupBy) };
 }

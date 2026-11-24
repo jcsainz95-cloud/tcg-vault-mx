@@ -6,7 +6,8 @@ import type { AppLocale } from '@/i18n/routing';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/cn';
-import { isRealYmd, periodFor, periodSearch, spanDays, todayMx, REPORT_PRESETS, type ReportPeriod, type ReportPreset } from '@/lib/reports/period';
+import { asApiError } from '@/lib/api-client';
+import { DEFAULT_PRESET, isRealYmd, periodFor, periodSearch, spanDays, todayMx, REPORT_PRESETS, type ReportPeriod, type ReportPreset } from '@/lib/reports/period';
 import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { fmtRange } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
 
@@ -32,6 +33,29 @@ export function useReportPeriod(initial: ReportPeriod) {
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
   }, []);
   return [period, change] as const;
+}
+
+/**
+ * §2 (m-19): si el servidor rechaza el periodo (`422 VALIDATION_ERROR`), la pantalla vuelve al defecto («Este mes») y lo
+ * dice con un aviso que se va al elegir otro periodo. Devuelve el aviso y el `onChange` que hay que darle al selector.
+ */
+export function useInvalidPeriodFallback(error: unknown, period: ReportPeriod, change: (p: ReportPeriod) => void) {
+  const [notice, setNotice] = useState(false);
+  const status = error ? asApiError(error)?.status : undefined;
+  useEffect(() => {
+    if (status === 422 && period.preset !== DEFAULT_PRESET) {
+      change(periodFor('month'));
+      setNotice(true);
+    }
+  }, [status, period.preset, change]);
+  const onChange = useCallback(
+    (p: ReportPeriod) => {
+      setNotice(false);
+      change(p);
+    },
+    [change],
+  );
+  return { notice, onChange };
 }
 
 /**

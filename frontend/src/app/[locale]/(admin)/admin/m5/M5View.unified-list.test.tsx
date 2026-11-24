@@ -114,6 +114,50 @@ describe('Lista única de cartas (M5)', () => {
     expect(screen.getByTestId('m5-agreed-it-a')).toHaveTextContent('MX$60.00');
   });
 
+  it('baja aceptada (ofertado distinto del pactado): se ven ambos importes', async () => {
+    const items = [
+      { ...item('it-a', 'Alakazam', 'buy', 8_500), itemStatus: 'ajustada' as const, approvedPriceCents: 6_000, revision: { state: 'accepted' } },
+    ] as unknown as SellItemDTO[];
+    await render('en_transito', items);
+    expect(screen.getByTestId('m5-agreed-it-a')).toHaveTextContent('MX$60.00');
+    expect(screen.getByTestId('offered-original-it-a')).toHaveTextContent('Ofertado: MX$85.00');
+  });
+
+  it('ofertado igual al pactado: no hay línea extra', async () => {
+    const items = [
+      { ...item('it-a', 'Alakazam', 'buy', 8_500), itemStatus: 'ajustada' as const, approvedPriceCents: 8_500, revision: { state: 'accepted' } },
+    ] as unknown as SellItemDTO[];
+    await render('en_transito', items);
+    expect(screen.getByTestId('m5-agreed-it-a')).toHaveTextContent('MX$85.00');
+    expect(screen.queryByTestId('offered-original-it-a')).toBeNull();
+  });
+
+  it('sin baja aceptada (pactado = ofertado por defecto): no hay línea extra', async () => {
+    await render('en_transito', [{ ...item('it-a', 'Alakazam', 'buy', 8_500), itemStatus: 'ajustada' as const }] as unknown as SellItemDTO[]);
+    expect(screen.getByTestId('m5-agreed-it-a')).toHaveTextContent('MX$85.00');
+    expect(screen.queryByTestId('offered-original-it-a')).toBeNull();
+  });
+
+  it.each(['recibida', 'verificacion', 'aprobada'] as const)('m-28: en revisión (%s) el ofertado original sale UNA sola vez', async (st) => {
+    const items = [
+      { ...item('it-a', 'Alakazam', 'buy', 8_500), itemStatus: 'ajustada' as const, approvedPriceCents: 6_000, revision: { state: 'accepted' } },
+    ] as unknown as SellItemDTO[];
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue({ sellRequestId: 'sr-ul', lines: [] } as never);
+    await render(st, items, st === 'aprobada' ? TAB.por_pagar : TAB.verificando);
+    expect(screen.getByTestId('agreed-it-a')).toHaveTextContent('MX$60.00'); // vista de revisión
+    const row = screen.getByTestId('m5-item-it-a');
+    expect(within(row).getAllByText(/Ofertado: MX\$85\.00/)).toHaveLength(1);
+  });
+
+  it('m-27: con ofertado null (y pactado) no hay línea extra ni MX$0.00', async () => {
+    const items = [
+      { ...item('it-a', 'Alakazam', 'buy', null), itemStatus: 'ajustada' as const, approvedPriceCents: 6_000, revision: { state: 'accepted' } },
+    ] as unknown as SellItemDTO[];
+    await render('en_transito', items);
+    expect(screen.queryByTestId('offered-original-it-a')).toBeNull();
+    expect(screen.getByTestId('m5-item-it-a')).not.toHaveTextContent('MX$0.00');
+  });
+
   it('no comprada con rechazo: conserva el detalle del rechazo, la baja retirada y «Aprobado»', async () => {
     const items = [
       { ...item('it-s', 'Squirtle', 'skip', null), itemStatus: 'rechazada' as const, rejectionReason: 'dobleces', approvedPriceCents: 1_200, revision: { state: 'cancelled' } },

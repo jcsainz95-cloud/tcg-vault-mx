@@ -34,6 +34,8 @@ const RETIRED = (key: string) =>
   key.startsWith('admin.m9.tabs.') ||
   /^admin\.m9\.sales\.period\.(presetsLabel|today|yesterday|last7|last30|thisMonth|lastMonth|custom|from|to|apply)$/.test(key) ||
   /^admin\.m9\.sales\.range\.(bothRequired|fromAfterTo|toFuture|tooLong)$/.test(key) ||
+  // §REPORTES-CEO F2a: el rótulo «Se compara con» lo da `admin.reports.compare.*` (ComparisonNote), con el mismo tramo y su base.
+  /^admin\.m9\.sales\.label\.(compareRange|compareDay)$/.test(key) ||
   key === 'admin.m9.sales.p2.profit' ||
   key === 'admin.m9.sales.p2.profitHelp' ||
   key === 'admin.m9.sales.table.title';

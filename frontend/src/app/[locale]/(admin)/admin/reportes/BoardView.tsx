@@ -9,9 +9,11 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatCount, formatMoneyCents } from '@/lib/format';
 import { SALES_MAX_DAYS, financeRange, periodSearch, type ReportPeriod } from '@/lib/reports/period';
 import { salesParamsFor } from '@/lib/reports/sales-params';
-import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
 import type { LaunchMetricsDTO } from '@/types/contract';
-import { fmtRange, money } from '../m9/salesFormat';
+import { Banner } from '@/components/ui/Banner';
+import { ComparisonNote } from '@/components/domain/ComparisonNote';
+import { money } from '../m9/salesFormat';
 import { Figure, Franja } from './Figure';
 
 const DASH = '—';
@@ -30,11 +32,12 @@ const LAUNCH: { metric: LaunchMetric; goal: GoalKey }[] = [
  * HOY existen, todas del MISMO periodo (hora de México) y cada una enlazada a su informe. ⛔ El navegador no calcula nada:
  * dinero y variaciones salen tal cual de `/admin/finance/pnl`, `/admin/reports/sales` e inventario. Lo que aún no existe
  * (caja, dinero comprometido, inventario parado, clientes que regresan, alertas, metas) NO se pinta: llega en F2-F4.
- * Variación vs periodo anterior solo donde el servidor ya la da (Ventas); Finanzas, Compras y Operación sin ella (F2).
+ * Variación contra el MISMO tramo del periodo anterior (F2a) en Ventas y en el resultado de Finanzas; Compras y Operación sin ella.
  */
 export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
   const t = useTranslations('admin.reports.board');
   const tm = useTranslations('admin.modules');
+  const tp = useTranslations('admin.reports.period');
   const locale = useLocale() as AppLocale;
   const [period, setPeriod] = useReportPeriod(initialPeriod);
   const { from, to } = period;
@@ -46,12 +49,12 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
     queryKey: ['board-sales', period.preset, from, to],
     queryFn: () => getSalesReport(salesParamsFor(period)),
   });
-  const launch = useQuery({ queryKey: ['launch-metrics', range], queryFn: () => getLaunchMetrics(range) });
+  const launch = useQuery({ queryKey: ['launch-metrics', range], queryFn: () => getLaunchMetrics({ from: range.from, to: range.to }) });
   const inv = useQuery({ queryKey: ['finance-inventory-value'], queryFn: getInventoryValue });
   const custody = useQuery({ queryKey: ['finance-custody-value'], queryFn: getCustodyValue });
   const picking = usePickingSummary();
+  const fallback = useInvalidPeriodFallback(sales.error ?? pnl.error, period, setPeriod);
 
-  const prev = sales.data?.previousPeriod ? fmtRange(sales.data.previousPeriod.from, sales.data.previousPeriod.to, locale) : null;
   const st = sales.data?.totals;
   /** Avance contra la meta, tal cual de los conteos del servidor (el % solo formatea; sin meta ⇒ «Meta sin fijar»). */
   function goalNote(d: LaunchMetricsDTO, metric: LaunchMetric, goal: GoalKey): string {
@@ -71,16 +74,31 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
         <p className="max-w-2xl text-sm text-muted">{t('intro')}</p>
       </div>
 
-      <PeriodSelector value={period} onChange={setPeriod} maxDays={SALES_MAX_DAYS} />
-      <p className="text-sm text-muted" data-testid="board-period">
-        {prev ? t('comparedWith', { prevFrom: prev.from, prevTo: prev.to }) : t('noComparison')}
-      </p>
+      <PeriodSelector value={period} onChange={fallback.onChange} maxDays={SALES_MAX_DAYS} />
+      {fallback.notice && (
+        <Banner variant="warning" role="status">
+          {tp('fallback')}
+        </Banner>
+      )}
+      {/* §2 (F2a): contra qué se compara, de la RESPUESTA (mismo tramo, «contra lo que hay», «sin periodo anterior»). */}
+      {sales.data && (
+        <ComparisonNote
+          preset={period.preset}
+          period={sales.data.period}
+          previous={sales.data.previousPeriod}
+          comparison={sales.data.comparison}
+          kind={sales.data.period.kind}
+          testId="board-period"
+        />
+      )}
 
       <Franja id="finance" title={tm('m7')} ask={t('areas.finance.ask')} href={`/admin/m7${search}`} seeFull={t('seeFull')} queries={[pnl]}>
         {pnl.data && (
           <Figure
             label={t('areas.finance.profit')}
             value={money(pnl.data.profitCents, locale)}
+            money={pnl.data.comparison?.figures.netResultCents}
+            basis={pnl.data.comparison?.basis}
             note={t('areas.finance.profitNote')}
           />
         )}
@@ -89,12 +107,13 @@ export function BoardView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
       <Franja id="sales" title={tm('m9')} ask={t('areas.sales.ask')} href={`/admin/m9${search}`} seeFull={t('seeFull')} queries={[sales]}>
         {st && (
           <>
-            <Figure label={t('areas.sales.orders')} value={formatCount(st.orders, locale)} delta={sPrev?.orders} />
-            <Figure label={t('areas.sales.net')} value={formatMoneyCents(st.netSalesCents, locale)} delta={sPrev?.netSalesCents} note={t('areas.sales.netNote')} />
+            <Figure label={t('areas.sales.orders')} value={formatCount(st.orders, locale)} delta={sPrev?.orders} basis={sPrev?.basis} />
+            <Figure label={t('areas.sales.net')} value={formatMoneyCents(st.netSalesCents, locale)} delta={sPrev?.netSalesCents} basis={sPrev?.basis} note={t('areas.sales.netNote')} />
             <Figure
               label={t('areas.sales.ticket')}
               value={st.avgTicketCents != null ? formatMoneyCents(st.avgTicketCents, locale) : DASH}
               delta={sPrev?.avgTicketCents}
+              basis={sPrev?.basis}
               note={t('areas.sales.ticketNote')}
             />
             <Figure
