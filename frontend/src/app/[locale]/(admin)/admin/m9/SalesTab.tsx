@@ -11,8 +11,8 @@ import { cn } from '@/lib/cn';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { PeriodNoticeBanner } from '@/components/domain/PeriodSelector';
-import { SALES_MAX_DAYS, type PeriodNotice } from '@/lib/reports/period';
+import { PeriodNoticeBanner, isPeriodRejection } from '@/components/domain/PeriodSelector';
+import { DEFAULT_PRESET, SALES_MAX_DAYS, periodFor, type PeriodNotice } from '@/lib/reports/period';
 import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { SalesPeriodLabel, SalesPeriodPicker } from './SalesPeriodPicker';
 import { SALES_GRID, SalesSummary } from './SalesSummary';
@@ -91,8 +91,16 @@ export function SalesTab({ initial, initialNotice = null }: { initial: SalesUrlS
 
   const err = query.isError ? asApiError(query.error) : null;
   const forbidden = err?.status === 403;
-  // AN-1.2 (§15.12.5): el `400`/`422` no trae `reason` ⇒ mensaje GENÉRICO de periodo inválido.
-  const genericInvalid = err?.status === 400 || err?.status === 422;
+  // Contrato REPORTES §2 (m-19): un `400`/`422` `VALIDATION_ERROR` con un periodo que no es el defecto ⇒ vuelve a «Este mes» con el
+  // aviso `fallback` (ya no el mensaje AN-1.2). Si «Este mes» mismo es rechazado (o el código es otro) queda el mensaje genérico.
+  const fallsBack = isPeriodRejection(query.error) && state.preset !== DEFAULT_PRESET;
+  const genericInvalid = (err?.status === 400 || err?.status === 422) && !fallsBack;
+  useEffect(() => {
+    if (!fallsBack) return;
+    update(periodFor('month'));
+    setNotice('invalid');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo cuando el servidor rechaza el periodo vigente
+  }, [fallsBack]);
   const otherError = query.isError && !forbidden && !genericInvalid;
   const updating = query.isFetching && query.isPlaceholderData;
 

@@ -15,6 +15,8 @@ import type { LaunchMetricsDTO } from '@/types/contract';
 import { ComparisonNote } from '@/components/domain/ComparisonNote';
 import { money } from '../m9/salesFormat';
 import { Figure, Franja } from './Figure';
+import { useRole } from '@/lib/role';
+import { ToDateStrip } from './ToDateStrip';
 
 const DASH = '—';
 
@@ -38,6 +40,7 @@ export function BoardView({ initialPeriod, initialNotice = null }: { initialPeri
   const t = useTranslations('admin.reports.board');
   const tm = useTranslations('admin.modules');
   const locale = useLocale() as AppLocale;
+  const { isSuperAdmin } = useRole();
   const [period, setPeriod] = useReportPeriod(initialPeriod);
   const { from, to } = period;
   const search = periodSearch(period);
@@ -78,6 +81,14 @@ export function BoardView({ initialPeriod, initialNotice = null }: { initialPeri
       {/* §2 (F2a): contra qué se compara, de la RESPUESTA (mismo tramo, «contra lo que hay», «sin periodo anterior»). */}
       {sales.data && (
         <ComparisonNote period={sales.data.period} previous={sales.data.previousPeriod} comparison={sales.data.comparison} testId="board-period" />
+      )}
+
+      {/* F2b (§3b): mes, trimestre, semestre y año EN CURSO; independiente del selector de arriba. */}
+      {isSuperAdmin && (
+        <>
+          <ToDateStrip href="/admin/m7" seeFull={t('seeFull')} />
+          <p className="-mt-4 max-w-3xl text-xs text-muted">{t('areas.toDate.note')}</p>
+        </>
       )}
 
       <Franja id="finance" title={tm('m7')} ask={t('areas.finance.ask')} href={`/admin/m7${search}`} seeFull={t('seeFull')} queries={[pnl]}>

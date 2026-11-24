@@ -6959,6 +6959,15 @@
           "goalsUnset": "No goals set yet: showing this period's counts only."
         },
         "areas": {
+          "toDate": {
+            "title": "To date",
+            "ask": "How are the month, quarter, semester and year going?",
+            "net": "Net sales",
+            "gross": "Gross profit",
+            "result": "Result before fixed costs",
+            "days": "{days, plural, one {# day elapsed} other {# days elapsed}}",
+            "note": "Always the period in progress (it does not depend on the period above), against the same stretch of the previous period. Fixed costs are not deducted yet."
+          },
           "finance": {
             "ask": "How much did I earn?",
             "profit": "Profit",

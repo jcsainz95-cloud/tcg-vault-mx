@@ -32,7 +32,7 @@ export interface PnlColumnDTO {
   marginBps: number | null;
   sellingCosts: { paymentFeeCents: number; shippingResultCents: number };
   contributionCents: number;
-  /** solo en `total`; `null` hasta F3 («antes de gastos fijos») */
+  /** SOLO en `total`, `own.total` y `previous.total` (no en líneas ni cubos); `null` hasta F3 («antes de gastos fijos») */
   fixedCostsCents?: number | null;
   resultCents?: number | null;
 }
@@ -89,4 +89,13 @@ export interface PnlCalendarDTO {
   unit: CalendarUnit;
   /** del más antiguo al más reciente; el último es el periodo EN CURSO (`toDate: true`) */
   buckets: CalendarBucketDTO[];
+}
+
+/** `GET /admin/reports/finance/pnl/series?from&to&groupBy=day|week&line=…` (§3): cubos con `column` (sin `fixedCostsCents`/`resultCents`). */
+export type PnlSeriesLine = PnlLineKey | 'all';
+export interface PnlSeriesDTO {
+  period: { from: string; to: string; kind: PeriodKind; days: number; timezone: 'America/Mexico_City'; toDate: boolean; groupBy: 'day' | 'week'; line: PnlSeriesLine };
+  buckets: { from: string; to: string; column: PnlColumnDTO }[];
+  /** con `line=all` lleva `fixedCostsCents`/`resultCents` `null`; con una línea, no */
+  total: PnlColumnDTO;
 }

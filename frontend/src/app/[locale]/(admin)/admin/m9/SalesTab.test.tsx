@@ -139,7 +139,7 @@ describe('UX-AN-6 · cambiar `groupBy` pide con `groupBy` y las celdas pintan lo
   });
 });
 
-describe('UX-AN-7 · rango a mano: se valida como fecha REAL antes de mandar; el `400`/`422` del servidor da el aviso genérico', () => {
+describe('UX-AN-7 · rango a mano: se valida como fecha REAL antes de mandar; el `400`/`422` del servidor vuelve a «Este mes» con aviso', () => {
   const P = es.admin.reports.period;
   async function openCustom() {
     const spy = serve(report());
@@ -168,14 +168,16 @@ describe('UX-AN-7 · rango a mano: se valida como fecha REAL antes de mandar; el
     expect(spy.mock.calls.length).toBe(calls);
   });
 
-  it('un `422` del servidor: mensaje genérico (AN-1.2, sin `reason`) y la petición lleva custom con las fechas', async () => {
+  it('un `422` del servidor (contrato REPORTES §2): vuelve a «Este mes» con el aviso `fallback`, sin el mensaje AN-1.2', async () => {
     const spy = await openCustom();
     spy.mockRejectedValueOnce(new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'to' } }));
     set(P.from, '2026-09-01');
     set(P.to, '2026-09-05');
     fireEvent.click(ver());
-    expect(await screen.findByText(es.admin.m9.sales.range.invalid)).toBeInTheDocument();
-    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ preset: 'custom', from: '2026-09-01', to: '2026-09-05' }));
+    expect(await screen.findByText(P.fallback)).toBeInTheDocument();
+    expect(screen.queryByText(es.admin.m9.sales.range.invalid)).toBeNull();
+    expect(spy.mock.calls.some(([a]) => a?.preset === 'custom' && a.from === '2026-09-01' && a.to === '2026-09-05')).toBe(true);
+    await waitFor(() => expect(screen.getByRole('button', { name: P.month })).toHaveAttribute('aria-pressed', 'true'));
   });
 
   it('§2: el selector no manda `preset` de servidor (el atajo «Hoy» llega como custom, de ese día en México)', async () => {

@@ -66,6 +66,19 @@ test.describe('admin · Finanzas › Resultado por línea y Consolidados (F2b)',
     await expect(page.getByTestId('pnl-lines-mismatch')).toContainText('2 pedidos');
   });
 
+  test('Junta: franja «A la fecha» con mes, trimestre, semestre y año en curso; el operador no la ve', async ({ page }) => {
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/reportes');
+    const strip = page.getByTestId('franja-to-date');
+    await expect(strip).toBeVisible();
+    for (const u of ['month', 'quarter', 'semester', 'year']) {
+      const col = page.getByTestId(`to-date-${u}`);
+      await expect(col).toHaveAttribute('data-todate', 'true');
+      await expect(col.getByTestId('to-date-value')).toHaveCount(3);
+    }
+    await expect(strip).toContainText(t('es', 'admin.reports.board.areas.toDate.result'));
+  });
+
   test('operador: Finanzas le sale restringida, sin secciones ni importes', async ({ page }) => {
     await loginAs(page, 'operator');
     await page.addInitScript(() => window.localStorage.setItem('tcg.role', 'vault_operator'));

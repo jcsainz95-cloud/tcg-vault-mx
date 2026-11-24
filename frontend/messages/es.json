@@ -6959,6 +6959,15 @@
           "goalsUnset": "Todavía no hay metas fijadas: se muestran solo los conteos del periodo."
         },
         "areas": {
+          "toDate": {
+            "title": "A la fecha",
+            "ask": "¿Cómo va el mes, el trimestre, el semestre y el año?",
+            "net": "Ventas netas",
+            "gross": "Ganancia bruta",
+            "result": "Resultado antes de gastos fijos",
+            "days": "{days, plural, one {# día transcurrido} other {# días transcurridos}}",
+            "note": "Siempre es el periodo en curso (no depende del periodo de arriba), contra el mismo tramo del periodo anterior. Aún no se descuentan gastos fijos."
+          },
           "finance": {
             "ask": "¿Cuánto gané?",
             "profit": "Ganancia",
