@@ -29,6 +29,7 @@ function makeRes(status: number, body: unknown) {
   return {
     status,
     ok: status >= 200 && status < 300,
+    headers: new Headers(),
     json: async () => body,
   } as unknown as Response;
 }
@@ -269,5 +270,20 @@ describe('apiRequest · Content-Type solo con cuerpo (PERF, candado)', () => {
       expect(headersOf(i)['Content-Type']).toBe('application/json');
       expect(initOf(i).body).toBe(JSON.stringify(body));
     }
+  });
+});
+
+describe('§BUYLIST-429 · cabecera Retry-After → ApiClientError.retryAfter (F4)', () => {
+  it('un 429 con la cabecera la deja en el error; sin cabecera queda undefined', async () => {
+    const res = (h?: string) =>
+      ({ status: 429, ok: false, headers: new Headers(h ? { 'Retry-After': h } : {}), json: async () => ({ error: { code: 'RATE_LIMITED', message: 'x' } }) }) as unknown as Response;
+    const spy = vi.spyOn(globalThis, 'fetch');
+    spy.mockResolvedValueOnce(res('42'));
+    await expect(apiRequest('/buylist/quote/batch')).rejects.toMatchObject({ status: 429, retryAfter: '42' });
+    spy.mockResolvedValueOnce(res());
+    const e = (await apiRequest('/buylist/quote/batch').catch((x: unknown) => x)) as { retryAfter?: string };
+    expect(e).toMatchObject({ status: 429 });
+    expect(e.retryAfter).toBeUndefined();
+    spy.mockRestore();
   });
 });

@@ -33,7 +33,7 @@ let requestedCalls: { url: string; method: string }[] = [];
 let response: (url: string, method: string) => { status: number; body: unknown };
 
 function res(status: number, body: unknown): Response {
-  return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
 }
 
 /** Última llamada al `DELETE` del contrato (o `undefined` si nadie lo llamó). */

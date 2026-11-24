@@ -13,7 +13,7 @@ describe('api (rama REAL) · §CTA', () => {
   const originalUseMocks = config.useMocks;
 
   function res(status: number, body: unknown) {
-    return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+    return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
   }
   function call(i = 0): { url: string; method: string; body: unknown } {
     const [url, init] = fetchMock.mock.calls[i] as [string, RequestInit];

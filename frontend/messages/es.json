@@ -874,7 +874,7 @@
     "quoterSearchCardPlaceholder": "Nombre o número",
     "quoterAdd": "Agregar",
     "quoterAddAria": "Agregar {name} ({finish}) a la venta · {price}",
-    "quoterRateLimitWait": "Cotizando… un momento",
+    "quoterRateLimitWait": "Cotizando… continúa en {seconds} s",
     "quoterPending": "Precio pendiente",
     "quoterUnavailable": "No disponible",
     "quoterAddAriaMarket": "Agregar {name} ({finish}) a la venta · Valor de mercado {market} · Te pagamos {price}",

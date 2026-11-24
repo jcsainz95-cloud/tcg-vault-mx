@@ -22,11 +22,11 @@ describe('api (rama REAL) · GET/PUT /users/me/billing-profile (v1.67.1)', () =>
   };
 
   function makeRes(status: number, body: unknown) {
-    return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+    return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
   }
   /** `200` con cuerpo VACÍO: `res.json()` revienta y `api-client` lo convierte en `{}`. */
   function emptyOk() {
-    return { status: 200, ok: true, json: async () => { throw new SyntaxError('Unexpected end of JSON input'); } } as unknown as Response;
+    return { status: 200, ok: true, headers: new Headers(), json: async () => { throw new SyntaxError('Unexpected end of JSON input'); } } as unknown as Response;
   }
 
   beforeEach(() => {

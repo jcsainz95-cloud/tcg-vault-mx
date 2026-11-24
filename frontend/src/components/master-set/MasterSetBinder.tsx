@@ -3,7 +3,7 @@
 import { upgradeTcgplayerThumb } from '@/lib/tcgplayerImage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { withRateLimitRetry } from '@/lib/api/rate-limit-retry';
+import { setRateLimitWait, useRateLimitWaitUntil, withRateLimitRetry } from '@/lib/api/rate-limit-retry';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft } from 'lucide-react';
 import {
@@ -139,16 +139,18 @@ interface Props {
  * variante trae su cotización (`variants[].quote`, v. types/contract.ts) resuelta con
  * `POST /buylist/quote/batch` en TROCEADO de ≤`BUYLIST_QUOTE_BATCH_MAX` ítems.
  */
+type RetryOpts = { onWait?: (until: number | null) => void; signal?: AbortSignal };
+
 async function fetchQuoterBinder(
   set: MasterSetSummaryDTO,
-  onWait?: (waiting: boolean) => void,
+  retry?: RetryOpts,
 ): Promise<QuoterBinderResponse> {
   const PAGE_SIZE = 50;
   const cards: import('@/types/contract').CardDTO[] = [];
   let page = 1;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const res = await withRateLimitRetry(() => searchBuylistCards({ setId: set.setId, page, pageSize: PAGE_SIZE }), onWait);
+    const res = await withRateLimitRetry(() => searchBuylistCards({ setId: set.setId, page, pageSize: PAGE_SIZE }), retry);
     cards.push(...res.data);
     if (cards.length >= res.total || res.data.length === 0) break;
     page += 1;
@@ -174,10 +176,11 @@ async function fetchQuoterBinder(
   }
   const quoteByKey = new Map<string, BuylistBatchQuoteResultDTO>();
   for (let i = 0; i < items.length; i += BUYLIST_QUOTE_BATCH_MAX) {
+    retry?.signal?.throwIfAborted();
     const chunk = items.slice(i, i + BUYLIST_QUOTE_BATCH_MAX);
     const chunkKeys = keys.slice(i, i + BUYLIST_QUOTE_BATCH_MAX);
     // §BUYLIST-429: lotes EN SERIE; un 429 espera `Retry-After` y reintenta el MISMO lote (lo ya cotizado se conserva).
-    const res = await withRateLimitRetry(() => batchQuote(chunk), onWait);
+    const res = await withRateLimitRetry(() => batchQuote(chunk), retry);
     res.results.forEach((r) => {
       const key = chunkKeys[r.index];
       if (key) quoteByKey.set(key, r);
@@ -270,9 +273,9 @@ function fetchBinder(
   mode: MasterSetViewMode,
   userId: string | undefined,
   set: MasterSetSummaryDTO,
-  onWait?: (waiting: boolean) => void,
+  retry?: RetryOpts,
 ): Promise<QuoterBinderResponse> {
-  if (mode === 'quoter') return fetchQuoterBinder(set, onWait);
+  if (mode === 'quoter') return fetchQuoterBinder(set, retry);
   if (mode === 'user_vault_self') return getVaultMasterSetBinder(set.setId);
   if (mode === 'user_vault_admin') return getAdminVaultMasterSetBinder(userId ?? '', set.setId);
   return getMasterSetBinder(set.setId);
@@ -297,19 +300,22 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   // "Buscar carta" (SOLO quoter): el cotizador busca por nombre/número DENTRO del set elegido
   // (el índice de sets ya cubre "Filtrar por set"; ver mode.ts).
   const [nameFilter, setNameFilter] = useState('');
-  // §BUYLIST-429: true mientras se espera `Retry-After` de un 429 (estado «Cotizando… un momento»).
-  const [waiting, setWaiting] = useState(false);
+  // §BUYLIST-429 (I-1): la espera vive FUERA del componente, por modo+set, y sobrevive al remontaje.
+  const waitKey = `${mode}:${set.setId}`;
+  const waitUntil = useRateLimitWaitUntil(waitKey);
 
   const binder = useQuery({
     queryKey: ['master-set-binder', mode, userId ?? null, set.setId],
-    queryFn: () => fetchBinder(mode, userId, set, setWaiting),
-    // §BUYLIST-429: un set ya cotizado se reutiliza 10 min (reabrir/filtrar = 0 llamadas); sin refetch al enfocar/remontar.
-    staleTime: 10 * 60_000,
-    gcTime: 30 * 60_000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    // El reintento ante 429 ya lo hace `withRateLimitRetry`; el de react-query solo duplicaría la carga.
-    retry: false,
+    queryFn: ({ signal }) =>
+      fetchBinder(mode, userId, set, {
+        signal,
+        onWait: (until) => setRateLimitWait(waitKey, until),
+      }),
+    // §BUYLIST-429: SOLO el cotizador (lectura pública con límite por IP) cachea 10 min y reintenta por su
+    // cuenta; platform / bóveda / inventario conservan los defaults de la base (B-1).
+    ...(isQuoter
+      ? { staleTime: 10 * 60_000, gcTime: 30 * 60_000, refetchOnReconnect: false, retry: false }
+      : {}),
   });
 
   // N-16 REJILLA PLANA: el grid ya NO es una casilla por carta con sub-acabados, sino UNA TARJETA
@@ -568,11 +574,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
         <p className="mt-2 max-w-prose text-xs leading-relaxed text-muted">{t('quoterPriceNote')}</p>
       )}
 
-      {waiting && binder.isLoading && (
-        <p role="status" className="mt-3 text-sm text-muted">
-          {t('quoterRateLimitWait')}
-        </p>
-      )}
+      {waitUntil != null && binder.isLoading && <RateLimitWaitNotice until={waitUntil} />}
 
       <QueryState
         isLoading={binder.isLoading}
@@ -1315,6 +1317,31 @@ function SeparateProductTile({
           )}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * §BUYLIST-429 (I-2): aviso de espera por 429 con cuenta atrás. El texto visible baja cada segundo
+ * (`aria-hidden`); el lector de pantalla recibe un `role="status"` educado que solo cambia cada 10 s.
+ */
+function RateLimitWaitNotice({ until }: { until: number }) {
+  const t = useTranslations('masterSet');
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const left = Math.max(1, Math.ceil((until - now) / 1000));
+  const announced = Math.ceil(left / 10) * 10;
+  return (
+    <div className="mt-3">
+      <p aria-hidden="true" className="text-sm text-muted">
+        {t('quoterRateLimitWait', { seconds: left })}
+      </p>
+      <p role="status" aria-live="polite" className="sr-only">
+        {t('quoterRateLimitWait', { seconds: announced })}
+      </p>
     </div>
   );
 }

@@ -490,7 +490,7 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
   const originalUseMocks = config.useMocks;
 
   function makeRes(status: number, body: unknown) {
-    return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+    return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
   }
 
   beforeEach(() => {

@@ -29,7 +29,7 @@ const DEVICE_KEY = 'tcg.deviceToken';
 const USER = { id: 'u1', email: 'owner@example.com', name: 'Owner', role: 'customer', locale: 'es' };
 
 function makeRes(status: number, body: unknown) {
-  return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
 }
 function authOk(deviceToken: string) {
   return makeRes(200, { user: USER, accessToken: 'acc', refreshToken: 'ref', deviceToken });

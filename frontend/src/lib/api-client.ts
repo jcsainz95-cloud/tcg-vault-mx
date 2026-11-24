@@ -438,7 +438,7 @@ async function requestWithRefresh<T>(
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = toApiError(res.status, payload);
-    const ra = res.headers?.get?.('Retry-After');
+    const ra = res.headers.get('Retry-After');
     if (ra) err.retryAfter = ra;
     throw err;
   }

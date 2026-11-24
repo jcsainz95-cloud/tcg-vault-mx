@@ -15,7 +15,7 @@ describe('api (rama REAL) · declinar y cancelar la oferta de una solicitud de v
   const ROW = { id: 'sr-9', userId: 'u-1', status: 'expirada', expiredReason: 'no_offer', isTerminal: true, quotedTotalCents: 1000, createdAt: '2026-10-01T00:00:00Z', items: [] };
 
   function makeRes(status: number, body: unknown) {
-    return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+    return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
   }
   function call(i = 0) {
     const [url, init] = fetchMock.mock.calls[i] as [string, RequestInit];
