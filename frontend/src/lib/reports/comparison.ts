@@ -1,7 +1,7 @@
 import type { AppLocale } from '@/i18n/routing';
 import type { ComparisonBasis, MoneyDeltaDTO, PeriodKind } from '@/types/contract';
 import { fmtDay } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
-import { todayMx, type ReportPreset } from './period';
+import { todayMx } from './period';
 
 /**
  * §REPORTES-CEO §2 (F2a) — QUÉ se le dice al dueño sobre la comparación. Todo viene del servidor (`previousPeriod`,
@@ -9,36 +9,36 @@ import { todayMx, type ReportPreset } from './period';
  * ni una variación en el navegador, y nunca se muestra un porcentaje sin su base.
  */
 export type CompareMode = ComparisonBasis;
-export type ToDateUnit = 'month' | 'quarter' | 'year';
+export type ToDateUnit = 'month' | 'quarter' | 'semester' | 'year';
 
 export interface CompareInfo {
   /** `none` ⇒ «—» y «sin periodo anterior para comparar». */
   mode: CompareMode;
-  /** Periodo en curso ⇒ «Mes a la fecha» / «Trimestre a la fecha» / «Año a la fecha». */
+  /** Periodo en curso (`period.toDate:true` del servidor) ⇒ «Mes/Trimestre/Semestre/Año a la fecha». */
   toDate: ToDateUnit | null;
   previous: { from: string; to: string } | null;
-  /** El periodo anterior es más corto que lo transcurrido y se usó completo. */
+  /** La fecha de comparación se recortó al último día del mes anterior (30-mar vs 28-feb). */
   clamped: boolean;
   /** `partial` ⇒ «datos desde …». */
   dataSince: string | null;
 }
 
-const TO_DATE: Partial<Record<ReportPreset, ToDateUnit>> = { month: 'month', quarter: 'quarter', year: 'year' };
+const TO_DATE_UNITS: readonly PeriodKind[] = ['month', 'quarter', 'semester', 'year'];
 
 /**
- * `previous`/`comparison` de la RESPUESTA (no del selector). Sin periodo anterior, o «Todo», o `basis: none` ⇒ `none`.
+ * `previous`/`comparison` de la RESPUESTA (no del selector). Sin periodo anterior o `basis: none` ⇒ `none`.
  * Un servidor anterior (sin `basis`) con periodo anterior se trata como `complete`.
+ * m-7 (contrato §2): «… a la fecha» SOLO con `period.toDate === true` Y un `kind` de calendario; `toDate` ausente ⇒ sin prefijo
+ * (nunca se deduce del atajo: el último día del mes ya es periodo cerrado).
  */
 export function compareInfo(
-  preset: ReportPreset,
   previous: { from: string; to: string; clamped?: boolean } | null | undefined,
   comparison: { basis?: ComparisonBasis; dataSince?: string | null } | null | undefined,
-  /** `period.kind` EFECTIVO de la respuesta (m-3): si el servidor cayó a `span`, NO es «a la fecha». `undefined` ⇒ servidor anterior. */
-  kind?: PeriodKind | null,
+  period?: { toDate?: boolean; kind?: PeriodKind | null } | null,
 ): CompareInfo {
-  const wanted = TO_DATE[preset] ?? null;
-  const toDate = wanted && (kind === undefined || kind === null || kind === wanted) ? wanted : null;
-  const noBase = !previous || preset === 'all' || comparison === null;
+  const kind = period?.kind;
+  const toDate = period?.toDate === true && kind && TO_DATE_UNITS.includes(kind) ? (kind as ToDateUnit) : null;
+  const noBase = !previous || comparison === null;
   const basis: ComparisonBasis = noBase ? 'none' : (comparison?.basis ?? 'complete');
   if (basis === 'none') return { mode: 'none', toDate, previous: previous ? { from: previous.from, to: previous.to } : null, clamped: false, dataSince: null };
   return {
@@ -66,11 +66,25 @@ export function fmtCompact(from: string, to: string, locale: AppLocale, today: s
 
 const MINUS = '−';
 
-/** Variación de la columna «vs periodo anterior»: `deltaBps` (puntos base enteros del servidor) en %, `null` ⇒ `null` («—»). */
-export function fmtBps(bps: number | null, locale: AppLocale, signed = true): string | null {
-  if (bps === null) return null;
-  const n = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'es-MX', { maximumFractionDigits: 1, minimumFractionDigits: 0 }).format(Math.abs(bps) / 100);
-  return `${signed ? (bps > 0 ? '+' : bps < 0 ? MINUS : '') : ''}${n} %`;
+/**
+ * Porcentaje ÚNICO de los reportes (§2 m-3): puntos base enteros del servidor ⇒ SIEMPRE un decimal fijo («12.0 %», «−3.5 %»;
+ * es `12,0 %`). `null` ⇒ `null` («—»). `signed` pone «+»/«−» (0 sin signo); `signed=false` omite solo el «+» y conserva el «−». Sustituye a `fmtBps`, al `Math.round` de la meta y a Ventas.
+ */
+export function fmtPct(bps: number | null, locale: AppLocale, signed = true): string | null {
+  if (bps === null || !Number.isFinite(bps)) return null;
+  const n = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Math.abs(bps) / 100);
+  const zero = Math.abs(bps) < 5; // se ve «0.0 %»: sin signo
+  const sign = zero ? '' : bps > 0 ? (signed ? '+' : '') : MINUS; // «sin signo» = sin «+»; el menos NUNCA se pierde
+  return `${sign}${n} %`;
+}
+
+/** Puntos base de `n/d` (avance contra meta: dos conteos), mitad hacia afuera de cero; `d ≤ 0` ⇒ 0. Con BigInt: sin pasar de 2^53. */
+export function bpsOf(n: number, d: number): number {
+  if (!(d > 0) || !Number.isFinite(n)) return 0;
+  const num = BigInt(Math.abs(Math.trunc(n))) * 10_000n;
+  const den = BigInt(Math.trunc(d));
+  const q = (num * 2n + den) / (den * 2n);
+  return n < 0 ? -Number(q) : Number(q);
 }
 
 /** Sentido de una variación del servidor (solo para flecha y texto de lectores de pantalla; sin colores de bueno/malo). */

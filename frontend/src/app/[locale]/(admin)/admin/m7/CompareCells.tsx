@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { ComparisonBasis, MoneyDeltaDTO } from '@/types/contract';
-import { fmtBps, moneyDirection } from '@/lib/reports/comparison';
+import { fmtPct, moneyDirection } from '@/lib/reports/comparison';
 import { money, signedMoney } from '../m9/salesFormat';
 
 /** Anchos de las columnas del estado de resultados (en pantallas ≥ sm); el encabezado y cada renglón comparten los mismos. */
@@ -18,7 +18,7 @@ export function CompareCells({ d, basis, inline = false }: { d: MoneyDeltaDTO; b
   const t = useTranslations('admin.reports.compare');
   const locale = useLocale() as AppLocale;
   const none = basis === 'none';
-  const pct = none ? null : fmtBps(d.deltaBps, locale);
+  const pct = none ? null : fmtPct(d.deltaBps, locale);
   const dir = moneyDirection(d);
   return (
     <span

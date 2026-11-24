@@ -2,6 +2,7 @@ import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 import { redirect } from '@/i18n/navigation';
 import { routing, type AppLocale } from '@/i18n/routing';
 import { M9View } from './M9View';
+import { SALES_MAX_DAYS, parsePeriodNotice } from '@/lib/reports/period';
 import { parseSalesUrl } from './salesParams';
 
 /**
@@ -32,7 +33,7 @@ export default async function M9Page({
   }
   return (
     <SuperAdminOnly>
-      <M9View initialSales={parseSalesUrl(sp)} />
+      <M9View initialSales={parseSalesUrl(sp)} initialNotice={parsePeriodNotice(sp, undefined, { maxDays: SALES_MAX_DAYS }).notice} />
     </SuperAdminOnly>
   );
 }

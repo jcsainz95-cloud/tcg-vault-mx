@@ -3,7 +3,6 @@
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { ComparisonBasis, PeriodKind } from '@/types/contract';
-import type { ReportPreset } from '@/lib/reports/period';
 import { compareInfo, fmtCompact } from '@/lib/reports/comparison';
 import { fmtDay } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
 
@@ -14,26 +13,22 @@ import { fmtDay } from '@/app/[locale]/(admin)/admin/m9/salesFormat';
  * `previous`/`comparison` `undefined` mientras carga ⇒ no se pinta nada (nunca un rótulo sin su respuesta).
  */
 export function ComparisonNote({
-  preset,
   period,
   previous,
   comparison,
-  kind,
   testId = 'compare-note',
   className,
 }: {
-  preset: ReportPreset;
-  period: { from: string; to: string };
+  /** `period` de la RESPUESTA: `toDate`/`kind` efectivos (m-7: «a la fecha» solo con `toDate:true`). */
+  period: { from: string; to: string; toDate?: boolean; kind?: PeriodKind | null };
   previous: { from: string; to: string; clamped?: boolean } | null | undefined;
   comparison: { basis?: ComparisonBasis; dataSince?: string | null } | null | undefined;
-  /** `period.kind` efectivo de la respuesta (m-3). */
-  kind?: PeriodKind | null;
   testId?: string;
   className?: string;
 }) {
   const t = useTranslations('admin.reports.compare');
   const locale = useLocale() as AppLocale;
-  const info = compareInfo(preset, previous, comparison, kind);
+  const info = compareInfo(previous, comparison, period);
   const range = fmtCompact(period.from, period.to, locale);
 
   if (info.mode === 'none') {
@@ -53,7 +48,7 @@ export function ComparisonNote({
       {base}
       {info.clamped && (
         <span data-testid={`${testId}-clamped`} className="block text-xs">
-          {t('clamped')}
+          {t('clamped', { day: Number(period.to.slice(8, 10)), last: info.previous ? fmtDay(info.previous.to, locale) : '' })}
         </span>
       )}
     </p>

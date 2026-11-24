@@ -11,7 +11,8 @@ import { cn } from '@/lib/cn';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
-import type { ReportPreset } from '@/lib/reports/period';
+import { PeriodNoticeBanner, isPeriodRejection } from '@/components/domain/PeriodSelector';
+import { DEFAULT_PRESET, SALES_MAX_DAYS, periodFor, type PeriodNotice } from '@/lib/reports/period';
 import { setCurrentPeriod } from '@/lib/reports/period-store';
 import { SalesPeriodLabel, SalesPeriodPicker } from './SalesPeriodPicker';
 import { SALES_GRID, SalesSummary } from './SalesSummary';
@@ -45,10 +46,12 @@ function shownParams(d: SalesReportDTO): SalesReportParams {
  * Pestaña «Ventas» de Reportes (`DESIGN_SYSTEM §AN-UX`, contrato §15, criterios 600–613 y 620–624).
  * ⛔ AN-1: todo número sale TAL CUAL del `SalesReportDTO`; esta vista no suma, no promedia, no resta, no reordena.
  */
-export function SalesTab({ initial }: { initial: SalesUrlState }) {
+export function SalesTab({ initial, initialNotice = null }: { initial: SalesUrlState; initialNotice?: PeriodNotice | null }) {
   const t = useTranslations('admin.m9.sales');
   const tc = useTranslations('common');
   const [state, setState] = useState<SalesUrlState>(initial);
+  // §2 «Caídas del selector»: aviso de la URL (lo decide `parsePeriodNotice` en la página); se va al elegir otro periodo.
+  const [notice, setNotice] = useState<PeriodNotice | null>(initialNotice);
   const params = toReportParams(state);
   const today = todayMx();
 
@@ -61,17 +64,14 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
 
   // Último informe bueno: si la consulta nueva falla, los datos previos se quedan visibles, atenuados (§AN-UX.10).
   const lastGood = useRef<SalesReportDTO | undefined>(undefined);
-  // El atajo del informe que SE VE (no el recién elegido): «Mes a la fecha» nunca va sobre cifras de otro periodo.
-  const lastGoodPreset = useRef<ReportPreset>(state.preset);
-  if (query.data && !query.isPlaceholderData) {
-    lastGood.current = query.data;
-    lastGoodPreset.current = state.preset;
-  }
+  // «Mes a la fecha» sale de `period.toDate` DEL INFORME que se ve (no del atajo recién elegido): nunca va sobre cifras de otro periodo.
+  if (query.data && !query.isPlaceholderData) lastGood.current = query.data;
   const shown = query.data ?? lastGood.current;
 
   // TD-AN-9: el efecto (URL) fuera del updater de `setState`, que React puede llamar dos veces.
   function update(patch: Partial<SalesUrlState>) {
     const next = { ...state, ...patch };
+    if ('preset' in patch) setNotice(null);
     setState(next);
     writeSalesUrl(next);
     setCurrentPeriod({ preset: next.preset, from: next.from, to: next.to }); // el menú lleva el periodo vigente (I-3b)
@@ -91,8 +91,16 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
 
   const err = query.isError ? asApiError(query.error) : null;
   const forbidden = err?.status === 403;
-  // AN-1.2 (§15.12.5): el `400`/`422` no trae `reason` ⇒ mensaje GENÉRICO de periodo inválido.
-  const genericInvalid = err?.status === 400 || err?.status === 422;
+  // Contrato REPORTES §2 (m-19): un `400`/`422` `VALIDATION_ERROR` con un periodo que no es el defecto ⇒ vuelve a «Este mes» con el
+  // aviso `fallback` (ya no el mensaje AN-1.2). Si «Este mes» mismo es rechazado (o el código es otro) queda el mensaje genérico.
+  const fallsBack = isPeriodRejection(query.error) && state.preset !== DEFAULT_PRESET;
+  const genericInvalid = (err?.status === 400 || err?.status === 422) && !fallsBack;
+  useEffect(() => {
+    if (!fallsBack) return;
+    update(periodFor('month'));
+    setNotice('invalid');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo cuando el servidor rechaza el periodo vigente
+  }, [fallsBack]);
   const otherError = query.isError && !forbidden && !genericInvalid;
   const updating = query.isFetching && query.isPlaceholderData;
 
@@ -127,7 +135,8 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
           onPeriod={(p) => update(p)}
           onGroupBy={(g) => update({ groupBy: g })}
         />
-        {shown && <SalesPeriodLabel data={shown} preset={lastGoodPreset.current} />}
+        <PeriodNoticeBanner notice={notice} maxDays={SALES_MAX_DAYS} />
+        {shown && <SalesPeriodLabel data={shown} />}
       </div>
 
       {forbidden && (

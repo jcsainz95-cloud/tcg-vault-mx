@@ -44,7 +44,7 @@ export interface PieceCell {
 }
 
 export interface SalesReportDTO {
-  period: { preset: SalesPreset; /** F2a: `kind` EFECTIVO (cae a `span` si no calza). */ kind: PeriodKind; from: Ymd; to: Ymd; days: number; timezone: 'America/Mexico_City' };
+  period: { preset: SalesPreset; /** F2a: `kind` EFECTIVO (cae a `span` si no calza). */ kind: PeriodKind; from: Ymd; to: Ymd; days: number; timezone: 'America/Mexico_City'; /** F2b (m-7): «a la fecha» lo dice el servidor. */ toDate: boolean };
   previousPeriod: { from: Ymd; to: Ymd; clamped: boolean };
   /** F2a: día MX del primer pedido liquidado; `null` sin pedidos (⇒ `basis:'none'`). */
   firstDataDay: Ymd | null;

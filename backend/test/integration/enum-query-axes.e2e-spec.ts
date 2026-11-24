@@ -144,6 +144,7 @@ import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } fro
 // 💰 v1.110⟨descuentos⟩ (§DSC.7) — el `?state=` L de `GET /admin/discount-codes`.
 import { DISCOUNT_CODE_STATE_FILTER_VALUES } from '../../src/modules/discounts/discount-admin-view';
 // 💰 §AN (API_CONTRACT §15.2) — los ejes L de la analítica de ventas.
+import { SERIES_GROUP_BY_VALUES, SERIES_LINE_VALUES } from '../../src/modules/admin/reports-finance.service';
 import { PERIOD_KIND_VALUES, SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
 // 💰 v1.86.5⟨accesorios⟩ (§AC.11): dominio L `true | false` de `?active=`/`?soldOut=` del panel de accesorios.
 import { ACCESSORY_BOOLEAN_FILTER_VALUES } from '../../src/modules/accessories/accessory-input';
@@ -375,6 +376,15 @@ const OBS_SALES: Obs = {
 const OBS_PNL: Obs = {
   huella: (res) => JSON.stringify(res.body),
   hayDatos: (res) => ((res.body as unknown as { previous?: unknown })?.previous ?? null) !== null,
+};
+/** 💰 §REPORTES-CEO F2b — `GET /admin/reports/finance/pnl` y `/pnl/series`: el cuerpo entero (`kind`, `groupBy` y `line` lo cambian). */
+const OBS_FIN_PNL: Obs = {
+  huella: (res) => JSON.stringify(res.body),
+  hayDatos: (res) => ((res.body as unknown as { previous?: unknown })?.previous ?? null) !== null,
+};
+const OBS_FIN_SERIES: Obs = {
+  huella: (res) => JSON.stringify(res.body),
+  hayDatos: (res) => (((res.body as unknown as { buckets?: unknown[] })?.buckets?.length) ?? 0) > 0,
 };
 /** 💰 §AN — `GET /admin/reports/sales/export.csv`: el texto entero (una fila por cubo + `total`, §15.7). */
 const OBS_SALES_CSV: Obs = {
@@ -876,6 +886,10 @@ const REGISTRO: readonly AxisRow[] = [
   // §REPORTES-CEO F2a — `kind` (periodo anterior = mismo tramo): con 1..7 de marzo `month` compara contra 1..7 de feb, `span` contra 22..28.
   { route: 'GET /admin/reports/sales', param: 'kind', clazz: 'L', allowed: PERIOD_KIND_VALUES, valid: 'month', alterno: 'span', obs: OBS_SALES, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-07' },
   { route: 'GET /admin/finance/pnl', param: 'kind', clazz: 'L', allowed: PERIOD_KIND_VALUES, valid: 'month', alterno: 'span', obs: OBS_PNL, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-07' },
+  // 💰 §REPORTES-CEO F2b (API_CONTRACT_REPORTES §3): clase L como sus hermanas de ventas y del P&L plano; `from`/`to`/`count`/`asOf` son fechas y un entero (no enums).
+  { route: 'GET /admin/reports/finance/pnl', param: 'kind', clazz: 'L', allowed: PERIOD_KIND_VALUES, valid: 'month', alterno: 'span', obs: OBS_FIN_PNL, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-07' },
+  { route: 'GET /admin/reports/finance/pnl/series', param: 'groupBy', clazz: 'L', allowed: SERIES_GROUP_BY_VALUES, valid: 'week', alterno: 'day', obs: OBS_FIN_SERIES, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-14' },
+  { route: 'GET /admin/reports/finance/pnl/series', param: 'line', clazz: 'L', allowed: SERIES_LINE_VALUES, valid: 'raw', alterno: 'sealed', obs: OBS_FIN_SERIES, auth: 'admin', echoValue: false, extra: () => 'from=2021-03-01&to=2021-03-07&groupBy=day' },
   { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
 
@@ -2085,7 +2099,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // (clase ORDEN, decidida por el arquitecto en el anexo ⇒ `transcrita`). No sube ningún pendiente.
     // ⭐ §REPORTES-CEO F2a — 101 → **103** y 19 fijo: `kind` de `GET /admin/reports/sales` y de `GET /admin/finance/pnl` (clase L, dominio en `sales-period.ts`;
     // API_CONTRACT_REPORTES §2). Sin fila propia en la tabla de §0-Q aún: se anota para el arquitecto en STATUS.
-    expect(REGISTRO.length).toBe(103);
+    // ⭐ §REPORTES-CEO F2b — 103 → **106** y 19 fijo: `kind` de `GET /admin/reports/finance/pnl`, y `groupBy`/`line` de `GET /admin/reports/finance/pnl/series` (clase L; dominios en
+    // `reports-finance.service.ts`/`sales-period.ts`; API_CONTRACT_REPORTES §3). Sin fila propia en la tabla de §0-Q aún (como las de F2a): se anota para el arquitecto en STATUS.
+    expect(REGISTRO.length).toBe(106);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(19);
     // PSA-ACABADO: 95 → 96 y 18 → 19 — `?finish=` del DELETE de estimados (SELECTOR, dominio `Finish`; contrato §4 vigente, fila de §0-Q aún no escrita).
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
@@ -2169,7 +2185,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `revisedPriceCents` de `GET /admin/buylist/items/:itemId/revise-price/preview` (monto en centavos, formato `^\d{1,9}$`; no es un enum).
     // 💰 **120 → 122 (§FICHA-CLIENTE, contrato §1b; ⚠️ PENDIENTE de ratificar por el arquitecto):** `cursor` (id uuid opaco) y `limit` (entero 1..50) de
     // `GET /admin/users/:id/notes` — paginación, no conjunto de tokens; fuera de forma ⇒ `400 {field}`. ⛔ `QUERY_SIN_NOMBRE` NO sube.
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(122);
+    // 💰 **122 → 128 (§REPORTES-CEO F2b; ratificado por el arquitecto en el contrato, 4248ab2b):** `from`/`to` (días MX `YYYY-MM-DD`; forma ⇒ `400 {field}`, inexistente o año fuera de 2020..2100 ⇒ `422 {field}`) de
+    // `GET /admin/reports/finance/pnl` y `/pnl/series`, y `count` (entero 1..12) y `asOf` (día ≤ hoy MX) de `/pnl/series`. No son conjuntos de tokens. ⛔ `QUERY_SIN_NOMBRE` NO sube.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(128);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

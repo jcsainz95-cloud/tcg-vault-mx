@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { AdminReportsFinanceController } from './reports-finance.controller';
+import { ReportsFinanceService } from './reports-finance.service';
 import {
   AdminDashboardController,
   AdminFinanceController,
@@ -33,8 +35,9 @@ import { CatalogModule } from '../catalog/catalog.module';
   // proveedor (`ShippingProviderModule`, solo `import`); `SpendAlertsModule` da además la lectura de saldo cacheada del tablero.
   // 💰 §AN (API_CONTRACT §15): `SalesAnalyticsModule` para las rutas `admin/reports/sales*`.
   imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule, SpendAlertsModule, ShippingProviderModule, SalesAnalyticsModule, CatalogModule],
-  providers: [AdminService, ShippingConfigService, DashboardShippingService, CustomerNotesService, CustomerOverviewService],
+  providers: [AdminService, ReportsFinanceService, ShippingConfigService, DashboardShippingService, CustomerNotesService, CustomerOverviewService],
   controllers: [
+    AdminReportsFinanceController,
     AdminUsersController,
     AdminCustomerFileController,
     AdminFinanceController,

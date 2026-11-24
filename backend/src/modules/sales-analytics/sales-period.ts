@@ -178,10 +178,24 @@ export function previousRange(kind: PeriodKind | undefined, from: Ymd, to: Ymd):
   if (kind === 'rolling') return span('rolling');
   if (kind === 'day') return from === to ? { kind, from: addDays(from, -7), to: addDays(to, -7), clamped: false } : span('span');
   if (unitStart(kind, from) !== from || to > unitEnd(kind, from)) return span('span');
+  return shiftUnitBack(kind, from, to);
+}
+
+/** El mismo tramo una unidad de calendario antes (`from`/`to` −1/−3/−6/−12 meses). Lo comparten `previousRange` y los consolidados fiscales. */
+export function shiftUnitBack(kind: 'month' | 'quarter' | 'semester' | 'year', from: Ymd, to: Ymd): { kind: PeriodKind; from: Ymd; to: Ymd; clamped: boolean } {
   const months = CALENDAR_MONTHS[kind]!;
   const f = shiftBackMonths(from, months);
   const t = shiftBackMonths(to, months);
   return { kind, from: f.ymd, to: t.ymd, clamped: f.clamped || t.clamped };
+}
+
+/**
+ * §REPORTES-CEO F2b (m-7) — `period.toDate`: el servidor dice «a la fecha» = `kind` EFECTIVO de calendario ∧ `to` < último día de la
+ * unidad que empieza en `from`. El último día de la unidad ya es periodo cerrado (⇒ `false`). `kind` ausente o no de calendario ⇒ `false`.
+ */
+export function isToDate(kind: PeriodKind | undefined, from: Ymd, to: Ymd): boolean {
+  if (kind !== 'month' && kind !== 'quarter' && kind !== 'semester' && kind !== 'year') return false;
+  return to < unitEnd(kind, from);
 }
 
 export type ComparisonBasis = 'complete' | 'partial' | 'none';

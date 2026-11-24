@@ -8,9 +8,9 @@ import { useRole } from '@/lib/role';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import { formatCount } from '@/lib/format';
-import { SALES_MAX_DAYS, periodSearch, type ReportPeriod } from '@/lib/reports/period';
+import { SALES_MAX_DAYS, periodSearch, type PeriodNotice, type ReportPeriod } from '@/lib/reports/period';
 import { salesParamsFor } from '@/lib/reports/sales-params';
-import { PeriodSelector, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { PeriodNoticeBanner, PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
 import { QueryState } from '@/components/ui/QueryState';
 import { SalesP2Totals } from '../m9/SalesP2';
 import { Figure } from './Figure';
@@ -20,7 +20,7 @@ import { Figure } from './Figure';
  * Solo súper-admin y con el periodo único: envío cobrado, costo de guías, resultado del envío y contracargos (antes en Ventas).
  * El operador no pide `/admin/reports/sales` (⛔ ni máscara: la consulta no existe para él).
  */
-export function OpsView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
+export function OpsView({ initialPeriod, initialNotice = null }: { initialPeriod: ReportPeriod; initialNotice?: PeriodNotice | null }) {
   const t = useTranslations('admin.reports.ops');
   const tm = useTranslations('admin.modules');
   const locale = useLocale() as AppLocale;
@@ -33,6 +33,7 @@ export function OpsView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
     queryFn: () => getSalesReport(salesParamsFor(period)),
     enabled: isSuperAdmin,
   });
+  const fallback = useInvalidPeriodFallback(sales.error, period, setPeriod, initialNotice);
   const link = 'text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none';
 
   return (
@@ -64,7 +65,8 @@ export function OpsView({ initialPeriod }: { initialPeriod: ReportPeriod }) {
       {isSuperAdmin && (
         <section aria-labelledby="ops-money" className="flex flex-col gap-3">
           <h2 id="ops-money" className="text-h2 font-semibold">{t('shipping')}</h2>
-          <PeriodSelector value={period} onChange={setPeriod} maxDays={SALES_MAX_DAYS} />
+          <PeriodSelector value={period} onChange={fallback.onChange} maxDays={SALES_MAX_DAYS} />
+          <PeriodNoticeBanner notice={fallback.notice} maxDays={SALES_MAX_DAYS} />
           <QueryState isLoading={sales.isLoading} isError={sales.isError} error={sales.error} onRetry={() => sales.refetch()}>
             {sales.data && (
               <div className="[&>section]:mx-0 [&>section]:border">

@@ -54,7 +54,7 @@ import { FeaturedHealth, FeaturedService } from '../catalog/featured.service';
 import { ListingPriceService, ListingPricesHealth } from '../pricing/listing-price.service';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
 import { isYmd } from '../spend-alerts/mx-day';
-import { comparisonBasis, daysBetween, mxRange, previousRange, todayMx, type PeriodKind } from '../sales-analytics/sales-period';
+import { comparisonBasis, daysBetween, isToDate, mxRange, previousRange, todayMx, type PeriodKind } from '../sales-analytics/sales-period';
 import { firstDataDay } from '../sales-analytics/first-data-day';
 import { withAccountGate } from '../auth/account-gate';
 
@@ -1814,7 +1814,7 @@ export class AdminService {
     const basis = comparisonBasis(firstDay, pr);
     const d = (c: number, p: number) => deltaOf(c, p);
     return {
-      period: { from, to, kind: pr.kind, days: daysBetween(from, to) + 1, timezone: 'America/Mexico_City' as const },
+      period: { from, to, kind: pr.kind, days: daysBetween(from, to) + 1, timezone: 'America/Mexico_City' as const, toDate: isToDate(pr.kind, from, to) },
       previousPeriod: { from: pr.from, to: pr.to, clamped: pr.clamped },
       previous: { ...p2, statement: prev },
       comparison: {

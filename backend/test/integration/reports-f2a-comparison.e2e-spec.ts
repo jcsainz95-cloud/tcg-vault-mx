@@ -99,7 +99,7 @@ describe('§REPORTES-CEO F2a — la comparación con dinero real (Postgres)', ()
   it('semana 1–7 mar (span) vs 22–28 feb: 8 cifras al centavo contra dos lecturas y contra literales de la fixture', async () => {
     pinFirstSettledAt(new Date('2021-01-05T12:00:00Z'));
     const { r, cur, prev } = await checkAgainstTwoReadings('2021-03-01', '2021-03-07', undefined, '2021-02-22', '2021-02-28');
-    expect(r.period).toEqual({ from: '2021-03-01', to: '2021-03-07', kind: 'span', days: 7, timezone: 'America/Mexico_City' });
+    expect(r.period).toEqual({ from: '2021-03-01', to: '2021-03-07', kind: 'span', days: 7, timezone: 'America/Mexico_City', toDate: false });
     // Tramo anterior = solo O0b (9 000, costo 4 000, comisión 450); sin envío, sin devoluciones.
     expect(prev).toEqual({ salesCents: 9000, returnsAndRefundsCents: 0, netRevenueCents: 9000, cogsCents: 4000, stripeFeesCents: 450, shippingCostCents: 0, grossMarginCents: 4550, netResultCents: 4550 });
     // Periodo = instantánea AN-B-13 (03-01..03-07 MX): ingreso 63 001 + envío cobrado 25 000; costo 36 000; comisión 4 400; ganancia −12 142.

@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { DownloadCloud, ReceiptText, TrendingUp } from 'lucide-react';
 import {
   getPnl,
+  getPnlReport,
   getIvaReport,
   exportFinanceCsv,
   type FinanceRange,
@@ -16,11 +17,14 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate, formatDateLongMx } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
 import { Button } from '@/components/ui/Button';
-import { PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
+import { PeriodNoticeBanner, PeriodSelector, useInvalidPeriodFallback, useReportPeriod } from '@/components/domain/PeriodSelector';
 import { ComparisonNote } from '@/components/domain/ComparisonNote';
 import { CompareCells, CompareHeader, COL_AMOUNT, COL_PAD } from './CompareCells';
-import { financeRange, periodFor, type ReportPeriod } from '@/lib/reports/period';
+import { financeRange, periodFor, type PeriodNotice, type ReportPeriod } from '@/lib/reports/period';
 import { Banner } from '@/components/ui/Banner';
+import { useRole } from '@/lib/role';
+import { PnlByLine } from './PnlByLine';
+import { Consolidated } from './Consolidated';
 import { StatCard } from '@/components/ui/StatCard';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
@@ -130,11 +134,10 @@ function StmtLine({ label, value, deduct, srSign, cmp, pad }: { label: string; v
  * Reportes › Inventario (una sola casa por cifra); aquí quedan el P&L, el IVA y las exportaciones de dinero.
  * `initialPeriod` llega de la URL (`?preset=` o `?preset=custom&from=&to=`, días de México); «Todo» = sin rango (histórico).
  */
-export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?: ReportPeriod } = {}) {
+export function M7View({ initialPeriod = periodFor('month'), initialNotice = null }: { initialPeriod?: ReportPeriod; initialNotice?: PeriodNotice | null } = {}) {
   const t = useTranslations('admin.m7');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
-  const tr = useTranslations('admin.reports');
   const locale = useLocale() as AppLocale;
   const adds = t('pnl.signAdds');
   const subtracts = t('pnl.signSubtracts');
@@ -143,7 +146,10 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
   const range: FinanceRange = financeRange(period);
 
   const pnl = useQuery({ queryKey: ['finance-pnl', range], queryFn: () => getPnl(range) });
-  const fallback = useInvalidPeriodFallback(pnl.error, period, setPeriod);
+  // §REPORTES-CEO F2b: P&L por línea y Consolidados son SOLO del súper-admin: el operador ni los ve ni dispara su petición.
+  const { isSuperAdmin } = useRole();
+  const lines = useQuery({ queryKey: ['finance-pnl-lines', range], queryFn: () => getPnlReport(range), enabled: isSuperAdmin });
+  const fallback = useInvalidPeriodFallback([pnl.error, lines.error], period, setPeriod, initialNotice);
   const iva = useQuery({ queryKey: ['finance-iva', range], queryFn: () => getIvaReport(range) });
   // §REPORTES-CEO F2a: contra el MISMO tramo del periodo anterior. Todo lo manda el servidor; `null` («Todo») ⇒ sin columnas.
   const cmp = pnl.data?.comparison ?? null;
@@ -173,14 +179,14 @@ export function M7View({ initialPeriod = periodFor('month') }: { initialPeriod?:
 
       {/* Periodo único (§REPORTES-CEO §2): aplica al P&L, al IVA y a las exportaciones */}
       <PeriodSelector value={period} onChange={fallback.onChange} />
-      {fallback.notice && (
-        <Banner variant="warning" role="status">
-          {tr('period.fallback')}
-        </Banner>
-      )}
+      <PeriodNoticeBanner notice={fallback.notice} />
       {pnl.data && (
-        <ComparisonNote preset={period.preset} period={pnl.data.period ?? period} previous={pnl.data.previousPeriod} comparison={pnl.data.comparison} kind={pnl.data.period?.kind} testId="pnl-compare" />
+        <ComparisonNote period={pnl.data.period ?? period} previous={pnl.data.previousPeriod} comparison={pnl.data.comparison} testId="pnl-compare" />
       )}
+
+      {/* §REPORTES-CEO F2b — de lo general al detalle: resultado por línea, consolidados y, abajo, el estado de resultados. */}
+      {isSuperAdmin && <PnlByLine query={lines} />}
+      {isSuperAdmin && <Consolidated />}
 
       {/* P&L con el desglose de la fórmula */}
       <section className="flex flex-col gap-3">

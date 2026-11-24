@@ -8,7 +8,7 @@ import { AuditService } from '../audit/audit.service';
  * Qué intentó quien fue rechazado (`AuditLog.after.attempted`, §M6-U.6). 🔒 D2g (§19.30.2 (2)): gana `'status' | 'delete'` — los
  * rechazos `OWNER_ACCOUNT_PROTECTED` (con `after.reason: 'owner_protected'`), que escribe `AdminUsersController`.
  */
-export type AdminDeniedAttempt = 'create' | 'reset_password' | 'status' | 'delete';
+export type AdminDeniedAttempt = 'create' | 'reset_password' | 'status' | 'delete' | 'finance_report';
 
 export const AUDITED_SUPER_ADMIN_KEY = 'auditedSuperAdmin';
 
@@ -52,8 +52,9 @@ export class AuditedSuperAdminGuard implements CanActivate {
           actorUserId: user.id,
           actorRole: user.role,
           action: 'user.admin_action_denied',
-          entityType: 'User',
-          entityId: attempted === 'create' ? undefined : (id ?? undefined), // alta ⇒ NULL en la fila
+          // `finance_report` (§REPORTES-CEO F2b): lectura de P&L, sin entidad ni parámetros (nada personal en la fila).
+          entityType: attempted === 'finance_report' ? 'Report' : 'User',
+          entityId: attempted === 'create' || attempted === 'finance_report' ? undefined : (id ?? undefined), // alta ⇒ NULL en la fila
           after: { attempted },
         });
       } catch (e) {

@@ -45,7 +45,7 @@ const delta = (diff: number | null, pct: number | null): Delta => ({ diff, pct }
 /** Un `SalesReportDTO` controlado (solo totals/previousTotals/comparison los lee el Panel). */
 function reportDto(p: { totals: SalesFigures; previousTotals: SalesFigures; comparison: Partial<SalesReportDTO['comparison']> }): SalesReportDTO {
   return {
-    period: { preset: 'custom', kind: 'span', from: '2026-10-05', to: '2026-10-11', days: 7, timezone: 'America/Mexico_City' },
+    period: { preset: 'custom', kind: 'span', from: '2026-10-05', to: '2026-10-11', days: 7, timezone: 'America/Mexico_City', toDate: false },
     previousPeriod: { from: '2026-09-28', to: '2026-10-04', clamped: false },
     firstDataDay: '2026-01-01',
     groupBy: 'day',

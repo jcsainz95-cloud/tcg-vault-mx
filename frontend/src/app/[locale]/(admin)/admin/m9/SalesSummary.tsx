@@ -2,7 +2,8 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
-import type { SalesDeltaDTO, SalesReportDTO } from '@/types/contract';
+import type { ComparisonBasis, SalesDeltaDTO, SalesReportDTO } from '@/types/contract';
+import { fmtPct } from '@/lib/reports/comparison';
 import { formatMoneyCents } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { money, oneDecimal, signOf, signedMoney } from './salesFormat';
@@ -23,6 +24,7 @@ export function SalesDelta({
   prevOrders,
   currOrders,
   before,
+  basis,
   testId,
 }: {
   delta: SalesDeltaDTO;
@@ -31,11 +33,23 @@ export function SalesDelta({
   currOrders: number;
   /** valor anterior ya formateado (de `previousTotals`, tal cual) para «Antes: …». */
   before?: string;
+  /** §2 (m-1): `none` ⇒ «—» (nunca un número ni «0 %»), igual que Junta y Finanzas. Ausente (servidor anterior) ⇒ como `complete`. */
+  basis?: ComparisonBasis;
   testId: string;
 }) {
   const t = useTranslations('admin.m9.sales');
+  const tc = useTranslations('admin.reports.compare');
   const locale = useLocale() as AppLocale;
   const cls = 'font-mono text-xs text-muted';
+
+  if (basis === 'none') {
+    return (
+      <span className={cls} data-testid={testId} data-basis="none" title={tc('noBase')}>
+        <span aria-hidden>—</span>
+        <span className="sr-only">{tc('noBase')}</span>
+      </span>
+    );
+  }
 
   if (delta.diff === null) {
     let text: string | null = null;
@@ -68,7 +82,7 @@ export function SalesDelta({
         : `${sign}${t('delta.piecesPerOrder', { diff: oneDecimal(abs, locale) })}`;
   const tail =
     delta.pct !== null
-      ? `${signOf(delta.pct)}${Math.abs(delta.pct)} %`
+      ? (fmtPct(delta.pct * 100, locale) as string) // % entero del servidor, un decimal fijo (§2 m-3)
       : prevOrders === 0
         ? t('delta.noPrevious')
         : t('delta.wasZero');
@@ -112,7 +126,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
         <StatCard
           label={t('card.orders')}
           value={cell('orders', tt.orders)}
-          sub={<SalesDelta delta={c.orders} unit="orders" prevOrders={po} currOrders={co} testId="sales-delta-orders" />}
+          sub={<SalesDelta delta={c.orders} unit="orders" prevOrders={po} currOrders={co} basis={c.basis} testId="sales-delta-orders" />}
         />
         <StatCard
           label={t('card.charged')}
@@ -120,7 +134,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
           sub={
             <span className="flex flex-col gap-0.5">
               <span>{t('card.chargedHelp')}</span>
-              <SalesDelta delta={c.chargedCents} unit="money" prevOrders={po} currOrders={co} testId="sales-delta-chargedCents" />
+              <SalesDelta delta={c.chargedCents} unit="money" prevOrders={po} currOrders={co} basis={c.basis} testId="sales-delta-chargedCents" />
             </span>
           }
         />
@@ -130,7 +144,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
           sub={
             <span className="flex flex-col gap-0.5">
               <span>{t('card.netSalesHelp')}</span>
-              <SalesDelta delta={c.netSalesCents} unit="money" prevOrders={po} currOrders={co} testId="sales-delta-netSalesCents" />
+              <SalesDelta delta={c.netSalesCents} unit="money" prevOrders={po} currOrders={co} basis={c.basis} testId="sales-delta-netSalesCents" />
             </span>
           }
         />
@@ -153,7 +167,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
                   <span>{t('card.refundsNet', { amount: fm(tt.refunds.netCents) })}</span>
                 </>
               )}
-              <SalesDelta delta={c.refundsAmountCents} unit="money" prevOrders={po} currOrders={co} testId="sales-delta-refundsAmountCents" />
+              <SalesDelta delta={c.refundsAmountCents} unit="money" prevOrders={po} currOrders={co} basis={c.basis} testId="sales-delta-refundsAmountCents" />
             </span>
           }
         />
@@ -169,6 +183,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
                 unit="money"
                 prevOrders={po}
                 currOrders={co}
+                basis={c.basis}
                 testId="sales-delta-netSalesAfterRefundsCents"
               />
             </span>
@@ -185,6 +200,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
                 unit="money"
                 prevOrders={po}
                 currOrders={co}
+                basis={c.basis}
                 before={pt.avgTicketCents === null ? undefined : fm(pt.avgTicketCents)}
                 testId="sales-delta-avgTicketCents"
               />
@@ -202,6 +218,7 @@ export function SalesSummary({ data }: { data: SalesReportDTO }) {
                 unit="ppo"
                 prevOrders={po}
                 currOrders={co}
+                basis={c.basis}
                 before={pt.piecesPerOrder === null ? undefined : oneDecimal(pt.piecesPerOrder, locale)}
                 testId="sales-delta-piecesPerOrder"
               />

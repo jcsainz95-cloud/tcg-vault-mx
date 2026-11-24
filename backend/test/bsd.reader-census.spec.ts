@@ -37,6 +37,9 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   // ---------------------------------------------------------------- admin
   'src/modules/admin/admin.service.ts deleteUser#count#1': [K, 'userId: la fila de entrada lleva userId NULL (CHECK); el vendedor cuenta por sellRequest.count'],
   // 💰 Fusión analítica + #78: el cuerpo de `pnl()` vive en `pnl-core.ts` (`pnlBuckets`, §AN fase B); M7 y la analítica lo leen.
+  // §REPORTES-CEO F2b: el P&L por línea lee los MISMOS envíos de venta que `pnlBuckets` (`OUTBOUND_ONLY`) y busca por id el `orderId` de un reembolso.
+  'src/modules/admin/pnl-lines.ts pnlLinesBuckets#findMany#1': [O, 'P&L por línea (§REPORTES-CEO F2b): mismo predicado que `pnlBuckets`, una guía de entrada NO es costo de envío de venta'],
+  'src/modules/admin/pnl-lines.ts pnlLinesBuckets#findMany#2': [K, 'por id: el pedido al que se atribuye un reembolso `shipment_fee` (no recorre envíos por tipo)'],
   'src/modules/admin/pnl-core.ts pnlBuckets#findMany#1': [O, 'P&L de M7 y analítica (§BSD.5): una guía de entrada en `guia` NO es costo de envío de venta'],
   'src/modules/admin/pnl-core.ts buylistRowsInPeriod#findMany#1': [I, 'P&L de M7 y analítica (§BSD.16 (a), BSD-1.3 punto 6): costo de las guías de Skydropx de ENTRADA'],
   // §FICHA-CLIENTE: la ficha del cliente lista SUS retiros y envíos directos (la guía de entrada no es de ventas ni lleva userId).
