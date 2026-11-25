@@ -273,6 +273,16 @@ export class ShipmentCarrierService {
             if (r.reopened) out.reopenedSellRequestId = subject.sellRequestId;
             else if (r.reason !== 'not_candidate' && r.reason !== 'race') {
               this.logger.warn(`buylist_reopen_skipped sellRequestId=${subject.sellRequestId} reason=${r.reason}`);
+              // m-14: queda en la bitácora (una vez por solicitud y motivo) para que el dueño pueda listarlas sin logs.
+              const seen = await tx.auditLog.findFirst({
+                where: { action: 'buylist.reopen_skipped', entityId: subject.sellRequestId, after: { path: ['reason'], equals: r.reason } },
+                select: { id: true },
+              });
+              if (!seen) {
+                await tx.auditLog.create({
+                  data: { actorUserId: null, actorRole: null, action: 'buylist.reopen_skipped', entityType: 'SellRequest', entityId: subject.sellRequestId, after: { reason: r.reason, shipmentId, carrierStatus: event.status, actor: 'system:carrier' }, createdAt: now },
+                });
+              }
             }
           }
         }

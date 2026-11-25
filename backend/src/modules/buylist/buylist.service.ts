@@ -2366,10 +2366,15 @@ export class BuylistService implements OnModuleInit {
       // 💰 rev BSD-1.1 C-1: el MISMO valor que la lista (`labelPdfAvailableOf`).
       labelPdfAvailable: labelPdfAvailableOf(req, req.inboundShipment),
       // §BUYLIST-RASTREO: «Tu paquete va en camino» (misma forma que admin; sin actor ni costo).
-      inboundCarrier:
-        req.inboundShipment && isLiveSkydropxInbound(req.inboundShipment)
-          ? inboundCarrierOf(req.inboundShipment, new Date(), { ...(await this.carrierDials()), requestStatus: req.status })
-          : null,
+      // G4-1: `stalledDays` es una alerta del OPERADOR; no viaja al vendedor.
+      inboundCarrier: await (async () => {
+        if (!req.inboundShipment || !isLiveSkydropxInbound(req.inboundShipment)) return null;
+        const c = inboundCarrierOf(req.inboundShipment, new Date(), { ...(await this.carrierDials()), requestStatus: req.status });
+        if (!c) return null;
+        const { stalledDays: _omit, ...sellerView } = c;
+        void _omit;
+        return sellerView;
+      })(),
       sellRequestId: req.id,
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, y se le muestra DESDE EL PRINCIPIO**, no
       // desde la aceptación, por dos razones: **(1) es SU dato** —lo capturó él— y **(2) es lo que

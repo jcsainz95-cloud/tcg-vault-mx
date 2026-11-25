@@ -47,13 +47,14 @@ describe('inboundCarrierOf (forma del DTO)', () => {
     const old = live({ carrierPolledAt: new Date(NOW.getTime() - 30 * H) });
     expect(inboundCarrierOf(old, NOW, ctx())?.pollError).toBe(true);
     for (const st of ['recibida', 'verificacion', 'aprobada', 'pagada', 'expirada']) expect(inboundCarrierOf(old, NOW, ctx({ requestStatus: st }))?.pollError).toBe(false);
-    expect(inboundCarrierOf(old, NOW, ctx({ providerOn: false }))?.pollError).toBe(false);
+    // B-3: con el proveedor APAGADO no hay bloque de rastreo (como la guía del vendedor): la pantalla dice «Sin rastreo automático».
+    expect(inboundCarrierOf(old, NOW, ctx({ providerOn: false }))).toBeNull();
   });
   it('G3-3: en_transito sin escaneo nuevo hace ≥ N días ⇒ stalledDays; antes o con otro estado ⇒ null', () => {
     const scan = (days: number) => live({ carrierStatus: 'in_transit', carrierStatusAt: new Date(NOW.getTime() - days * 24 * H), carrierPolledAt: new Date(NOW.getTime() - H) });
     expect(inboundCarrierOf(scan(10), NOW, ctx())?.stalledDays).toBe(10);
     expect(inboundCarrierOf(scan(9), NOW, ctx())?.stalledDays).toBeNull();
     expect(inboundCarrierOf(scan(30), NOW, ctx({ requestStatus: 'aceptada' }))?.stalledDays).toBeNull();
-    expect(inboundCarrierOf(scan(30), NOW, ctx({ providerOn: false }))?.stalledDays).toBeNull();
+    expect(inboundCarrierOf(scan(30), NOW, ctx({ providerOn: false }))).toBeNull();
   });
 });

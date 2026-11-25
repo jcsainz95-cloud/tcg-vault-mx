@@ -12,7 +12,7 @@ import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
 import { FeaturedService } from './featured.service';
 import { MerchantFeedService } from './merchant-feed.service';
 import { PublicSnapshotService } from './public-snapshot.service';
-import { MERCHANT_FEED_CACHE_CONTROL } from './merchant-feed';
+import { MERCHANT_FEED_CACHE_CONTROL, PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } from './merchant-feed';
 
 /**
  * v1.23-sealed-sales (§2-S): «avísame cuando vuelva». ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f)): el cliente
@@ -116,6 +116,7 @@ export class CatalogController {
   // (1 h): no es dato personal. ⛔ Ruta ESTÁTICA (`sitemap`), no colisiona con `cards/:cardId` ni
   // `sealed/:inventoryItemId` (prefijos distintos). Las rutas estáticas del sitio las añade el frontend.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } })
   @Header('Cache-Control', MERCHANT_FEED_CACHE_CONTROL)
   @Get('sitemap')
   async sitemap() {
@@ -133,7 +134,10 @@ export class CatalogController {
   // Cabeceras `X-Feed-Items`/`X-Feed-Skipped`. Sin ítems ⇒ `503` (nunca un 200 vacío: Merchant conservaría lo anterior), sin
   // caché. Ruta estática, no colisiona con `cards/:cardId`. 20/min por IP (Merchant lo baja 1 vez al día).
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  // I-11: el backend ve UNA sola IP (el servidor de Next que arma el XML) ⇒ un tope por IP bajo lo tumba cualquiera. La respuesta sale de
+  // la foto en memoria de 60 s (`PublicSnapshotService`: sin consulta por petición), así que 300/min por IP (5/s) es holgado para el
+  // propio Next/Merchant y sigue acotando un abuso directo. Mismo tope en `sitemap`.
+  @Throttle({ default: { ttl: 60_000, limit: PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } })
   @Get('merchant-feed')
   async merchantFeedGet(@Res({ passthrough: true }) res: Response) {
     const feed = await this.merchantFeed!.build();

@@ -107,6 +107,15 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     expect(rep.links.size).toBe(0);
   });
 
+  it('I-14: una carta NO recibe dos productos base (reglas a y b apuntan a la misma carta, en cualquier orden)', () => {
+    const c = [card('c1', '5', 'Foo', 0, '2')];
+    const ab = plan([prod(1, 'Foo', '5'), prod(2, 'Otro nombre', '9')], c);
+    expect([...ab.links.values()].filter((l) => l.cardId === 'c1')).toHaveLength(1);
+    const ba = plan([prod(2, 'Otro nombre', '9'), prod(1, 'Foo', '5')], c);
+    expect([...ba.links.values()].filter((l) => l.cardId === 'c1')).toHaveLength(1);
+    expect(ab.unlinked).toContainEqual({ productId: 2, reason: 'card_already_linked' });
+  });
+
   it('I-4: en modo reparación un producto con OTRO dueño que una carta SIN enlace habría tomado ⇒ conflicto contado (no silencio)', () => {
     const r = plan([prod(1, 'Foo', '5')], [card('c1', '5', 'Foo', 0), card('c2', '9', 'X', 1)], [[1, 'c2']], { onlyUnlinked: true });
     expect(r.links.size).toBe(0);

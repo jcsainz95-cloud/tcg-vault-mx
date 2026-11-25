@@ -28,7 +28,10 @@ describe('E2E — §PRECIO-SIN-ENLACE tras gates', () => {
     const client = h.app.get(TcgcsvCatalogClient);
     // Grupos 7 700 000+ (la prueba de rotación): UN producto que ninguna carta local casa (número 99) ⇒ el set es reparable,
     // se intenta y SIGUE pendiente (sin progreso), igual que un set real con colisiones.
-    jest.spyOn(client, 'getProducts').mockImplementation(async (g: number) => (g >= 7_700_000 ? [{ productId: 9_000_000 + g, name: 'Nadie', number: '99/99' }] : []) as never);
+    jest.spyOn(client, 'getProducts').mockImplementation(async (g: number) => {
+      if (g === 7_800_001) throw new Error('proveedor caído (prueba)');
+      return (g >= 7_700_000 ? [{ productId: 9_000_000 + g, name: 'Nadie', number: '99/99' }] : []) as never;
+    });
     jest.spyOn(client, 'getPrices').mockImplementation(async (g: number) => (g >= 7_700_000 ? [{ productId: 9_000_000 + g, subTypeName: 'Normal', marketPrice: 1 }] : []) as never);
     jest.spyOn(client, 'listGroups').mockResolvedValue([]);
   });
@@ -84,7 +87,7 @@ describe('E2E — §PRECIO-SIN-ENLACE tras gates', () => {
     expect(await h.prisma.auditLog.count({ where: { action: 'inventory.finish_corrected', entityId: theirs } })).toBe(0);
   });
 
-  it('m-1 + I-9: cada motivo de exclusión se cuenta y NO cambia la pieza (reembolso/buylist/venta/retiro, estado, reserva, pedido, envío, disputa, 2 acabados)', async () => {
+  it('m-1 + I-9: cada movimiento de dinero (venta/liquidación/reembolso/buylist/retiro…), estado, reserva y carta de 2 acabados se cuentan y NO cambian la pieza', async () => {
     const card = await mkCard(await mkSet('excl'), 2, ['holofoil']);
     const two = await mkCard(await mkSet('two'), 3, ['holofoil', 'reverse_holo']);
     const expected: Record<string, string> = {};
@@ -155,5 +158,59 @@ describe('E2E — §PRECIO-SIN-ENLACE tras gates', () => {
     expect(u1.totalCards).toBe(u0.totalCards - 1);
     const tcgRun = await repair.run('manual');
     expect(tcgRun.sets.find((s) => s.setId === tcg)).toBeUndefined(); // los `tcgcsv:` nunca se recorren
+  });
+
+  it('I-14: pedido, envío y disputa excluyen CADA UNO por separado (pieza libre y sin reserva; solo ese vínculo real)', async () => {
+    const buyer = await h.prisma.user.findFirstOrThrow({ where: { email: E2E_USERS.customer.email } });
+    const card = await mkCard(await mkSet('real'), 4, ['holofoil']);
+    const addr = { recipientName: 'C', line1: 'Calle 1', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX', phone: '5500000000' };
+    const money = { subtotalCents: 3000, processingFeeCents: 100, ivaCents: 0, totalCents: 3100, priceConvention: 'IVA_INCLUSIVE' as const, feeConvention: 'FEE_ON_TOP' as const };
+    const mkOrder = (n: string) => h.prisma.order.create({ data: { userId: buyer.id, orderNumber: `CLG-${run}-${n}`, fulfillmentMode: 'vault', status: 'settled', settledAt: new Date(), paymentMethodLast4: '4242', ...money } });
+    const order = await mkOrder('o');
+    const withOrder = await mkItem(card);
+    const oi = await h.prisma.orderItem.create({ data: { orderId: order.id, inventoryItemId: withOrder, cardSnapshot: { name: 'x' }, unitPriceCents: 1000 } });
+    const withShipment = await mkItem(card);
+    const sr = await h.prisma.shipmentRequest.create({ data: { userId: buyer.id, addressSnapshot: addr, status: 'enviado', shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' } });
+    await h.prisma.shipmentItem.create({ data: { shipmentRequestId: sr.id, inventoryItemId: withShipment } });
+    const withDispute = await mkItem(card);
+    const d = await h.prisma.dispute.create({ data: { userId: buyer.id, inventoryItemId: withDispute, status: 'abierta', description: 'x', deadlineAt: new Date(Date.now() + 86_400_000) } });
+    try {
+      for (const [id, reason] of [[withOrder, 'order'], [withShipment, 'shipment'], [withDispute, 'dispute']] as const) {
+        const r = await correct([card]);
+        expect(r.corrected).toBe(0);
+        expect(await finishOf(id)).toBe('normal');
+        expect(reasons(r)[reason]).toBeGreaterThanOrEqual(1);
+      }
+      const solo = await correct([card]);
+      expect(reasons(solo)).toMatchObject({ order: 1, shipment: 1, dispute: 1 });
+    } finally {
+      await h.prisma.dispute.delete({ where: { id: d.id } });
+      await h.prisma.shipmentItem.deleteMany({ where: { shipmentRequestId: sr.id } });
+      await h.prisma.shipmentRequest.delete({ where: { id: sr.id } });
+      await h.prisma.orderItem.delete({ where: { id: oi.id } });
+      await h.prisma.order.delete({ where: { id: order.id } });
+    }
+  });
+
+  it('m-12/m-13: un set cuyo proveedor falla — 503 SIN consumir los 10 min; el fallo se registra, rota al final y tras 3 seguidos queda «pendiente con error» sin frenar el marcador', async () => {
+    const sid = await mkSet('fail', undefined, '7800001');
+    await mkCard(sid, 1, ['normal']);
+    const call = () => h.api<{ code?: string }>('POST', '/admin/catalog/link-repair', { token: adminToken, json: { setId: sid } });
+    expect((await call()).status).toBe(503);
+    expect((await call()).status).toBe(503); // NO 429: el reclamo se devolvió
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_claim', entityId: sid } })).toBe(0);
+    const row = async () => {
+      const u = (await h.api<{ unlinkedPrice: { sets: { setId: string; failedAttempts: number; pendingError: boolean; lastError: string | null }[] } }>('GET', '/admin/catalog/sync-status', { token: adminToken })).body.unlinkedPrice;
+      return u.sets.find((x) => x.setId === sid)!;
+    };
+    expect(await row()).toMatchObject({ failedAttempts: 2, pendingError: false });
+    await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.link_repair_deploy', 'catalog.link_repair_deploy_start'] } } });
+    const first = await repair.run('deploy');
+    expect(first.complete).toBe(false); // 3.er fallo aún no registrado: el set frena el marcador
+    let r = first;
+    for (let i = 0; i < 12 && !r.complete; i++) r = await repair.run('deploy');
+    expect(r.complete).toBe(true);
+    expect(await row()).toMatchObject({ pendingError: true, lastError: 'proveedor caído (prueba)' });
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_deploy' } })).toBe(1);
   });
 });

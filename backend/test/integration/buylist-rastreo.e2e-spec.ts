@@ -64,6 +64,11 @@ afterAll(async () => {
               "providerCancelConfirmedAt" = COALESCE("providerCancelConfirmedAt", now()), "status" = 'cancelado'
         WHERE "sellRequestId" IN (SELECT sr.id FROM "SellRequest" sr JOIN "User" u ON u.id = sr."userId" WHERE u.email LIKE 'rt-seller-%')`,
     );
+    // Las `expirada` de la reapertura traen la tarea «cancelar guía no usada»: se limpia para no empujar fuera de la 1.ª página (100) la cola de
+    // otras suites (BSD-B14 la lee).
+    await h.prisma.$executeRawUnsafe(
+      `UPDATE "SellRequest" SET "guideCancellationPendingAt" = NULL WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE 'rt-seller-%')`,
+    );
     await restoreDials(h);
     await h.close();
   }
@@ -435,5 +440,50 @@ describe('§BUYLIST-RASTREO — tras gates (I-1, I-7, I-9, m-2)', () => {
     expect(s1.size).toBeLessThanOrEqual(25);
     await poll.run();
     expect(seen().size).toBeGreaterThan(s1.size); // la 2.ª corrida llegó a guías que la 1.ª no tocó
+  });
+
+  it('B-3 + G4-1: con el proveedor de rastreo APAGADO `inboundCarrier` es null (admin y vendedor); encendido, el vendedor NO recibe `stalledDays`', async () => {
+    const f = await fixture({ sr: { status: 'en_transito', shipmentConfirmedAt: new Date(Date.now() - 12 * DAY), shipmentConfirmedBy: 'system:carrier' }, row: { carrierStatus: 'in_transit', carrierStatusAt: new Date(Date.now() - 12 * DAY), carrierPolledAt: new Date() } });
+    const seller = () => h.api('GET', `/buylist/requests/${f.sr.id}`, { token: f.token });
+    const admin = () => h.api('GET', `/admin/buylist/${f.sr.id}`, { token: operator.token });
+    expect((await seller()).body.inboundCarrier).not.toBeNull();
+    expect(Object.keys((await seller()).body.inboundCarrier)).not.toContain('stalledDays');
+    expect((await admin()).body.inboundCarrier.stalledDays).toBeGreaterThanOrEqual(11);
+    await dial(h, 'shipping_provider', 'off');
+    try {
+      expect((await admin()).body.inboundCarrier).toBeNull();
+      expect((await seller()).body.inboundCarrier).toBeNull();
+    } finally {
+      await dial(h, 'shipping_provider', 'skydropx');
+    }
+  });
+
+  it('I-14: el PRIMER escaneo decide la reapertura (no el del evento que la dispara): picked_up a tiempo bloqueado por sustituta; luego `delivered` tarde ⇒ reabre', async () => {
+    const f = await fixture({ sr: { status: 'expirada', expiredReason: 'not_shipped', closedAt: new Date(Date.now() - 3 * DAY), shipDeadlineAt: new Date(Date.now() - 4 * DAY), guideCancellationPendingAt: new Date() }, row: { status: 'cancelado' }, carrier: null });
+    const deadline = new Date(Date.now() - 4 * DAY).getTime();
+    const setState = (status: string, at: number) =>
+      (fake as unknown as { shipments: Map<string, unknown> }).shipments.set(f.pid, {
+        providerShipmentId: f.pid, carrierName: 'estafeta', trackingNumber: f.row.trackingNumber, rawLabelUrl: null, rawTrackingUrl: null, totalCents: 15000, insuranceCents: 0, error: null,
+        carrierStatus: status, unknownCarrierStatus: null, statusUpdatedAt: new Date(at).toISOString(), providerReference: null, raw: {}, events: [],
+      });
+    const substitute = await h.prisma.sellRequest.create({ data: { userId: f.u.id, status: 'cotizada' } });
+    setState('picked_up', deadline - 2 * H); // a tiempo, pero hay solicitud sustituta ⇒ no reabre (y el escaneo queda registrado)
+    await pollOne(f.row.id);
+    expect((await sr(f.sr.id)).status).toBe('expirada');
+    await h.prisma.sellRequest.delete({ where: { id: substitute.id } });
+    setState('delivered', deadline + 3 * DAY); // llega TARDE el siguiente evento: decide el primero (a tiempo)
+    await pollOne(f.row.id);
+    expect((await sr(f.sr.id)).status).toBe('en_transito');
+    expect(await audits(f.sr.id, 'buylist.reopen_by_carrier')).toBe(1);
+  });
+
+  it('m-14: una reapertura rechazada deja UNA fila de bitácora `buylist.reopen_skipped` con su motivo (consultable sin logs)', async () => {
+    const f = await fixture({ sr: { status: 'expirada', expiredReason: 'not_shipped', closedAt: new Date(Date.now() - 3 * DAY), shipDeadlineAt: new Date(Date.now() - 6 * DAY), guideCancellationPendingAt: new Date() }, row: { status: 'cancelado' }, carrier: { status: 'in_transit', at: new Date(Date.now() - 2 * DAY).toISOString() } });
+    await pollOne(f.row.id);
+    await pollOne(f.row.id);
+    const rows = await h.prisma.auditLog.findMany({ where: { action: 'buylist.reopen_skipped', entityId: f.sr.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].after).toMatchObject({ reason: 'shipped_late' });
+    expect((await sr(f.sr.id)).status).toBe('expirada');
   });
 });

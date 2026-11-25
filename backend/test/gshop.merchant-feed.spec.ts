@@ -2,6 +2,7 @@ import { CatalogController } from '../src/modules/catalog/catalog.controller';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
 import { PublicSnapshotService } from '../src/modules/catalog/public-snapshot.service';
+import { PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } from '../src/modules/catalog/merchant-feed';
 import { MerchantFeedService } from '../src/modules/catalog/merchant-feed.service';
 import {
   MERCHANT_CATEGORY,
@@ -366,7 +367,7 @@ describe('§GSHOP — g:id de sellado estable, caché de servidor, guarda de rut
     expect(r.skipped).toBe(1);
   });
 
-  it('foto compartida de 60 s: UNA consulta por ventana para feed Y sitemap; 0 ítems no se cachea; cabecera 0/60/60', async () => {
+  it('foto compartida de 60 s: UNA consulta por ventana para feed Y sitemap; 0 ítems no se cachea; cabecera 0/60 sin swr; tope por IP acorde a la foto en memoria', async () => {
     const items = [ITEM({ listPriceCents: 10000 })];
     const { feed, catalog, controller } = stack(items);
     const spy = jest.spyOn(catalog, 'publicCardSnapshot');
@@ -376,7 +377,12 @@ describe('§GSHOP — g:id de sellado estable, caché de servidor, guarda de rut
     expect(spy).toHaveBeenCalledTimes(1); // feed y sitemap leen la MISMA foto
     const r = res();
     await controller.merchantFeedGet(r.r as never);
-    expect(r.headers['Cache-Control']).toBe('public, max-age=0, s-maxage=60, stale-while-revalidate=60');
+    expect(r.headers['Cache-Control']).toBe('public, max-age=0, s-maxage=60'); // m-17: sin stale-while-revalidate
+    // I-11: el backend ve UNA IP (Next); el tope de feed y sitemap es 300/min (sirven la foto en memoria), no 20.
+    const THROTTLE = (name: 'merchantFeedGet' | 'sitemap') => Reflect.getMetadata('THROTTLER:LIMITdefault', (CatalogController.prototype as never)[name]);
+    expect(THROTTLE('merchantFeedGet')).toBe(PUBLIC_SNAPSHOT_THROTTLE_PER_MIN);
+    expect(THROTTLE('sitemap')).toBe(PUBLIC_SNAPSHOT_THROTTLE_PER_MIN);
+    expect(PUBLIC_SNAPSHOT_THROTTLE_PER_MIN).toBeGreaterThanOrEqual(120);
     const empty = stack([]);
     const spy2 = jest.spyOn(empty.catalog, 'publicCardSnapshot');
     await empty.feed.build();

@@ -47,7 +47,7 @@ export interface InboundCarrierRow {
 
 /**
  * `inboundCarrier` en `AdminBuylistDTO` y en el DTO del vendedor. `null` ⇔ no hay guía VIVA de Skydropx (guía manual, cancelada o
- * sin guía): el front pinta «Sin rastreo automático». Todo DERIVADO de la fila de entrada (⛔ sin columnas nuevas).
+ * sin guía) o el proveedor de rastreo está apagado: el front pinta «Sin rastreo automático». Todo DERIVADO de la fila de entrada (⛔ sin columnas nuevas).
  *  - `status`: último estado crudo de la paquetería (`null` = aún sin primera lectura).
  *  - `estimatedDeliveryAt`: siempre `null` hoy (NO MEDIDO: el adaptador de Skydropx no entrega fecha estimada).
  *  - `deliveredAt`: instante del último cambio si el estado es `delivered`/`delivered_to_branch`.
@@ -82,7 +82,8 @@ export function isLiveSkydropxInbound(r: Pick<InboundCarrierRow, 'labelSource' |
 const DAY_MS = 86_400_000;
 
 export function inboundCarrierOf(row: InboundCarrierRow | null | undefined, now: Date, ctx: InboundCarrierCtx): InboundCarrierDTO | null {
-  if (!row || !isLiveSkydropxInbound(row)) return null;
+  // B-3: con el proveedor de rastreo APAGADO no hay «rastreo»: `null` ⇒ la pantalla dice «Sin rastreo automático» (como la guía del vendedor).
+  if (!row || !isLiveSkydropxInbound(row) || !ctx.providerOn) return null;
   const delivered = !!row.carrierStatus && INBOUND_DELIVERED_STATUSES.has(row.carrierStatus);
   const open = ctx.requestStatus === 'aceptada' || ctx.requestStatus === 'en_transito';
   const since = row.carrierPolledAt ?? row.requestedAt;

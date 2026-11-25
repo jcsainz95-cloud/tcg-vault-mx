@@ -64,7 +64,9 @@ export const MERCHANT_CATEGORY = 'Arts & Entertainment > Hobbies & Creative Arts
 export const MERCHANT_TITLE_MAX = 150;
 export const MERCHANT_DESCRIPTION_MAX = 5000;
 /** Caché pública del endpoint (el frontend a su vez revalida 3600 s). */
-export const MERCHANT_FEED_CACHE_CONTROL = 'public, max-age=0, s-maxage=60, stale-while-revalidate=60';
+export const MERCHANT_FEED_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
+/** Tope por IP/min de `merchant-feed` y `sitemap` (sirven la foto en memoria; ver el porqué en `catalog.controller.ts`). */
+export const PUBLIC_SNAPSHOT_THROTTLE_PER_MIN = 300;
 /** Foto de servidor en memoria (UNA para feed y sitemap, `PublicSnapshotService`); 0 ítems no se cachea. */
 export const MERCHANT_SERVER_CACHE_MS = 60_000;
 

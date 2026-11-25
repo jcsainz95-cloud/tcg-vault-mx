@@ -23,6 +23,11 @@ export interface UnlinkedPriceSet {
   omittedProducts: number | null;
   /** Productos con otro dueño (`product_owned_by_other`), última corrida; `null` = aún sin medir. */
   conflicts: number | null;
+  /** m-13: intentos consecutivos fallidos (proveedor caído…) desde el último intento bueno. */
+  failedAttempts: number;
+  /** m-13: tras `LINK_REPAIR_MAX_FAILED_ATTEMPTS` fallos seguidos el set queda «pendiente con error»: sigue listado con su motivo y ya no frena el marcador. */
+  pendingError: boolean;
+  lastError: string | null;
 }
 export interface UnlinkedPriceNotLinkableSet {
   setId: string;
@@ -42,6 +47,8 @@ export interface UnlinkedPrice {
 /** Espacio del candado consultivo del reclamo de `link-repair` por set (`pg_advisory_xact_lock(NS, hashtext(setId))`). */
 export const LINK_REPAIR_GATE_NAMESPACE = 118_125_011;
 export const LINK_REPAIR_MAX_SETS = 20;
+/** m-13: fallos seguidos tras los que un set deja de frenar el marcador de despliegue. */
+export const LINK_REPAIR_MAX_FAILED_ATTEMPTS = 3;
 /** I-5: una corrida MANUAL por set cada 10 min (si no, 429). */
 export const LINK_REPAIR_MANUAL_COOLDOWN_MS = 10 * 60_000;
 /** I-3: la rotación corre cada hora hasta que todo set reparable fue intentado. */
@@ -148,10 +155,11 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     notLinkable: { setId: string; unlinked: number; reason: NotLinkableReason }[];
     lastAttempt: Map<string, Date>;
     lastNoGroup: Set<string>;
+    failures: Map<string, { streak: number; lastError: string | null }>;
   }> {
     const unlinkedBy = await this.prisma.card.groupBy({ by: ['setId'], where: { cardProducts: { none: {} } }, _count: { _all: true } });
     const ids = unlinkedBy.map((g) => g.setId);
-    const [sets, attempts, noGroup] = await Promise.all([
+    const [sets, attempts, noGroup, recent] = await Promise.all([
       this.prisma.cardSet.findMany({ where: { id: { in: ids } }, select: { id: true, externalId: true } }),
       this.prisma.auditLog.groupBy({ by: ['entityId'], where: { action: ACTION, entityId: { in: ids } }, _max: { createdAt: true } }),
       // «Sin grupo» vigente: último intento con ese motivo en los últimos 7 días (luego se reintenta: el grupo puede aparecer).
@@ -159,7 +167,20 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         where: { action: ACTION, entityId: { in: ids }, createdAt: { gt: new Date(Date.now() - 7 * 86_400_000) }, after: { path: ['notLinkable'], equals: 'no_group' } },
         select: { entityId: true },
       }),
+      this.prisma.auditLog.findMany({ where: { action: ACTION, entityId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { entityId: true, after: true }, take: 5000 }),
     ]);
+    // m-13: racha de intentos fallidos por set (desde el más reciente hacia atrás, hasta el primero bueno).
+    const failures = new Map<string, { streak: number; lastError: string | null }>();
+    const closed = new Set<string>();
+    for (const a of recent) {
+      if (!a.entityId || closed.has(a.entityId)) continue;
+      const after = (a.after ?? {}) as { failed?: unknown; error?: unknown };
+      if (after.failed === true) {
+        const f = failures.get(a.entityId) ?? { streak: 0, lastError: typeof after.error === 'string' ? after.error : null };
+        f.streak += 1;
+        failures.set(a.entityId, f);
+      } else closed.add(a.entityId);
+    }
     const ext = new Map(sets.map((x) => [x.id, x.externalId]));
     const lastAttempt = new Map<string, Date>();
     for (const a of attempts) if (a.entityId && a._max.createdAt) lastAttempt.set(a.entityId, a._max.createdAt);
@@ -172,7 +193,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
       else if (lastNoGroup.has(g.setId)) notLinkable.push({ setId: g.setId, unlinked, reason: 'no_group' });
       else repairable.push({ setId: g.setId, unlinked });
     }
-    return { repairable, notLinkable, lastAttempt, lastNoGroup };
+    return { repairable, notLinkable, lastAttempt, lastNoGroup, failures };
   }
 
   /** `GET /admin/catalog/sync-status` → `unlinkedPrice`. */
@@ -214,6 +235,9 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         collisions: last.get(g.setId)?.collisions ?? null,
         omittedProducts: last.get(g.setId)?.omitted ?? null,
         conflicts: last.get(g.setId)?.conflicts ?? null,
+        failedAttempts: sc.failures.get(g.setId)?.streak ?? 0,
+        pendingError: (sc.failures.get(g.setId)?.streak ?? 0) >= LINK_REPAIR_MAX_FAILED_ATTEMPTS,
+        lastError: sc.failures.get(g.setId)?.lastError ?? null,
       })),
       notLinkable: {
         totalCards: nl.reduce((n, g) => n + g.unlinked, 0),
@@ -264,7 +288,14 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
       const start = await this.prisma.auditLog.findFirst({ where: { action: DEPLOY_START }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } });
       const after = await this.scan();
       // Todo set reparable pendiente debe tener un intento POSTERIOR al inicio del despliegue (un intento sin progreso cuenta).
-      out.complete = !!start && after.repairable.every((r) => (after.lastAttempt.get(r.setId)?.getTime() ?? 0) >= start.createdAt.getTime());
+      // Un set que falló NO cuenta como intentado hasta acumular `LINK_REPAIR_MAX_FAILED_ATTEMPTS` fallos seguidos («pendiente con error»).
+      out.complete =
+        !!start &&
+        after.repairable.every((r) => {
+          if ((after.lastAttempt.get(r.setId)?.getTime() ?? 0) < start.createdAt.getTime()) return false;
+          const f = after.failures.get(r.setId);
+          return !f || f.streak >= LINK_REPAIR_MAX_FAILED_ATTEMPTS;
+        });
       if (out.complete) {
         await this.audit.log({ actorUserId: null, action: DEPLOY_MARKER, entityType: 'CardSet', after: { linked: out.linked, sets: out.sets.length, inventory: out.inventory } });
       }
@@ -285,18 +316,23 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     if (!exists) throw BusinessException.notFound();
     if (this.inflightSets.has(setId)) throw this.tooSoon(0);
     const now = Date.now();
+    let claimId: string | null = null;
     const wait = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LINK_REPAIR_GATE_NAMESPACE}::int, hashtext(${setId}))`;
       const last = await tx.auditLog.findFirst({ where: { action: CLAIM, entityId: setId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
       if (last && now - last.createdAt.getTime() < LINK_REPAIR_MANUAL_COOLDOWN_MS) return LINK_REPAIR_MANUAL_COOLDOWN_MS - (now - last.createdAt.getTime());
-      await this.audit.log({ actorUserId, action: CLAIM, entityType: 'CardSet', entityId: setId, after: { setId } }, tx);
+      claimId = (await tx.auditLog.create({ data: { actorUserId, action: CLAIM, entityType: 'CardSet', entityId: setId, after: { setId } }, select: { id: true } })).id;
       return 0;
     });
     if (wait > 0) throw this.tooSoon(wait);
     this.inflightSets.add(setId);
     try {
       const r = await this.attemptSet(setId, 'manual', actorUserId);
-      if (r.error) throw BusinessException.retriable('UPSTREAM_ERROR', 'The price provider failed; try again later', { setId });
+      if (r.error) {
+        // m-12: un fallo del proveedor NO consume los 10 min (el reclamo se devuelve); el intento fallido queda en la rotación.
+        if (claimId) await this.prisma.auditLog.deleteMany({ where: { id: claimId } });
+        throw BusinessException.retriable('UPSTREAM_ERROR', 'The price provider failed; try again later', { setId });
+      }
       return r;
     } finally {
       this.inflightSets.delete(setId);
@@ -346,6 +382,10 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
       });
     } catch (e) {
       res.error = (e as Error).message;
+      // m-13: el intento fallido queda registrado (con el error) ⇒ el set pasa al final de la rotación y cuenta su racha.
+      await this.audit
+        .log({ actorUserId, action: ACTION, entityType: 'CardSet', entityId: setId, after: { setId, failed: true, error: res.error.slice(0, 200), trigger } })
+        .catch(() => undefined);
       this.logger.warn(`card-link-repair: set ${setId} falló (${res.error}); queda para la próxima corrida.`);
     }
     return res;
