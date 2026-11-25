@@ -5,6 +5,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
+import { CardLinkRepairService } from './card-link-repair.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
 class SyncDto {
@@ -67,6 +68,7 @@ export class AdminCatalogController {
     private readonly sync: CatalogSyncService,
     private readonly audit: AuditService,
     private readonly tcgcsvImport: TcgcsvSetImportService,
+    private readonly linkRepair: CardLinkRepairService,
   ) {}
 
   @Get('remote-sets')
@@ -87,8 +89,9 @@ export class AdminCatalogController {
    * AuditLog) y NO llama a pokemontcg.io (lee estado en memoria; no consume rate-limit).
    */
   @Get('sync-status')
-  syncStatus() {
-    return this.sync.getSyncStatus();
+  async syncStatus() {
+    // §PRECIO-SIN-ENLACE: `unlinkedPrice` aditivo, solo lectura LOCAL (cartas con 0 CardProduct; sin proveedores).
+    return { ...this.sync.getSyncStatus(), unlinkedPrice: await this.linkRepair.unlinkedPrice() };
   }
 
   /**

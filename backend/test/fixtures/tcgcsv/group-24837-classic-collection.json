@@ -1,0 +1,338 @@
+{
+ "_note": "TCGCSV grupo 24837 «ME: 30th Celebration Classic Collection», medido 2026-11-25 (30 productos, 30 precios, 1 solo subtipo Holofoil). Solo los campos usados.",
+ "groupId": 24837,
+ "products": [
+  {
+   "productId": 714372,
+   "name": "Charizard",
+   "number": "4/102",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 714373,
+   "name": "Pikachu & Zekrom GX",
+   "number": "33/181",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 714386,
+   "name": "Lugia",
+   "number": "149/147",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716156,
+   "name": "Delcatty",
+   "number": "5/109",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716157,
+   "name": "Metagross (Delta Species)",
+   "number": "11/113",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716158,
+   "name": "Genesect EX (Team Plasma)",
+   "number": "11/101",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716159,
+   "name": "Misty",
+   "number": "18/132",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716160,
+   "name": "Dark Tyranitar",
+   "number": "19/109",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716161,
+   "name": "Sneasel",
+   "number": "25/111",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716162,
+   "name": "Greninja BREAK",
+   "number": "41/122",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716163,
+   "name": "Uxie",
+   "number": "43/146",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716191,
+   "name": "Crobat G",
+   "number": "47/127",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716192,
+   "name": "Raikou",
+   "number": "050/185",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716193,
+   "name": "Buzzwole GX",
+   "number": "57/111",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716194,
+   "name": "Pikachu",
+   "number": "58/102",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716195,
+   "name": "Erika's Jigglypuff",
+   "number": "69/132",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716196,
+   "name": "Rayquaza EX",
+   "number": "85/124",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716197,
+   "name": "Solgaleo GX",
+   "number": "89/149",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716198,
+   "name": "Gengar (Prime)",
+   "number": "94/102",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716199,
+   "name": "Darkrai & Cresselia Legend (Top)",
+   "number": "99/102",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716200,
+   "name": "Darkrai & Cresselia Legend (Bottom)",
+   "number": "100/102",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716202,
+   "name": "N (Supporter)",
+   "number": "101/101",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716203,
+   "name": "Palkia LV.X",
+   "number": "106/106",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716204,
+   "name": "M Gardevoir EX",
+   "number": "106/160",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716205,
+   "name": "Shining Celebi",
+   "number": "106/105",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716206,
+   "name": "Scizor ex",
+   "number": "108/115",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716207,
+   "name": "Mew VMAX",
+   "number": "114/264",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716208,
+   "name": "Arceus VSTAR",
+   "number": "123/172",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716209,
+   "name": "Zacian V",
+   "number": "138/202",
+   "rarity": "Classic Collection"
+  },
+  {
+   "productId": 716210,
+   "name": "Magikarp",
+   "number": "203/193",
+   "rarity": "Classic Collection"
+  }
+ ],
+ "prices": [
+  {
+   "productId": 714372,
+   "subTypeName": "Holofoil",
+   "marketPrice": 104.3
+  },
+  {
+   "productId": 714373,
+   "subTypeName": "Holofoil",
+   "marketPrice": 19.47
+  },
+  {
+   "productId": 714386,
+   "subTypeName": "Holofoil",
+   "marketPrice": 115.7
+  },
+  {
+   "productId": 716156,
+   "subTypeName": "Holofoil",
+   "marketPrice": 2.44
+  },
+  {
+   "productId": 716157,
+   "subTypeName": "Holofoil",
+   "marketPrice": 3.97
+  },
+  {
+   "productId": 716158,
+   "subTypeName": "Holofoil",
+   "marketPrice": 5.34
+  },
+  {
+   "productId": 716159,
+   "subTypeName": "Holofoil",
+   "marketPrice": 3.5
+  },
+  {
+   "productId": 716160,
+   "subTypeName": "Holofoil",
+   "marketPrice": 6.26
+  },
+  {
+   "productId": 716161,
+   "subTypeName": "Holofoil",
+   "marketPrice": 2.17
+  },
+  {
+   "productId": 716162,
+   "subTypeName": "Holofoil",
+   "marketPrice": 6.74
+  },
+  {
+   "productId": 716163,
+   "subTypeName": "Holofoil",
+   "marketPrice": 2.36
+  },
+  {
+   "productId": 716191,
+   "subTypeName": "Holofoil",
+   "marketPrice": 2.74
+  },
+  {
+   "productId": 716192,
+   "subTypeName": "Holofoil",
+   "marketPrice": 7.3
+  },
+  {
+   "productId": 716193,
+   "subTypeName": "Holofoil",
+   "marketPrice": 1.86
+  },
+  {
+   "productId": 716194,
+   "subTypeName": "Holofoil",
+   "marketPrice": 11.9
+  },
+  {
+   "productId": 716195,
+   "subTypeName": "Holofoil",
+   "marketPrice": 5.48
+  },
+  {
+   "productId": 716196,
+   "subTypeName": "Holofoil",
+   "marketPrice": 15.37
+  },
+  {
+   "productId": 716197,
+   "subTypeName": "Holofoil",
+   "marketPrice": 5.31
+  },
+  {
+   "productId": 716198,
+   "subTypeName": "Holofoil",
+   "marketPrice": 37.63
+  },
+  {
+   "productId": 716199,
+   "subTypeName": "Holofoil",
+   "marketPrice": 13.1
+  },
+  {
+   "productId": 716200,
+   "subTypeName": "Holofoil",
+   "marketPrice": 12.63
+  },
+  {
+   "productId": 716202,
+   "subTypeName": "Holofoil",
+   "marketPrice": 9.19
+  },
+  {
+   "productId": 716203,
+   "subTypeName": "Holofoil",
+   "marketPrice": 6.9
+  },
+  {
+   "productId": 716204,
+   "subTypeName": "Holofoil",
+   "marketPrice": 8.67
+  },
+  {
+   "productId": 716205,
+   "subTypeName": "Holofoil",
+   "marketPrice": 13.46
+  },
+  {
+   "productId": 716206,
+   "subTypeName": "Holofoil",
+   "marketPrice": 7.2
+  },
+  {
+   "productId": 716207,
+   "subTypeName": "Holofoil",
+   "marketPrice": 14.98
+  },
+  {
+   "productId": 716208,
+   "subTypeName": "Holofoil",
+   "marketPrice": 6.44
+  },
+  {
+   "productId": 716209,
+   "subTypeName": "Holofoil",
+   "marketPrice": 4.85
+  },
+  {
+   "productId": 716210,
+   "subTypeName": "Holofoil",
+   "marketPrice": 58.73
+  }
+ ]
+}

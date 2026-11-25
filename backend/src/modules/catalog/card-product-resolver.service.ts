@@ -16,6 +16,7 @@ import {
 // de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
 import { resolveTcgcsvGroupForSet } from '../pricing/providers/tcgcsv-group-match';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
+import { planCardLinks } from './card-link-plan';
 import { promoGroupFor } from './promo-set-groups';
 import { PromoSetProductsService } from './promo-set-products.service';
 import type { PromoSkipped } from './promo-set-plan';
@@ -57,7 +58,7 @@ export class CardProductResolverService {
    * de observabilidad (o `null` si no se resolvió el groupId). NO lanza por fallo remoto/parse del
    * fetch — best-effort; el llamador (`importSet`) además lo envuelve en try/catch.
    */
-  async resolveCardProductsForSet(localSetId: string): Promise<{
+  async resolveCardProductsForSet(localSetId: string, opts: { onlyUnlinked?: boolean } = {}): Promise<{
     groupId: number;
     joined: number;
     products: number;
@@ -79,6 +80,11 @@ export class CardProductResolverService {
      * `cardsTouched: 0` — que es el hecho que el operador necesita ver, no un 191 tranquilizador.
      */
     cardsTouched: number;
+    /** §PRECIO-SIN-ENLACE: productos NO enlazados por número/nombre repetido (colisión) y por otro motivo (omitidos). */
+    collisions?: number;
+    omittedProducts?: number;
+    /** Cartas tocadas por la corrida (para medir inventario con acabado distinto). */
+    touchedCardIds?: string[];
     /** P-PROMOS-VIEJAS: productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo en esos sets). */
     promoSkipped?: PromoSkipped[];
     /** QA-PV-PEND: solo rutas de promos viejas. */
@@ -98,7 +104,8 @@ export class CardProductResolverService {
 
     const promo = promoGroupFor(set.externalId);
     if (promo) {
-      if (!this.promoProducts) return null;
+      // Modo reparación: los sets de promos viejas tienen su propia ruta y no se tocan aquí.
+      if (!this.promoProducts || opts.onlyUnlinked) return null;
       return this.promoProducts.run(set.id, groupId, promo.numberPrefix);
     }
 
@@ -120,21 +127,36 @@ export class CardProductResolverService {
         pricesPending: 0,
         unjoined: 0,
         cardsTouched: 0, // MEDIDO: no se tocó ninguna carta (no hay producto mapeable).
+        collisions: 0,
+        omittedProducts: 0,
+        touchedCardIds: [],
       };
     }
 
+    // §PRECIO-SIN-ENLACE: enlace por reglas (id externo → número+nombre → número, único en AMBOS lados), nunca
+    // pisa un producto con dueño ni una carta ya enlazada (modo `onlyUnlinked`). Ver `card-link-plan.ts`.
     const localCards = await this.prisma.card.findMany({
       where: { setId: localSetId },
-      select: { id: true, number: true, tcgplayerId: true },
+      select: { id: true, number: true, name: true, tcgplayerId: true, _count: { select: { cardProducts: true } } },
     });
-    const byTcgId = new Map<string, { id: string }>();
-    const byNorm = new Map<string, { id: string }[]>();
-    for (const c of localCards) {
-      if (c.tcgplayerId) byTcgId.set(c.tcgplayerId, c);
-      const norm = normalizeCardNumber(c.number);
-      const list = byNorm.get(norm);
-      if (list) list.push(c);
-      else byNorm.set(norm, [c]);
+    const existingOwners = await this.prisma.cardProduct.findMany({
+      where: { tcgplayerProductId: { in: derived.map((d) => d.productId) } },
+      select: { tcgplayerProductId: true, cardId: true, kind: true },
+    });
+    const ownerOf = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.cardId]));
+    const prevKind = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.kind]));
+    const plan = planCardLinks(
+      derived.map((d) => ({ productId: d.productId, name: d.name, number: d.number, kind: d.kind })),
+      localCards.map((c) => ({ id: c.id, number: c.number, name: c.name, tcgplayerId: c.tcgplayerId, productCount: c._count.cardProducts })),
+      ownerOf,
+      normalizeCardNumber,
+      { onlyUnlinked: opts.onlyUnlinked === true },
+    );
+    if (plan.collisions > 0 || plan.omitted > 0) {
+      this.logger.warn(
+        `card-product: set ${set.name} (grupo ${groupId}) — ${plan.collisions} producto(s) en colisión de número/nombre y ` +
+          `${plan.omitted} sin carta local/ya enlazada NO se enlazan (money-safe; reportados).`,
+      );
     }
 
     // FX una vez por corrida (§4.15f / §4.27e) — REUSA el módulo Banxico existente, no se inventa FX.
@@ -149,21 +171,18 @@ export class CardProductResolverService {
     for (const dp of derived) {
       // Join por productId EXACTO (ancla tcgplayerId del set_base). Sin ancla → número normalizado
       // ÚNICO (típico: Deck Exclusives). El número solo ENRUTA a qué carta colgar; NO funde acabados.
-      let owner = byTcgId.get(String(dp.productId));
-      if (!owner && dp.number != null) {
-        const cands = byNorm.get(normalizeCardNumber(dp.number));
-        if (cands && cands.length === 1) owner = cands[0];
-      }
+      const link = plan.links.get(dp.productId);
+      const owner = link ? { id: link.cardId } : undefined;
       if (!owner) {
-        unjoined += 1;
+        if (!(opts.onlyUnlinked && ownerOf.has(dp.productId))) unjoined += 1;
         continue;
       }
       joined += 1;
 
       // Upsert de CardProduct por tcgplayerProductId (REEMPLAZO money-safe de finishes/kind/name).
       // Reclasificar HACIA o DESDE `variant` es del job `pattern-reclassify` (freno + auditoría + recálculo): aquí se conserva el kind actual.
-      const prev = await this.prisma.cardProduct.findUnique({ where: { tcgplayerProductId: dp.productId }, select: { kind: true } });
-      const kind = prev && (prev.kind === 'variant') !== (dp.kind === 'variant') ? prev.kind : dp.kind;
+      const prevK = prevKind.get(dp.productId);
+      const kind = prevK && (prevK === 'variant') !== (dp.kind === 'variant') ? prevK : dp.kind;
       const cardProduct = await this.prisma.cardProduct.upsert({
         where: { tcgplayerProductId: dp.productId },
         create: {
@@ -209,6 +228,9 @@ export class CardProductResolverService {
       pricesPending,
       unjoined,
       cardsTouched: touched.size, // cartas DISTINTAS tocadas por ESTA corrida (D2)
+      collisions: plan.collisions,
+      omittedProducts: plan.omitted,
+      touchedCardIds: [...touched],
     };
   }
 

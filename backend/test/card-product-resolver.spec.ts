@@ -51,9 +51,16 @@ function prismaMock(
   const prisma = {
     $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
     cardSet: { findUnique: jest.fn(async () => set) },
-    card: { findMany: jest.fn(async () => localCards) },
+    card: {
+      findMany: jest.fn(async () =>
+        localCards.map((c) => ({ name: '', _count: { cardProducts: 0 }, ...c })),
+      ),
+    },
     cardProduct: {
-      findUnique: jest.fn(async (a: any) => (prevKinds[a.where.tcgplayerProductId] ? { kind: prevKinds[a.where.tcgplayerProductId] } : null)),
+      // §PRECIO-SIN-ENLACE: dueños previos en bloque (el primer producto previo cuelga de la primera carta local).
+      findMany: jest.fn(async () =>
+        Object.entries(prevKinds).map(([pid, kind]) => ({ tcgplayerProductId: Number(pid), cardId: localCards[0].id, kind })),
+      ),
       upsert: jest.fn(async (args: any) => {
         cardProductUpserts.push(args);
         return { id: `cp-${args.where.tcgplayerProductId}` };
