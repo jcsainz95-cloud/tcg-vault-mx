@@ -5,8 +5,6 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { deleteBounty, getAdminBounties, putVariantControls } from '@/lib/api';
-import { CARD_SEARCH_MAX } from '@/lib/card-search';
-
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { cn } from '@/lib/cn';
@@ -93,7 +91,6 @@ interface EditingState {
 export function BountiesView() {
   const t = useTranslations('admin.m2.bounties');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
-  const tcs = useTranslations('common.cardSearch');
   const tRoot = useTranslations();
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
@@ -425,8 +422,6 @@ export function BountiesView() {
         <div className="min-w-[16rem] flex-1">
           <Input
             label={t('filters.searchLabel')}
-            placeholder={tcs('placeholder')}
-            maxLength={CARD_SEARCH_MAX}
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
           />

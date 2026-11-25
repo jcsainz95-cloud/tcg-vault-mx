@@ -30,11 +30,6 @@
     "back": "Volver",
     "search": "Buscar",
     "clearFilters": "Limpiar filtros",
-    "cardSearch": {
-      "placeholder": "Nombre, número o código impreso (PRE 078)",
-      "lead": "No encontramos esa carta.",
-      "tip": "Prueba con el nombre, el número (078) o el código impreso (PRE 078)."
-    },
     "noResults": "Sin resultados",
     "all": "Todos",
     "withoutIva": "sin IVA",
@@ -276,6 +271,7 @@
       "title": "¿Cuánto vale tu carpeta?",
       "subtitle": "Arma tu lista y mira lo que te pagamos hoy. Gratis, sin cuenta y sin compromiso.",
       "searchLabel": "Busca una carta para cotizar",
+      "searchPlaceholder": "Busca una carta…",
       "add": "Añadir",
       "empty": "Busca tu primera carta y te decimos lo que pagamos por ella.",
       "pending": "Pendiente",
@@ -353,6 +349,7 @@
     "filterRarity": "Rareza",
     "filterCondition": "Condición",
     "filterType": "Tipo",
+    "searchPlaceholder": "Buscar carta…",
     "emptyTitle": "Ninguna carta coincide",
     "emptyBody": "Prueba con otros filtros o limpia la búsqueda.",
     "pageOutOfRange": {

@@ -4,8 +4,6 @@ import { useCallback, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { searchBuylistCards, getBuylistQuote } from '@/lib/api';
-import { CARD_SEARCH_MAX } from '@/lib/card-search';
-
 import type { CardDTO, Finish } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -174,7 +172,6 @@ export function HomeQuoterPanel({
 }) {
   const t = useTranslations('home');
   const tc = useTranslations('common');
-  const tcs = useTranslations('common.cardSearch');
   // Rótulo del total y nota del envío viven en `buylist`: son del cotizador, no del home.
   const tb = useTranslations('buylist');
   const locale = useLocale() as AppLocale;
@@ -213,8 +210,7 @@ export function HomeQuoterPanel({
                 if (e.key === 'Escape') setTerm('');
               }}
               aria-label={t('quoter.searchLabel')}
-              placeholder={tcs('placeholder')}
-              maxLength={CARD_SEARCH_MAX}
+              placeholder={t('quoter.searchPlaceholder')}
               className="min-w-0 flex-1 bg-transparent px-3.5 text-sm text-text placeholder:text-muted focus:outline-none"
             />
             <button
@@ -236,7 +232,7 @@ export function HomeQuoterPanel({
               )}
               {!searching && results.length === 0 && (
                 <li className="px-3.5 py-2.5 font-mono text-[11px] uppercase tracking-label text-muted">
-                  {tcs('lead')} {tcs('tip')}
+                  {tc('noResults')}
                 </li>
               )}
               {results.map((card) => (

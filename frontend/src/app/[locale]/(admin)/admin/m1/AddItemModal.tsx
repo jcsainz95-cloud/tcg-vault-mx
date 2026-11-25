@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Search, Check, Trash2, AlertTriangle } from 'lucide-react';
-import { CARD_SEARCH_MAX } from '@/lib/card-search';
 import {
   getLocations,
   listBuylistSets,
@@ -58,7 +57,6 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
   const t = useTranslations('admin.m1');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
-  const tcs = useTranslations('common.cardSearch');
   const tRoot = useTranslations();
   const queryClient = useQueryClient();
 
@@ -394,8 +392,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
           <Input
             label={t('searchCards')}
             className="flex-1"
-            placeholder={tcs('placeholder')}
-            maxLength={CARD_SEARCH_MAX}
+            placeholder={t('searchPlaceholder')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => {
@@ -420,7 +417,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
                 {tc('errorGeneric')}
               </Banner>
             ) : cards.length === 0 ? (
-              <p className="text-sm text-muted">{tcs('lead')} {tcs('tip')}</p>
+              <p className="text-sm text-muted">{t('noResults')}</p>
             ) : (
               <>
                 <ul

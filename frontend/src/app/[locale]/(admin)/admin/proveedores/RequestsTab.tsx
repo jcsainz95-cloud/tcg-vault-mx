@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { CARD_SEARCH_MAX } from '@/lib/card-search';
-
 import { useLocale, useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/Badge';
@@ -79,7 +77,6 @@ export function RequestsTab() {
 
 function CreateRequestForm({ onDone }: { onDone: () => void }) {
   const t = useTranslations('admin.suppliers.create');
-  const tcs = useTranslations('common.cardSearch');
   const tf = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
@@ -143,7 +140,7 @@ function CreateRequestForm({ onDone }: { onDone: () => void }) {
           </div>
         ) : (
           <>
-            <Input label={t('searchCard')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('searchHint')} placeholder={tcs('placeholder')} maxLength={CARD_SEARCH_MAX} />
+            <Input label={t('searchCard')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('searchHint')} />
             <ul className="flex flex-col">
               {hits.data?.map((h) => (
                 <li key={h.cardId}>
@@ -157,7 +154,7 @@ function CreateRequestForm({ onDone }: { onDone: () => void }) {
                 </li>
               ))}
             </ul>
-            {hits.data && hits.data.length === 0 && <p className="text-sm text-muted">{tcs('lead')} {tcs('tip')}</p>}
+            {hits.data && hits.data.length === 0 && <p className="text-sm text-muted">{t('noHits')}</p>}
           </>
         )}
       </div>

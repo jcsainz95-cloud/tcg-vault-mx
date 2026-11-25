@@ -268,6 +268,6 @@ describe('WSH-F6 · buscador sobre `GET /buylist/cards` (Q-WSH-UX-4)', () => {
     vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({ data: [], page: 1, pageSize: 8, total: 0 });
     renderWithProviders(<WishlistView />, 'es');
     fireEvent.change(await screen.findByLabelText(W.page.searchLabel), { target: { value: 'zzzz' } });
-    expect(await screen.findByText(`${es.common.cardSearch.lead} ${es.common.cardSearch.tip}`, undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByText(W.page.searchEmpty, undefined, { timeout: 2000 })).toBeInTheDocument();
   });
 });
