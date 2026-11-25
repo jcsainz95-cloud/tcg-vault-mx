@@ -66,6 +66,12 @@ afterAll(async () => {
     );
     // Las `expirada` de la reapertura traen la tarea «cancelar guía no usada»: se limpia para no empujar fuera de la 1.ª página (100) la cola de
     // otras suites (BSD-B14 la lee).
+    // Y se CIERRAN las solicitudes que quedaron abiertas (`aceptada` con plazo vencido, `en_transito`…): en la base compartida de CI un
+    // barrido con reloj real de otra suite (`buylist-flujo-f2-cierre`) las vencería y mandaría correos (medido: 3 en vez de 0).
+    await h.prisma.$executeRawUnsafe(
+      `UPDATE "SellRequest" SET "status" = 'expirada', "expiredReason" = 'not_continued', "closedAt" = now(), "guideCancellationPendingAt" = NULL
+        WHERE "closedAt" IS NULL AND "userId" IN (SELECT id FROM "User" WHERE email LIKE 'rt-seller-%')`,
+    );
     await h.prisma.$executeRawUnsafe(
       `UPDATE "SellRequest" SET "guideCancellationPendingAt" = NULL WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE 'rt-seller-%')`,
     );

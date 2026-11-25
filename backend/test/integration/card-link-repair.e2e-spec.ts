@@ -126,6 +126,8 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
     const sold = await mk(3); // movimiento de venta ⇒ solo se reporta
     await h.prisma.inventoryMovement.create({ data: { itemId: sold.id, reason: 'sale', fromStatus: 'listed', toStatus: 'listed' } });
 
+    // Estado propio del marcador (la BD de CI es compartida: otra suite pudo dejar uno).
+    await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.link_repair_deploy', 'catalog.link_repair_deploy_start'] } } });
     const r = await repair.run('deploy');
     const mineRun = r.sets.find((s) => s.setId === setId)!;
     expect(mineRun).toMatchObject({ linked: 29, collisions: 0, conflicts: 0, omitted: [], notLinkable: null });
