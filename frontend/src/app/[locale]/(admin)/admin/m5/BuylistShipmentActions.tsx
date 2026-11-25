@@ -79,11 +79,18 @@ export function BuylistShipmentActions({
   });
 
   const confirm = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const actualCostCents = pesosToCents(actualCost);
-      return confirmBuylistShipment(request.id, {
-        ...(providerCostCents == null && actualCostCents != null ? { guideActualCostCents: actualCostCents } : {}),
-      });
+      try {
+        return await confirmBuylistShipment(request.id, {
+          ...(providerCostCents == null && actualCostCents != null ? { guideActualCostCents: actualCostCents } : {}),
+        });
+      } catch (e) {
+        // §BUYLIST-RASTREO: la paquetería ya la movió a «En tránsito» ⇒ éxito silencioso y se refresca.
+        const err = asApiError(e);
+        if (err?.status === 409 && err.code === 'NOT_ACCEPTED') return null;
+        throw e;
+      }
     },
     onSuccess: () => {
       setConfirming(false);
@@ -100,6 +107,13 @@ export function BuylistShipmentActions({
     if (err?.status === 409 && err.code === 'LABEL_IN_PROGRESS') return tIn('inProgress');
     return getErrorMessage(e);
   };
+  const tCarrier = useTranslations('admin.m5.carrier');
+  const deadlinePassed =
+    request.status === 'aceptada' &&
+    !!request.shipDeadlineAt &&
+    new Date(request.shipDeadlineAt).getTime() <= Date.now() &&
+    !request.shipmentConfirmedAt &&
+    !request.sellerShippedDeclaredAt;
   const canCapture = carrier.trim().length > 0 && tracking.trim().length > 0;
 
   return (
@@ -108,6 +122,22 @@ export function BuylistShipmentActions({
 
       {done === 'guide' && <Banner variant="info" role="status">{t('captured', { carrier, tracking })}</Banner>}
       {done === 'shipment' && <Banner variant="info" role="status">{t('confirmed')}</Banner>}
+
+      {/* §BUYLIST-RASTREO: plazo vencido y sin confirmar ⇒ aviso corto con el botón a la vista (arriba, sin desplazarse).
+          «Vencido» lo dice el servidor al cerrar; aquí solo se compara la fecha que él mandó. */}
+      {deadlinePassed && (
+        <Banner
+          variant="warning"
+          role="status"
+          action={
+            <Button size="sm" onClick={() => setConfirming(true)} data-testid="m5-overdue-confirm">
+              {tCarrier('confirmShipment')}
+            </Button>
+          }
+        >
+          <span data-testid="m5-overdue-notice">{tCarrier('overdue')}</span>
+        </Banner>
+      )}
 
       {/* --- 1. La guía. NO mueve el estado, y el copy lo dice antes de que se pulse nada. --- */}
       <div className="flex flex-col gap-2">
@@ -144,11 +174,13 @@ export function BuylistShipmentActions({
         )}
         {/* El plazo del vendedor: si no hay guía se DICE que no ha arrancado, en vez de dejar un
             hueco que se lea como «sin plazo» o, peor, como «ya venció». */}
-        <p className="tabular text-xs text-muted">
-          {request.shipDeadlineAt
-            ? t('shipDeadline', { date: formatDateTimeMx(request.shipDeadlineAt, locale) })
-            : t('noShipDeadline')}
-        </p>
+        {!request.shipmentConfirmedAt && (
+          <p className="tabular text-xs text-muted">
+            {request.shipDeadlineAt
+              ? t('shipDeadline', { date: formatDateTimeMx(request.shipDeadlineAt, locale) })
+              : t('noShipDeadline')}
+          </p>
+        )}
         {guide.isError && (
           <Banner variant="danger" role="alert">
             {guideErrorText(guide.error)}

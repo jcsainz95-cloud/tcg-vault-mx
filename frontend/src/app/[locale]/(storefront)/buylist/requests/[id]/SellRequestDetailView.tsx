@@ -26,6 +26,7 @@ import { OfferAmounts } from './OfferAmounts';
 import { readOffer } from './offer-readiness';
 import { SellerLabelBlock } from './SellerLabelBlock';
 import { SellerFlujoLines } from './SellerFlujoLines';
+import { SellerCarrierLine } from './SellerCarrierLine';
 
 /** Identidad de la carta bajo su nombre: set · número · acabado. Mismo renglón que el correo. */
 function LineSpec({ line }: { line: SellItemDTO }) {
@@ -458,6 +459,8 @@ function Detail({
           onUnavailable={onLabelUnavailable}
         />
       )}
+
+      {!notContinued && (data.status === 'aceptada' || data.status === 'en_transito') ? <SellerCarrierLine data={data} /> : null}
 
       <section className="gutter mt-10">
         <h2 className="eyebrow">{t('cardsTitle')}</h2>

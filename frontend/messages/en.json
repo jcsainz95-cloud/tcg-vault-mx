@@ -1054,6 +1054,14 @@
       }
     }
   },
+  "buylistCarrier": {
+    "pickedUp": "Your package was picked up",
+    "onTheWay": "Your package is on its way",
+    "onTheWayEta": "Your package is on its way · arrives approx. {date}",
+    "delivered": "Your package was delivered",
+    "incident": "There is an issue with your package. We will write to you.",
+    "returning": "Your package is heading back."
+  },
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Sell my cards",
@@ -4173,6 +4181,24 @@
           "unknown": "We don't know whether it was declined: the server didn't respond. Checking the request…",
           "notDone": "It wasn't declined: the server didn't respond. Try again."
         }
+      },
+      "carrier": {
+        "confirmShipment": "Confirm shipment",
+        "pickedUp": "Picked up",
+        "onTheWay": "On its way",
+        "delivered": "Delivered",
+        "incident": "Issue",
+        "returning": "Returned",
+        "withEta": "{status} · arrives {date}",
+        "updated": "Updated {when}",
+        "deliveredWaiting": "The carrier delivered it. Still to be received.",
+        "incidentNote": "Carrier issue. Check the label.",
+        "returningNote": "It is heading back to the seller.",
+        "pollError": "Tracking unavailable, retrying.",
+        "none": "No automatic tracking",
+        "autoTransit": "Marked in transit automatically by the carrier",
+        "overdue": "The deadline has passed. If the package is already on its way, press Confirm shipment; if not, it closes by itself tomorrow.",
+        "title": "Carrier"
       },
       "guideDue": {
         "line": "No label: it closes on its own on {datetime} if it still has none by then.",

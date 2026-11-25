@@ -3486,6 +3486,8 @@ export interface SellRequestDTO {
    * (servidor anterior): ausente se lee como `false`.
    */
   labelPdfAvailable?: boolean;
+  /** §BUYLIST-RASTREO (aditivo; nombres por confirmar): misma línea de paquetería para el vendedor. */
+  inboundCarrier?: InboundCarrierDTO | null;
   /** `null` EXPLÍCITO en un cierre `expirada` + `no_offer`/`not_continued` (v1.51.4 §6 + errata BSD-1.4 punto 8). */
   quotedTotalCents: number | null;
   ineRequired: boolean;
@@ -5292,6 +5294,16 @@ export interface AdminSellItemDTO extends SellItemDTO {
   agreedPriceCents?: number | null;
 }
 
+/** §BUYLIST-RASTREO: `status` es el crudo de la paquetería (picked_up, in_transit, delivered, exception…). */
+export interface InboundCarrierDTO {
+  status: string | null;
+  statusAt?: string | null;
+  estimatedDeliveryAt?: string | null;
+  polledAt?: string | null;
+  deliveredAt?: string | null;
+  pollError?: boolean;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
@@ -5408,6 +5420,11 @@ export interface AdminBuylistDTO {
   // ---- 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-8 + BSD-1.3 punto 4) · la guía de ENTRADA. Todo DERIVADO por el servidor
   // (⛔ la pantalla no calcula ni decide, BX5). Opcionales en el tipo: servidor anterior ⇒ ausentes ⇒ fail-closed.
   inboundShipment?: AdminInboundShipmentDTO | null;
+  /** §BUYLIST-RASTREO (aditivo; nombres por confirmar con backend): estado de la paquetería de la guía de entrada. */
+  inboundCarrier?: InboundCarrierDTO | null;
+  /** §BUYLIST-RASTREO: quién confirmó el envío; `'system:carrier'` = la paquetería, sola. */
+  shipmentConfirmedAt?: string | null;
+  shipmentConfirmedBy?: string | null;
   /** Solo en el DETALLE (`GET /admin/buylist/:id`): es por actor. `null` si el servidor no pudo calcularlo. */
   inboundLabelOptions?: LabelOptionsDTO | null;
   /** Ancla + close días × 24 h, solo `aceptada` sin guía; si no, `null`. */

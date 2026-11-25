@@ -1,5 +1,6 @@
 'use client';
 
+import { InboundCarrierStatus } from './InboundCarrierStatus';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -124,6 +125,7 @@ export function AcceptedRequestPanel({
   return (
     <section className="flex flex-col gap-3" data-testid={`m5-accepted-panel-${r.id}`}>
       <GuideDueBlock req={r} />
+      <InboundCarrierStatus req={r} />
 
       {/* M-4 (gate QA): sin el DETALLE no sabemos `inboundLabelOptions` y «Generar guía» no puede ofrecerse. ⛔ Que desaparezca
           mudo: se dice con el error de siempre (`QueryState`: el texto del código o `common.errorGeneric`) y «Reintentar». */}

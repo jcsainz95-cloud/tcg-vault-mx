@@ -1054,6 +1054,14 @@
       }
     }
   },
+  "buylistCarrier": {
+    "pickedUp": "Tu paquete fue recolectado",
+    "onTheWay": "Tu paquete va en camino",
+    "onTheWayEta": "Tu paquete va en camino · llega aprox. {date}",
+    "delivered": "Tu paquete fue entregado",
+    "incident": "Hay una incidencia con tu paquete. Te escribiremos.",
+    "returning": "Tu paquete va de regreso."
+  },
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
@@ -4173,6 +4181,24 @@
           "unknown": "No sabemos si se declinó: el servidor no respondió. Revisamos la solicitud…",
           "notDone": "No se declinó: el servidor no respondió. Vuelve a intentarlo."
         }
+      },
+      "carrier": {
+        "confirmShipment": "Confirmar envío",
+        "pickedUp": "Recolectado",
+        "onTheWay": "En camino",
+        "delivered": "Entregado",
+        "incident": "Incidencia",
+        "returning": "Devuelto",
+        "withEta": "{status} · llega {date}",
+        "updated": "Actualizado {when}",
+        "deliveredWaiting": "La paquetería lo entregó. Falta recibirlo.",
+        "incidentNote": "Incidencia de paquetería. Revisa la guía.",
+        "returningNote": "Va de regreso al vendedor.",
+        "pollError": "Rastreo no disponible, reintentando.",
+        "none": "Sin rastreo automático",
+        "autoTransit": "Marcado en tránsito automáticamente por la paquetería",
+        "overdue": "El plazo venció. Si el paquete ya viene en camino, pulsa Confirmar envío; si no, mañana se cierra sola.",
+        "title": "Paquetería"
       },
       "guideDue": {
         "line": "Sin guía: se cierra sola el {datetime} si para entonces no tiene guía.",
