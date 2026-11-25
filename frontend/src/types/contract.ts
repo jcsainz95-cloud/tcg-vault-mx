@@ -3619,10 +3619,10 @@ export interface DashboardDTO {
     /** 💰 rev BSD-1 (BSD-1.3 punto 4): solicitudes cuya guía de entrada tiene `labelAlert ≠ null`. */
     buylistInboundLabelAlert?: number;
     /** §BOVEDA-COBRADA-SIN-PIEZAS (forma por confirmar con backend): pedidos pagados con cartas sin asignar. Se lee por `unassignedOrdersCount`. */
-    vaultOrdersWithUnassignedItems?: number;
+    vaultOrdersWithUnassignedItems?: number | null;
   };
   /** §BOVEDA-COBRADA-SIN-PIEZAS: variante en la raíz (por confirmar); mismo lector. */
-  vaultOrdersWithUnassignedItems?: number;
+  vaultOrdersWithUnassignedItems?: number | null;
   inventoryValueCents?: number;
   custodyValueCents?: number;
   buylistPeriod: { count: number; amountCents: number | null };

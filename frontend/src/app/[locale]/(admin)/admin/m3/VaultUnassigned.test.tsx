@@ -12,6 +12,7 @@ import {
   piecesExceptUnassigned,
   reasonKey,
   unassignedOrdersCount,
+  unassignedOrdersReading,
   vaultMissingPieces,
 } from '@/lib/api/vault-unassigned';
 import es from '../../../../../../messages/es.json';
@@ -145,6 +146,21 @@ describe('alineado con el backend a3f81be5', () => {
   });
 });
 
+describe('ajuste 0a26c236', () => {
+  it('lectura: null explícito ⇒ no medible (workQueue o raíz); ausente/0 ⇒ nada; N ⇒ conteo', () => {
+    expect(unassignedOrdersReading({ workQueue: { vaultOrdersWithUnassignedItems: null } })).toEqual({ kind: 'unmeasured' });
+    expect(unassignedOrdersReading({ vaultOrdersWithUnassignedItems: null })).toEqual({ kind: 'unmeasured' });
+    expect(unassignedOrdersReading({ workQueue: {} })).toEqual({ kind: 'none' });
+    expect(unassignedOrdersReading({ workQueue: { vaultOrdersWithUnassignedItems: 0 } })).toEqual({ kind: 'none' });
+    expect(unassignedOrdersReading({ workQueue: { vaultOrdersWithUnassignedItems: 3 } })).toEqual({ kind: 'count', n: 3 });
+  });
+  it('«En su bóveda» SOLO con fulfillmentState==="assigned" (aunque no haya marca de fallo)', () => {
+    expect(lineFulfillment({ fulfillmentState: 'unassigned' }, true)).toEqual({ kind: 'attention', reasonKey: 'unassigned' });
+    expect(lineFulfillment({ fulfillmentState: 'unassigned', fulfillmentFailedAt: null, replacedInventoryItemId: null }, true)?.kind).not.toBe('in_vault');
+    expect(lineFulfillment({ fulfillmentState: 'assigned' }, true)).toEqual({ kind: 'in_vault' });
+  });
+});
+
 describe('1 · Tablero', () => {
   function serve(extra: Record<string, unknown>, root: Record<string, unknown> = {}) {
     vi.spyOn(api, 'getDashboard').mockResolvedValue({
@@ -164,6 +180,13 @@ describe('1 · Tablero', () => {
     serve({}, { vaultOrdersWithUnassignedItems: 1 });
     renderWithProviders(<AdminDashboard />, 'en');
     expect(await screen.findByTestId('dashboard-unassigned')).toHaveTextContent('Paid orders with unassigned cards: 1');
+  });
+  it('null (consulta fallida) ⇒ «no se pudo medir», ⛔ no un 0 ni el enlace', async () => {
+    serve({ vaultOrdersWithUnassignedItems: null });
+    renderWithProviders(<AdminDashboard />, 'es');
+    expect(await screen.findByTestId('dashboard-unassigned-unmeasured')).toHaveTextContent('Pedidos pagados con cartas sin asignar: no se pudo medir');
+    expect(screen.getByTestId('dashboard-unassigned-value')).toHaveTextContent('—');
+    expect(screen.queryByTestId('dashboard-unassigned')).toBeNull();
   });
   for (const [name, extra] of [['ausente', {}], ['0', { vaultOrdersWithUnassignedItems: 0 }]] as const) {
     it(`${name} ⇒ no se pinta`, async () => {

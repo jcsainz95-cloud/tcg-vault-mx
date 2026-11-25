@@ -11,7 +11,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
-import { unassignedOrdersCount, UNASSIGNED_ORDERS_HREF } from '@/lib/api/vault-unassigned';
+import { unassignedOrdersReading, UNASSIGNED_ORDERS_HREF } from '@/lib/api/vault-unassigned';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -285,18 +285,32 @@ export function AdminDashboard() {
               <ShippingAlertsCard data={query.data.workQueue.shipping} isSuperAdmin={isSuperAdmin} />
             )}
             {/* §BOVEDA-COBRADA-SIN-PIEZAS: cifra del servidor; 0 o ausente (servidor anterior) ⇒ la tarjeta NO existe. */}
-            {unassignedOrdersCount(query.data) > 0 && (
-              <StatCard
-                label={t('unassigned.title')}
-                className="[&_span.tabular]:text-accent"
-                value={<span data-testid="dashboard-unassigned-value">{unassignedOrdersCount(query.data)}</span>}
-                sub={
-                  <Link href={UNASSIGNED_ORDERS_HREF} className={LINK_CLASS} data-testid="dashboard-unassigned">
-                    {t('unassigned.detail', { n: unassignedOrdersCount(query.data) })}
-                  </Link>
-                }
-              />
-            )}
+            {(() => {
+              const u = unassignedOrdersReading(query.data);
+              if (u.kind === 'none') return null;
+              if (u.kind === 'unmeasured') {
+                // `null` del servidor = la consulta falló: se dice, ⛔ no se pinta como 0.
+                return (
+                  <StatCard
+                    label={t('unassigned.title')}
+                    value={<span data-testid="dashboard-unassigned-value">—</span>}
+                    sub={<span data-testid="dashboard-unassigned-unmeasured">{t('unassigned.unmeasured')}</span>}
+                  />
+                );
+              }
+              return (
+                <StatCard
+                  label={t('unassigned.title')}
+                  className="[&_span.tabular]:text-accent"
+                  value={<span data-testid="dashboard-unassigned-value">{u.n}</span>}
+                  sub={
+                    <Link href={UNASSIGNED_ORDERS_HREF} className={LINK_CLASS} data-testid="dashboard-unassigned">
+                      {t('unassigned.detail', { n: u.n })}
+                    </Link>
+                  }
+                />
+              );
+            })()}
             {/* v1.80.2 (§37.11b): solo súper-admin; `null` (operador) ⇒ la tarjeta NO existe (S6). */}
             {isSuperAdmin && query.data.workQueue.manualRefunds && (
               <StatCard

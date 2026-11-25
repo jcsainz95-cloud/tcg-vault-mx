@@ -18,6 +18,22 @@ export function unassignedOrdersCount(d: {
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
 }
 
+/**
+ * Lectura del contador: `null` EXPLÍCITO = la consulta del servidor falló ⇒ «no se pudo medir» (⛔ nunca un 0);
+ * ausente o 0 ⇒ nada; N > 0 ⇒ el conteo.
+ */
+export type UnassignedReading = { kind: 'none' } | { kind: 'count'; n: number } | { kind: 'unmeasured' };
+export function unassignedOrdersReading(d: {
+  workQueue?: { vaultOrdersWithUnassignedItems?: number | null } | null;
+  vaultOrdersWithUnassignedItems?: number | null;
+}): UnassignedReading {
+  const wq = d.workQueue ?? undefined;
+  const raw = wq && 'vaultOrdersWithUnassignedItems' in wq ? wq.vaultOrdersWithUnassignedItems : d.vaultOrdersWithUnassignedItems;
+  if (raw === null) return { kind: 'unmeasured' };
+  const n = unassignedOrdersCount(d);
+  return n > 0 ? { kind: 'count', n } : { kind: 'none' };
+}
+
 /** Destino del enlace del tablero y del filtro de Pedidos (`GET /admin/orders?mismatch=true`). */
 export const UNASSIGNED_ORDERS_HREF = '/admin/m3?mismatch=true';
 

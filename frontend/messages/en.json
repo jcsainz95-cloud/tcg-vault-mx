@@ -1798,7 +1798,8 @@
       "buylistQueue": "Seller purchases",
       "unassigned": {
         "title": "Unassigned cards",
-        "detail": "Paid orders with unassigned cards: {n}"
+        "detail": "Paid orders with unassigned cards: {n}",
+        "unmeasured": "Paid orders with unassigned cards: could not be measured"
       },
       "toPrepare": {
         "title": "Orders to prepare",

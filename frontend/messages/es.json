@@ -1798,7 +1798,8 @@
       "buylistQueue": "Compras a vendedores",
       "unassigned": {
         "title": "Cartas sin asignar",
-        "detail": "Pedidos pagados con cartas sin asignar: {n}"
+        "detail": "Pedidos pagados con cartas sin asignar: {n}",
+        "unmeasured": "Pedidos pagados con cartas sin asignar: no se pudo medir"
       },
       "toPrepare": {
         "title": "Pedidos por preparar",
