@@ -3907,6 +3907,32 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
       { id: 'sri-tr-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'cotizada' },
     ],
   },
+  /** §BUYLIST-RASTREO — `aceptada` con guía NUESTRA (`inboundCarrier` no nulo) y sin escaneo todavía ⇒ «Aún sin movimiento». */
+  {
+    id: 'sr-3031',
+    userId: 'u-783',
+    status: 'aceptada',
+    quotedTotalCents: 90000,
+    createdAt: '2026-11-20T14:00:00Z',
+    receivedAt: null,
+    verifiedAt: null,
+    approvedTotalCents: null,
+    offerSentAt: '2026-11-21T10:00:00Z',
+    offerState: 'sent',
+    offerGrossCents: 90000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 72000,
+    offerAcceptDeadlineAt: '2026-11-28T10:00:00Z',
+    guideSentAt: '2026-11-24T10:00:00Z',
+    shipDeadlineAt: '2026-12-03T18:00:00Z',
+    shipmentCarrier: 'Estafeta',
+    shipmentTrackingNumber: '8012 3456 0002',
+    inboundCarrier: { status: null, pollError: false, stalledDays: null },
+    seller: { id: 'u-783', name: 'Gary Oak', email: 'gary@example.com' },
+    items: [
+      { id: 'sri-id-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'cotizada' },
+    ],
+  },
   /** §BUYLIST-RASTREO — `aceptada` con el plazo del vendedor vencido y SIN confirmación (aviso + «Confirmar envío» arriba). */
   {
     id: 'sr-3030',

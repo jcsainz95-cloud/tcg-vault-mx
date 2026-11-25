@@ -131,15 +131,17 @@ describe('Notas y respaldo de la cinta', () => {
     );
     expect(screen.getByText('Va de regreso al vendedor.')).toBeTruthy();
   });
-  it('sin escaneo: guía nuestra ⇒ «Aún sin movimiento»; guía del vendedor o rastreo caído ⇒ «Sin rastreo automático»', () => {
+  it('sin escaneo (decide el DTO): null ⇒ «Sin rastreo automático»; no nulo sin estado ⇒ «Aún sin movimiento»; error ⇒ «Sin rastreo automático»', () => {
     const ours = { id: 's', folio: null, carrier: 'DHL', trackingNumber: '1' } as never;
-    const a = renderWithProviders(<InboundCarrierStatus req={req({ inboundShipment: ours })} />);
-    expect(screen.getByText('Aún sin movimiento de la paquetería')).toBeTruthy();
-    a.unmount();
-    const b = renderWithProviders(<InboundCarrierStatus req={req()} />);
+    // inboundShipment presente pero inboundCarrier null (proveedor apagado) ⇒ NO «Aún sin movimiento».
+    const a = renderWithProviders(<InboundCarrierStatus req={req({ inboundShipment: ours, inboundCarrier: null })} />);
     expect(screen.getByText('Sin rastreo automático')).toBeTruthy();
+    expect(screen.queryByText('Aún sin movimiento de la paquetería')).toBeNull();
+    a.unmount();
+    const b = renderWithProviders(<InboundCarrierStatus req={req({ inboundCarrier: { status: null } })} />);
+    expect(screen.getByText('Aún sin movimiento de la paquetería')).toBeTruthy();
     b.unmount();
-    renderWithProviders(<InboundCarrierStatus req={req({ inboundShipment: ours, inboundCarrier: { status: null, pollError: true } })} />);
+    renderWithProviders(<InboundCarrierStatus req={req({ inboundCarrier: { status: null, pollError: true } })} />);
     expect(screen.getByText('Sin rastreo automático')).toBeTruthy();
     expect(screen.queryByText('Aún sin movimiento de la paquetería')).toBeNull();
   });

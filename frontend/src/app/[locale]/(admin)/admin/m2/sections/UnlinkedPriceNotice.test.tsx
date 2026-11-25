@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as repair from '@/lib/api/catalog-link-repair';
@@ -40,7 +41,7 @@ describe('UnlinkedPriceNotice', () => {
   });
 
   it('reintento ok: llama link-repair con el UUID local y dice cuántas se ligaron', async () => {
-    const spy = vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 5, reason: null, piecesCorrected: 2, piecesExcluded: [{ key: 'customerVault', count: 3 }, { key: 'movement', count: 1 }] });
+    const spy = vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 5, reasons: [], piecesCorrected: 2, piecesExcluded: [{ key: 'customerVault', count: 3 }, { key: 'movement', count: 1 }] });
     renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
     fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Scarlet/ }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith(UUID1));
@@ -50,7 +51,7 @@ describe('UnlinkedPriceNotice', () => {
   });
 
   it('0 ligadas: dice la verdad con el motivo', async () => {
-    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 0, reason: 'collisions', piecesCorrected: 0, piecesExcluded: [] });
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 0, reasons: [{ key: 'collisions', count: null }], piecesCorrected: 0, piecesExcluded: [] });
     renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
     fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Violet/ }));
     expect((await screen.findByTestId('unlinked-result')).textContent).toBe(
@@ -72,12 +73,43 @@ describe('UnlinkedPriceNotice', () => {
   });
 });
 
+describe('UnlinkedPriceNotice · nombre y motivos', () => {
+  it('m-11: el nombre del set se conserva aunque la fila desaparezca al refrescar', async () => {
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 29, reasons: [], piecesCorrected: 0, piecesExcluded: [] });
+    function H() {
+      const [r, setR] = useState(REPORT);
+      return (
+        <>
+          <UnlinkedPriceNotice report={r} />
+          <button onClick={() => setR({ ...REPORT, sets: [REPORT.sets[1]] })}>drop</button>
+        </>
+      );
+    }
+    renderWithProviders(<H />);
+    fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Scarlet/ }));
+    await screen.findByTestId('unlinked-result');
+    fireEvent.click(screen.getByText('drop'));
+    expect(screen.queryByRole('button', { name: /Reintentar enlace de Scarlet/ })).toBeNull();
+    expect(screen.getByTestId('unlinked-result').textContent).toBe('Se ligaron 29 cartas en Scarlet.');
+  });
+  it('I-13: con 0 ligadas lista hasta 2 motivos de cartas con su cuenta', async () => {
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 0, reasons: [{ key: 'nameMismatch', count: 1 }, { key: 'ownerConflict', count: 2 }], piecesCorrected: 0, piecesExcluded: [] });
+    renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
+    fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Scarlet/ }));
+    expect((await screen.findByTestId('unlinked-result')).textContent).toBe('No se pudo ligar ninguna carta en Scarlet: 1 por nombre distinto, 2 con dueño distinto.');
+  });
+});
+
 describe('readLinkRepair', () => {
   it('mapea el motivo dominante', () => {
-    expect(repair.readLinkRepair({ linked: 3 })).toEqual({ linked: 3, reason: null, piecesCorrected: 0, piecesExcluded: [] });
+    expect(repair.readLinkRepair({ linked: 3 })).toEqual({ linked: 3, reasons: [], piecesCorrected: 0, piecesExcluded: [] });
     expect(repair.readLinkRepair({ linked: 0, piecesExcluded: [{ reason: 'movement:refund_return', count: 2 }, { reason: 'zzz', count: 1 }] }).piecesExcluded).toEqual([{ key: 'movement', count: 2 }, { key: 'other', count: 1 }]);
-    expect(repair.readLinkRepair({ linked: 0, notLinkable: 'no_group' }).reason).toBe('noGroup');
-    expect(repair.readLinkRepair({ linked: 0, collisions: 1, conflicts: 4 }).reason).toBe('ownerConflict');
-    expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'name_mismatch', count: 2 }] }).reason).toBe('nameMismatch');
+    expect(repair.readLinkRepair({ linked: 0, notLinkable: 'no_group' }).reasons).toEqual([{ key: 'noGroup', count: null }]);
+    expect(repair.readLinkRepair({ linked: 0, collisions: 1, conflicts: 4 }).reasons[0]).toEqual({ key: 'ownerConflict', count: 4 });
+    // I-13: no_local_card (incluye sellado) no tapa los motivos de cartas; hasta 2, en orden.
+    const mixed = repair.readLinkRepair({ linked: 0, conflicts: 2, omitted: [{ reason: 'no_local_card', count: 90 }, { reason: 'name_mismatch', count: 1 }, { reason: 'card_already_linked', count: 5 }] });
+    expect(mixed.reasons).toEqual([{ key: 'ownerConflict', count: 2 }, { key: 'nameMismatch', count: 1 }]);
+    expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'no_local_card', count: 9 }] }).reasons).toEqual([{ key: 'noLocalCard', count: 9 }]);
+    expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'name_mismatch', count: 2 }] }).reasons).toEqual([{ key: 'nameMismatch', count: 2 }]);
   });
 });

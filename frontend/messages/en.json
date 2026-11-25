@@ -4455,6 +4455,7 @@
             "alreadyLinked": "the card was already linked",
             "other": "no clear match"
           },
+          "reasonCount": {"ownerConflict": "{n} with a different owner", "nameMismatch": "{n} with a different name", "alreadyLinked": "{n} already linked", "collisions": "{n} with a repeated number", "noLocalCard": "{n} with no card in your catalog"},
           "piecesCorrected": "{n, plural, one {The finish of # piece was corrected} other {The finishes of # pieces were corrected}}.",
           "piecesExcluded": "Not touched: {list}.",
           "excl": {

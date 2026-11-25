@@ -1,5 +1,6 @@
 import { getMerchantFeed } from '@/lib/api/merchant-feed';
 import { ApiClientError } from '@/lib/api-client';
+import { fresh } from '@/lib/snapshot-cache';
 import { buildMerchantFeedXml } from '@/lib/merchant-feed-xml';
 
 /**
@@ -20,18 +21,27 @@ function unavailable(): Response {
   });
 }
 
+const TTL_MS = 60_000;
+
+/** Foto del feed ya armada; `null` = no servible (backend caído o sin ítems) ⇒ 503 y NO se memoriza. */
+async function build(): Promise<{ xml: string; items: number; skipped: number }> {
+  const feed = await getMerchantFeed({ cache: 'no-store' });
+  if (!feed || !Array.isArray(feed.items) || feed.items.length === 0) throw new Error('empty');
+  const built = buildMerchantFeedXml(feed.items);
+  if (built.items === 0) throw new Error('empty');
+  return built;
+}
+
 export async function GET(): Promise<Response> {
-  let feed;
+  let built;
   try {
-    feed = await getMerchantFeed({ cache: 'no-store' });
+    // Memoria de 60 s (una entrada, sin importar la consulta): `no-store` hacia el backend no debe dejar que cada URL distinta lo golpee.
+    built = await fresh('merchant-feed', TTL_MS, build);
   } catch (e) {
-    if (!(e instanceof ApiClientError)) console.error('[merchant-feed] backend no disponible');
+    if (!(e instanceof ApiClientError) && !(e instanceof Error && e.message === 'empty')) console.error('[merchant-feed] backend no disponible');
     return unavailable();
   }
-  if (!feed || !Array.isArray(feed.items) || feed.items.length === 0) return unavailable();
-
-  const { xml, items, skipped } = buildMerchantFeedXml(feed.items);
-  if (items === 0) return unavailable();
+  const { xml, items, skipped } = built;
   return new Response(xml, {
     status: 200,
     headers: {

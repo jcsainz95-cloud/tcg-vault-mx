@@ -19,13 +19,14 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const getError = useErrorMessage('operator');
   const qc = useQueryClient();
   const retry = useMutation({
-    mutationFn: (setId: string) => repairCatalogLinks(setId),
+    mutationFn: (v: { setId: string; name: string }) => repairCatalogLinks(v.setId),
     onSettled: () => qc.invalidateQueries({ queryKey: ['catalog-sync-status'] }),
   });
   const notLinkable = report?.notLinkable?.sets ?? [];
   if (!report || (!(report.totalCards > 0 && report.sets?.length) && !notLinkable.length)) return null;
-  const pendingId = retry.isPending ? retry.variables : null;
-  const lastName = report.sets.find((s) => s.setId === retry.variables)?.name ?? '';
+  const pendingId = retry.isPending ? retry.variables?.setId : null;
+  // El nombre viaja con la acción: la fila puede desaparecer al refrescar el contador.
+  const lastName = retry.variables?.name ?? '';
 
   const apiErr = retry.isError ? asApiError(retry.error) : null;
   const errorText = (() => {
@@ -39,6 +40,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   })();
   const res = retry.data;
   const reasonText = (k: string) => t(`reason.${k}` as never);
+  const countText = (k: string, n: number) => (t as unknown as (k: string, v: Record<string, unknown>) => string)(`reasonCount.${k}`, { n });
   const hasLinkable = report.totalCards > 0 && report.sets?.length > 0;
 
   return (
@@ -66,7 +68,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
               aria-label={t('aria', { name: s.name })}
               loading={pendingId === s.setId}
               disabled={retry.isPending}
-              onClick={() => retry.mutate(s.setId)}
+              onClick={() => retry.mutate({ setId: s.setId, name: s.name })}
             >
               <RefreshCw size={14} aria-hidden /> {pendingId === s.setId ? t('retrying') : t('retry')}
             </Button>
@@ -77,7 +79,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
         <p role="status" className="mt-2 text-sm" data-testid="unlinked-result">
           {res.linked > 0
             ? t('ok', { n: res.linked, name: lastName })
-            : t('none', { name: lastName, reason: reasonText(res.reason ?? 'other') })}
+            : t('none', { name: lastName, reason: res.reasons.map((r) => (r.count == null ? reasonText(r.key) : countText(r.key, r.count))).join(', ') })}
           {res.piecesCorrected > 0 && ` ${t('piecesCorrected', { n: res.piecesCorrected })}`}
           {res.piecesExcluded.length > 0 &&
             ` ${t('piecesExcluded', { list: res.piecesExcluded.map((e) => (t as unknown as (k: string, v: Record<string, unknown>) => string)(`excl.${e.key}`, { n: e.count })).join(', ') })}`}

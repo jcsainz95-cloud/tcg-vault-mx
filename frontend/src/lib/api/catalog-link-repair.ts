@@ -21,8 +21,8 @@ export type PieceExcludedKey =
 
 export interface LinkRepairResult {
   linked: number;
-  /** Motivo dominante cuando `linked === 0`; `null` si no hay nada que explicar. */
-  reason: LinkRepairReasonKey | null;
+  /** Con `linked === 0`: hasta 2 motivos relevantes para CARTAS (con su cuenta; `null` = motivo del set entero). */
+  reasons: Array<{ key: LinkRepairReasonKey; count: number | null }>;
   piecesCorrected: number;
   piecesExcluded: Array<{ key: PieceExcludedKey; count: number }>;
 }
@@ -66,16 +66,22 @@ export function readLinkRepair(raw: RawLinkRepair): LinkRepairResult {
         count: Number(e.count) || 0,
       })),
   };
-  if (linked > 0) return { linked, reason: null, ...base };
-  if (raw.notLinkable === 'no_group') return { linked: 0, reason: 'noGroup', ...base };
-  if (raw.notLinkable === 'tcgcsv_source') return { linked: 0, reason: 'tcgcsvSource', ...base };
-  const cands: Array<[number, LinkRepairReasonKey]> = [
+  if (linked > 0) return { linked, reasons: [], ...base };
+  if (raw.notLinkable === 'no_group') return { linked: 0, reasons: [{ key: 'noGroup', count: null }], ...base };
+  if (raw.notLinkable === 'tcgcsv_source') return { linked: 0, reasons: [{ key: 'tcgcsvSource', count: null }], ...base };
+  // `no_local_card` incluye sellado y casi siempre gana por volumen: se lista SOLO si no hay otro motivo de cartas.
+  const sum = (k: string) => (raw.omitted ?? []).filter((o) => o.reason === k).reduce((n, o) => n + (Number(o.count) || 0), 0);
+  const ordered: Array<[number, LinkRepairReasonKey]> = [
+    [(Number(raw.conflicts) || 0) + sum('owner_conflict'), 'ownerConflict'],
+    [sum('name_mismatch'), 'nameMismatch'],
+    [sum('card_already_linked'), 'alreadyLinked'],
     [Number(raw.collisions) || 0, 'collisions'],
-    [Number(raw.conflicts) || 0, 'ownerConflict'],
-    ...(raw.omitted ?? []).map((o): [number, LinkRepairReasonKey] => [Number(o.count) || 0, OMITTED_KEY[o.reason] ?? 'other']),
   ];
-  const top = cands.filter(([n]) => n > 0).sort((x, y) => y[0] - x[0])[0];
-  return { linked: 0, reason: top ? top[1] : 'other', ...base };
+  const cardReasons = ordered.filter(([n]) => n > 0).slice(0, 2).map(([n, key]) => ({ key, count: n }));
+  if (cardReasons.length) return { linked: 0, reasons: cardReasons, ...base };
+  const noLocal = sum('no_local_card');
+  if (noLocal > 0) return { linked: 0, reasons: [{ key: 'noLocalCard', count: noLocal }], ...base };
+  return { linked: 0, reasons: [{ key: 'other', count: null }], ...base };
 }
 
 export async function repairCatalogLinks(setId: string): Promise<LinkRepairResult> {

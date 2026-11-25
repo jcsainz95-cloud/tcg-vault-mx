@@ -32,8 +32,9 @@ export function InboundCarrierStatus({ req, mode = 'line' }: { req: AdminBuylist
   const label = c?.kind ? t(c.kind) : null;
   // `estimatedDeliveryAt` llega siempre null del servidor: no se pinta «llega …».
   const headline = label;
-  // Sin escaneo: la guía es nuestra (hay envío de entrada) y el rastreo no falló ⇒ «aún sin movimiento»; si no, «sin rastreo automático».
-  const fallback = headline ? null : req.inboundShipment && !c?.pollError ? t('idle') : t('none');
+  // Sin escaneo: lo decide el DTO. `inboundCarrier` null/ausente (guía del vendedor o proveedor apagado) ⇒ «Sin rastreo automático»;
+  // no nulo sin estado ⇒ «Aún sin movimiento»; con error de rastreo ⇒ «Sin rastreo automático».
+  const fallback = headline ? null : req.inboundCarrier && !c?.pollError ? t('idle') : t('none');
 
   return (
     <div className="flex flex-col gap-0.5" data-testid="m5-inbound-carrier">

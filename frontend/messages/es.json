@@ -4455,6 +4455,7 @@
             "alreadyLinked": "la carta ya estaba ligada",
             "other": "sin coincidencia clara"
           },
+          "reasonCount": {"ownerConflict": "{n} con dueño distinto", "nameMismatch": "{n} por nombre distinto", "alreadyLinked": "{n} ya estaban ligadas", "collisions": "{n} con número repetido", "noLocalCard": "{n} sin carta en tu catálogo"},
           "piecesCorrected": "{n, plural, one {Se corrigió el acabado de # pieza} other {Se corrigieron los acabados de # piezas}}.",
           "piecesExcluded": "No se tocaron: {list}.",
           "excl": {

@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { routing } from '@/i18n/routing';
+import { fresh } from '@/lib/snapshot-cache';
 import { getDecksMeta, getSitemap } from '@/lib/api';
 import { staticLastModified } from '@/lib/sitemap-lastmod';
 import { siteAbsoluteUrl } from '@/lib/seo';
@@ -16,10 +17,12 @@ import { contentSitemapPaths } from '@/lib/seo-content';
  * `/guias`, `/guias/<slug>`) salen de `contentSitemapPaths()` (`lib/seo-content.ts`) con su fecha de
  * revisión/publicación como `lastmod`; una página sin contenido vigente (FAQ vencidas) NO se lista.
  *
- * Resiliente: si el backend no responde, se devuelven al menos las estáticas (nunca un 500 que deje
- * sin sitemap). Misma frescura que el feed de Google (el backend sirve ambos de UNA foto de 60 s): se revalida cada 60 s.
+ * (Antes: «resiliente», con solo las estáticas si el backend caía; ya NO: un sitemap recortado hace que Google des-indexe fichas.)
+ * Misma frescura que el feed de Google: dinámico con memoria de servidor de 60 s y tope duro (`lib/snapshot-cache.ts`);
+ * `revalidate` no tiene tope de edad. Con el backend caído FALLA (5xx): nunca publica un sitemap recortado sin fichas.
  */
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
+const TTL_MS = 60_000;
 
 const STATIC_PATHS = [
   '', // portada
@@ -34,11 +37,15 @@ const STATIC_PATHS = [
 ] as const;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  return fresh('sitemap', TTL_MS, buildSitemap);
+}
+
+async function buildSitemap(): Promise<MetadataRoute.Sitemap> {
   const locale = routing.defaultLocale;
   const now = new Date();
 
   const [feed, decks] = await Promise.all([
-    getSitemap().catch(() => null),
+    getSitemap(),
     getDecksMeta().catch(() => null),
   ]);
   const lastmods = staticLastModified(feed, decks?.updatedAt);
@@ -55,8 +62,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: 'monthly',
   }));
 
-  // Backend no disponible: el sitemap sale solo con las estáticas (mejor que un 500).
-  const dynamicEntries: MetadataRoute.Sitemap = (feed?.items ?? []).map((item) => ({
+  const dynamicEntries: MetadataRoute.Sitemap = feed.items.map((item) => ({
     url:
       item.type === 'card'
         ? siteAbsoluteUrl(`/${locale}/catalog/${encodeURIComponent(item.id)}`)
