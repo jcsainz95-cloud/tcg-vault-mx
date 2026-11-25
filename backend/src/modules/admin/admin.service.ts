@@ -1836,12 +1836,12 @@ export class AdminService {
   }
 
   /** §BOVEDA-COBRADA-SIN-PIEZAS: pedidos liquidados con ≥1 línea sin asignar (la invariante; misma consulta que la reparación). */
-  private async vaultOrdersWithUnassignedCount(): Promise<number> {
+  private async vaultOrdersWithUnassignedCount(): Promise<number | null> {
     try {
       return distinctOrders(await findUnassignedLines(this.prisma)).length;
     } catch (e) {
       this.logger.error(`dashboard: no se pudo contar los pedidos con piezas sin asignar (${(e as Error).message}).`);
-      return 0;
+      return null; // ⛔ nunca un 0 que diga «todo bien» cuando la consulta falló (BC-6)
     }
   }
 

@@ -6,6 +6,7 @@
 import { E2EHarness } from './helpers/e2e-app';
 import { VaultOrphansDb } from './helpers/vault-orphans-db';
 import { VaultOrphanRepairService } from '../../src/jobs/vault-orphan-repair.service';
+import { distinctOrders, findUnassignedLines } from '../../src/modules/payments/vault-orphans';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = Date.now().toString(36);
@@ -46,7 +47,7 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — visibilidad (panel, Pedidos, bóvedas,
     // --- contador del panel = N de la consulta de la invariante (el mismo número de la reparación)
     const dash = await h.api('GET', '/admin/dashboard', { token: admin });
     expect(dash.status).toBe(200);
-    const total = await h.prisma.$queryRaw<{ n: bigint }[]>`SELECT count(DISTINCT oi."orderId")::bigint AS n FROM "OrderItem" oi JOIN "Order" o ON o.id = oi."orderId" JOIN "InventoryItem" ii ON ii.id = oi."inventoryItemId" WHERE o.status = 'settled' AND o."fulfillmentMode" IN ('vault','direct_ship') AND NOT EXISTS (SELECT 1 FROM "PaymentRefund" r WHERE r."orderItemId" = oi.id AND r.status <> 'failed') AND (ii.status IN ('listed','in_stock','reserved') OR (o."fulfillmentMode"='vault' AND ii.status='in_custody' AND (ii."ownerType" <> 'customer' OR ii."ownerUserId" IS DISTINCT FROM o."userId")))`;
+    const total = [{ n: distinctOrders(await findUnassignedLines(h.prisma)).length }];
     expect(dash.body.workQueue.vaultOrdersWithUnassignedItems).toBe(Number(total[0].n));
     expect(dash.body.vaultOrdersWithUnassignedItems).toBe(Number(total[0].n));
     expect(dash.body.workQueue.vaultOrdersWithUnassignedItems).toBeGreaterThanOrEqual(2);

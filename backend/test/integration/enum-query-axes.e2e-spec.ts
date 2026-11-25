@@ -819,8 +819,8 @@ const REGISTRO: readonly AxisRow[] = [
   // §BOVEDA-COBRADA-SIN-PIEZAS (DECISIONES, «Contrato»): `fulfillmentMode` es clase **E** (derivado de `FulfillmentMode`) y `mismatch`
   // clase **L** (`true|false`, predicado derivado de la invariante, ⛔ no es enum). Filas escritas por backend; la clase la confirma el
   // arquitecto al anotarlas en §0-Q punto 4 (`PENDIENTE-ARQUITECTO`).
-  { route: 'GET /admin/orders', param: 'fulfillmentMode', clazz: 'E', allowed: Object.values(FulfillmentMode), valid: 'vault', alterno: 'direct_ship', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/orders', param: 'mismatch', clazz: 'L', allowed: ['true', 'false'], valid: 'true', alterno: 'false', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/orders', param: 'fulfillmentMode', clazz: 'E', allowed: Object.values(FulfillmentMode), valid: 'vault', alterno: 'direct_ship', auth: 'admin', echoValue: false, filaEn0Q: 'transcrita' },
+  { route: 'GET /admin/orders', param: 'mismatch', clazz: 'L', allowed: ['true', 'false'], valid: 'true', alterno: 'false', auth: 'admin', echoValue: false, filaEn0Q: 'transcrita' },
   { route: 'GET /admin/users/:id/audit', path: (c) => `/admin/users/${c.userId}/audit`, param: 'scope', clazz: 'R', allowed: USER_AUDIT_SCOPE_VALUES, valid: 'actor', alterno: 'both', auth: 'admin', echoValue: false },
   // ⚠️ `valid: 'price_desc'` y no `'price_asc'`: los dos sellados del fixture comparten `createdAt`
   // (mismo `createMany`), así que `newest` (default) = orden de inserción = price ASC ⇒ `price_asc`
@@ -1801,9 +1801,6 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/finance/shrinkage?reason=',
       'GET /admin/inventory/master-sets?sort=',
       'GET /admin/manual-refunds?status=',
-      // §BOVEDA-COBRADA-SIN-PIEZAS: `fulfillmentMode` (E) y `mismatch` (L) de la lista de Pedidos; fila de §0-Q por escribir (arquitecto).
-      'GET /admin/orders?fulfillmentMode=',
-      'GET /admin/orders?mismatch=',
       // ⛔ `GET /admin/orders?refundReview=` estuvo aquí desde v1.80.8.6 y **SALIÓ en v1.80.8.8** ((10).3): el
       // arquitecto escribió su fila en §0-Q punto 4 (clase L, dominio `pending`).
       'GET /admin/refunds?kind=',
@@ -2110,9 +2107,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // API_CONTRACT_REPORTES §2). Sin fila propia en la tabla de §0-Q aún: se anota para el arquitecto en STATUS.
     // ⭐ §REPORTES-CEO F2b — 103 → **106** y 19 fijo: `kind` de `GET /admin/reports/finance/pnl`, y `groupBy`/`line` de `GET /admin/reports/finance/pnl/series` (clase L; dominios en
     // `reports-finance.service.ts`/`sales-period.ts`; API_CONTRACT_REPORTES §3). Sin fila propia en la tabla de §0-Q aún (como las de F2a): se anota para el arquitecto en STATUS.
-    // §BOVEDA-COBRADA-SIN-PIEZAS — 106 → **108** y 19 → **21**: `fulfillmentMode` (E) y `mismatch` (L) de `GET /admin/orders`.
+    // §BOVEDA-COBRADA-SIN-PIEZAS — 106 → **108** (las dos `transcrita`: el arquitecto fijó E y L en §0-Q) y pendientes 19 fijo: `fulfillmentMode` (E) y `mismatch` (L) de `GET /admin/orders`.
     expect(REGISTRO.length).toBe(108);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(21);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(19);
     // PSA-ACABADO: 95 → 96 y 18 → 19 — `?finish=` del DELETE de estimados (SELECTOR, dominio `Finish`; contrato §4 vigente, fila de §0-Q aún no escrita).
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.

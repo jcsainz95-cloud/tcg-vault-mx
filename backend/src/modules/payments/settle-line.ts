@@ -167,10 +167,11 @@ async function claimedBySettledOrder(ctx: SettleLineContext, itemId: string) {
 }
 
 async function flagOther(ctx: SettleLineContext, line: { id: string; orderId: string }, itemId: string): Promise<void> {
-  await ctx.tx.orderItem.updateMany({
+  const marked = await ctx.tx.orderItem.updateMany({
     where: { id: line.id, fulfillmentFailedAt: null },
     data: { fulfillmentFailedAt: ctx.now, fulfillmentFailedReason: 'double_charge' },
   });
+  if (marked.count !== 1) return; // ya estaba marcada: ni se reescribe ni se vuelve a auditar
   await ctx.tx.auditLog.create({
     data: {
       actorUserId: null,
@@ -371,6 +372,8 @@ export interface SettleRecord {
   orderItemId: string;
   inventoryItemId: string;
   outcome: SettleLineOutcome;
+  /** `false` ⇒ no escribió nada nuevo (una línea ya marcada que sigue igual): no se avisa otra vez. */
+  changed?: boolean;
 }
 
 /** Forma de `after.anomalies[]` de `order.settle_item_not_reserved` (la que lee el súper-admin en la bitácora). */

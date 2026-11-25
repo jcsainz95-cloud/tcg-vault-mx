@@ -388,7 +388,7 @@ export class PaymentsService {
         const lines: { orderItemId: string; inventoryItemId: string }[] = [];
         for (const oi of order.items) {
           const res = await settleLineOrReplace(ctx, oi);
-          records.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId, outcome: res.outcome });
+          records.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId, outcome: res.outcome, changed: res.changed });
           if (res.outcome.kind !== 'attention') lines.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId });
         }
         await releaseSupersededLeftovers(tx, ctx.failedHere);
@@ -396,7 +396,7 @@ export class PaymentsService {
         const anomalies = anomaliesOf(records);
         if (anomalies.length > 0) {
           await tx.auditLog.create({
-            data: { actorUserId: null, actorRole: null, action: 'order.settle_item_not_reserved', entityType: 'Order', entityId: order.id, after: { anomalies } },
+            data: { actorUserId: null, actorRole: null, action: 'order.settle_item_not_reserved', entityType: 'Order', entityId: order.id, after: { anomalies, needsHumanReview: anomalies.some((a) => a.outcome === 'attention') } },
           });
         }
         // v1.79 (M-59) — nace la colocación, en ESTA transacción y DESPUÉS del bucle de piezas. Una línea «requiere atención» no
@@ -651,7 +651,7 @@ export class PaymentsService {
       const effective = new Map<string, string>(); // orderItemId → pieza que respalda la línea
       for (const oi of order.items) {
         const res = await settleLineOrReplace(ctx, oi);
-        records.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId, outcome: res.outcome });
+        records.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId, outcome: res.outcome, changed: res.changed });
         if (res.outcome.kind !== 'attention') effective.set(oi.id, res.inventoryItemId);
       }
       await releaseSupersededLeftovers(tx, ctx.failedHere);
@@ -660,7 +660,7 @@ export class PaymentsService {
         const anomalies = anomaliesOf(records);
         if (anomalies.length > 0) {
           await tx.auditLog.create({
-            data: { actorUserId: null, actorRole: null, action: 'order.settle_item_not_reserved', entityType: 'Order', entityId: order.id, after: { anomalies } },
+            data: { actorUserId: null, actorRole: null, action: 'order.settle_item_not_reserved', entityType: 'Order', entityId: order.id, after: { anomalies, needsHumanReview: anomalies.some((a) => a.outcome === 'attention') } },
           });
         }
       }
@@ -722,25 +722,8 @@ export class PaymentsService {
         .catch((e: unknown) => this.logger.error(`No se pudo auditar la anomalía del renglón de accesorio: ${(e as Error).message}`));
     }
 
-    // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se liquidan en silencio.
-    // §BOVEDA-COBRADA-SIN-PIEZAS: `recovered` = la línea quedó respaldada (asignada, transferida o repuesta); `needsHumanReview` =
-    // alguna línea quedó «requiere atención». La fila `order.settle_item_not_reserved` (detalle por línea) ya se escribió en la tx.
-    const dsAnomalies = anomaliesOf(records).map((a) => ({ inventoryItemId: a.inventoryItemId, was: a.was, recovered: a.outcome !== 'attention' }));
-    if (dsAnomalies.length > 0) {
-      const unrecovered = dsAnomalies.filter((a) => !a.recovered);
-      await this.audit
-        .log({
-          actorUserId: null,
-          actorRole: null,
-          action: 'order.settle_inventory_anomaly',
-          entityType: 'Order',
-          entityId: order.id,
-          after: { anomalies: dsAnomalies, needsHumanReview: unrecovered.length > 0 },
-        })
-        .catch((e: unknown) =>
-          this.logger.error(`No se pudo auditar la anomalía de settle: ${(e as Error).message}`),
-        );
-    }
+    // B3 — las anomalías son RUIDOSAS: la fila ÚNICA `order.settle_item_not_reserved` (con `needsHumanReview`) se escribió en la tx; el
+    // aviso (log + correo al dueño) lo da `reconcile.afterSettle`.
     await this.reconcile?.afterSettle({ orderId: order.id, orderNumber: order.orderNumber, records, supersededOrderIds });
 
     // 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio del correo (⛔ sin foto). Best-effort: un fallo

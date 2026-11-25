@@ -184,7 +184,7 @@ export class VaultOrphanRepairService implements OnApplicationBootstrap {
         ctx.allowReplace =
           opts.trigger === 'deploy' || l.fulfillmentFailedAt !== null || (opts.deployedAt !== null && order.settledAt !== null && order.settledAt >= opts.deployedAt);
         const res = await settleLineOrReplace(ctx, { id: l.orderItemId, inventoryItemId: l.inventoryItemId, fulfillmentFailedAt: l.fulfillmentFailedAt });
-        records.push({ orderItemId: l.orderItemId, inventoryItemId: res.inventoryItemId, outcome: res.outcome });
+        records.push({ orderItemId: l.orderItemId, inventoryItemId: res.inventoryItemId, outcome: res.outcome, changed: res.changed });
         if (res.outcome.kind === 'skipped') continue;
         if (res.outcome.kind !== 'attention') {
           assigned.push({ orderItemId: l.orderItemId, inventoryItemId: res.inventoryItemId });
@@ -210,7 +210,7 @@ export class VaultOrphanRepairService implements OnApplicationBootstrap {
       }
       await this.syncFulfillmentRows(tx, order, assigned, records.filter((r) => r.outcome.kind === 'attention').map((r) => r.orderItemId));
     });
-    if (supersededOrderIds.length > 0 && this.reconcile) {
+    if (this.reconcile && (supersededOrderIds.length > 0 || records.some((r) => r.outcome.kind === 'attention' && r.changed !== false))) {
       await this.reconcile.afterSettle({ orderId, orderNumber: first.orderNumber, records, supersededOrderIds });
     }
     return { repaired, replaced };

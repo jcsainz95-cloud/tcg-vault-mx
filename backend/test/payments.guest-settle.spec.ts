@@ -213,33 +213,29 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
    * ANOMALÍA (así sobrevivió el bug del barrido: un `continue` mudo en el camino del dinero).
    */
   it('B3: pieza liberada por el barrido y aún libre ⇒ se RE-CONGELA en `picking` y se audita', async () => {
-    const { svc, created, audit, itemState } = build({ itemStatus: 'listed' });
+    const { svc, created, audit, itemState, tx } = build({ itemStatus: 'listed' });
     await svc.onPaymentSucceeded(PI);
     // El pago confirmado manda sobre una reserva liberada: la pieza vuelve a estar fuera de venta.
     expect(itemState.status).toBe('picking');
     expect(['listed', 'in_stock']).not.toContain(itemState.status);
     expect(created.movements[0]).toMatchObject({ toStatus: 'picking', reason: 'settle' });
     expect(created.movements[0].note).toMatch(/ANOMAL/i);
-    expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'order.settle_inventory_anomaly',
-        entityType: 'Order',
-        after: expect.objectContaining({ needsHumanReview: false }),
-      }),
-    );
+    // §BOVEDA-COBRADA-SIN-PIEZAS: UNA sola fila de anomalía, escrita en la tx (ya no `order.settle_inventory_anomaly`).
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'order.settle_item_not_reserved', after: expect.objectContaining({ needsHumanReview: false }) }),
+    });
+    expect(audit.log).not.toHaveBeenCalled();
   });
 
   it('B3: pieza ya comprometida con otro flujo ⇒ NO se le quita a nadie, pero se escala a humano', async () => {
-    const { svc, created, audit, itemState } = build({ itemStatus: 'shipped' });
+    const { svc, created, audit, itemState, tx } = build({ itemStatus: 'shipped' });
     await svc.onPaymentSucceeded(PI);
     expect(itemState.status).toBe('shipped'); // intacta
     expect(created.movements).toHaveLength(0);
-    expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'order.settle_inventory_anomaly',
-        after: expect.objectContaining({ needsHumanReview: true }),
-      }),
-    );
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'order.settle_item_not_reserved', after: expect.objectContaining({ needsHumanReview: true }) }),
+    });
+    expect(audit.log).not.toHaveBeenCalled();
   });
 
   it('B3: la anomalía NO impide liquidar el pedido (el invitado pagó) ni crear su envío', async () => {

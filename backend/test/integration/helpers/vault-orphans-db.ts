@@ -184,6 +184,24 @@ export class VaultOrphansDb {
     });
   }
 
+  /** Un envío VIVO (`solicitado`) que lleva estas piezas; se borra en `cleanup`. */
+  async shipmentWith(pieceIds: string[], userId: string | null = null, orderId?: string) {
+    const sh = await this.h.prisma.shipmentRequest.create({
+      data: {
+        userId,
+        ...(orderId ? { orderId } : {}),
+        addressSnapshot: { line1: 'x', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX', phone: '1' },
+        status: 'solicitado',
+        shippingFeeCents: 0,
+        priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
+        items: { create: pieceIds.map((id) => ({ inventoryItemId: id })) },
+      },
+    });
+    this.shipments.push(sh.id);
+    return sh;
+  }
+
   item(id: string) {
     return this.h.prisma.inventoryItem.findUniqueOrThrow({ where: { id } });
   }
@@ -235,13 +253,14 @@ export class VaultOrphansDb {
     // Pedidos creados por las rutas reales (checkout) de los usuarios del fixture, desde el inicio de la corrida.
     const viaApi = await p.order.findMany({ where: { userId: { in: extraUserIds }, createdAt: { gte: this.startedAt } }, select: { id: true } });
     const orderIds = [...new Set([...this.orders, ...viaApi.map((o) => o.id)])];
+    await p.replacementCase.deleteMany({ where: { OR: [{ customerUserId: { in: this.users } }, { originOrderItem: { orderId: { in: orderIds } } }] } });
     const placements = await p.vaultPlacement.findMany({ where: { orderId: { in: orderIds } }, select: { id: true } });
     const pIds = placements.map((x) => x.id);
     await p.vaultPlacementItem.deleteMany({ where: { placementId: { in: pIds } } });
     await p.vaultPlacement.deleteMany({ where: { id: { in: pIds } } });
+    await p.paymentRefund.deleteMany({ where: { orderId: { in: orderIds } } });
     const ships = await p.shipmentRequest.findMany({ where: { orderId: { in: orderIds } }, select: { id: true } });
     await p.shipmentRequest.deleteMany({ where: { id: { in: [...ships.map((s) => s.id), ...this.shipments] } } });
-    await p.paymentRefund.deleteMany({ where: { orderId: { in: orderIds } } });
     await p.discountRedemption.deleteMany({ where: { orderId: { in: orderIds } } }).catch(() => undefined);
     await p.auditLog.deleteMany({ where: { OR: [{ entityId: { in: orderIds } }, { action: 'vault.orphan_repair_run', createdAt: { gte: this.startedAt } }] } });
     // Las piezas que el checkout real dejó reservadas/colgadas de estos pedidos vuelven a la plataforma antes de borrarlos.

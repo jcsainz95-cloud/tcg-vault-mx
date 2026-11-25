@@ -5,10 +5,12 @@ import { Prisma } from '@prisma/client';
  * comprador la espera». UNA sola definición para el contador del panel, el filtro «con desajuste» de Pedidos, el renglón de
  * `GET /admin/vaults`, `GET /admin/vault-orphans` y la reparación (⛔ ni dos consultas que puedan divergir).
  *
- * Una línea está SIN ASIGNAR cuando su pedido está `settled` (bóveda o envío directo), la línea no tiene reembolso vivo y su pieza:
- *  - está en el pool (`listed`/`in_stock`) o `reserved` (por otro pedido o por nadie), o
- *  - (solo bóveda) está `in_custody` pero NO es de un cliente / no es de ESTE comprador.
- * Incluye las líneas ya marcadas «requiere atención»: siguen sin pieza hasta que alguien decida. SQL fijo, sin entrada del usuario
+ * Una línea está SIN ASIGNAR cuando su pedido está `settled` (bóveda o envío directo), la línea no tiene reembolso vivo ni caso de
+ * reposición, y:
+ *  - ya está marcada «requiere atención» (`fulfillmentFailedAt`, cualquier motivo, también `double_charge`): sigue sin resolver; o
+ *  - bóveda: su pieza NO es HOY del comprador (dueño cliente = comprador y fuera de pool/reserva), en CUALQUIER estado;
+ *  - envío directo: su pieza está en pool/reserva, es de un cliente, o va en el envío vivo de OTRO pedido.
+ * Se define por dueño/pedido, no por lista de estados: la pieza del propio comprador ya retirada/enviada es legítima. SQL fijo, sin entrada del usuario
  * salvo `orderIds` (parametrizado).
  */
 export interface UnassignedLine {
@@ -44,10 +46,20 @@ export async function findUnassignedLines(db: RawDb, opts: { orderIds?: string[]
      WHERE o.status = 'settled'
        AND o."fulfillmentMode" IN ('vault', 'direct_ship')
        AND NOT EXISTS (SELECT 1 FROM "PaymentRefund" r WHERE r."orderItemId" = oi.id AND r.status <> 'failed')
+       AND NOT EXISTS (SELECT 1 FROM "ReplacementCase" rc WHERE rc."originOrderItemId" = oi.id OR rc."originalInventoryItemId" = oi."inventoryItemId")
        AND (
-            ii.status IN ('listed', 'in_stock', 'reserved')
-         OR (o."fulfillmentMode" = 'vault' AND ii.status = 'in_custody'
-             AND (ii."ownerType" <> 'customer' OR ii."ownerUserId" IS DISTINCT FROM o."userId"))
+            oi."fulfillmentFailedAt" IS NOT NULL
+         OR (
+              NOT EXISTS (SELECT 1 FROM "VaultPlacementItem" v WHERE v."orderItemId" = oi.id AND v."prepStatus" = 'missing')
+              AND CASE
+                WHEN o."fulfillmentMode" = 'vault' THEN
+                  NOT (ii."ownerType" = 'customer' AND ii."ownerUserId" = o."userId" AND ii.status NOT IN ('listed', 'in_stock', 'reserved'))
+                ELSE
+                  (ii.status IN ('listed', 'in_stock', 'reserved') OR ii."ownerType" = 'customer'
+                   OR EXISTS (SELECT 1 FROM "ShipmentItem" si JOIN "ShipmentRequest" sr ON sr.id = si."shipmentRequestId"
+                               WHERE si."inventoryItemId" = ii.id AND sr.status <> 'cancelado' AND sr."orderId" IS DISTINCT FROM o.id))
+              END
+            )
        )
        ${onlyOrders}
      ORDER BY o."settledAt" ASC NULLS LAST, o.id ASC, ii.folio ASC, oi.id ASC

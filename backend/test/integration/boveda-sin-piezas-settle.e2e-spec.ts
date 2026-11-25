@@ -9,6 +9,8 @@ import { E2EHarness } from './helpers/e2e-app';
 import { VaultOrphansDb } from './helpers/vault-orphans-db';
 import { VaultOrphanRepairService } from '../../src/jobs/vault-orphan-repair.service';
 import { OrdersService } from '../../src/modules/orders/orders.service';
+import { distinctOrders, findUnassignedLines } from '../../src/modules/payments/vault-orphans';
+import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = Date.now().toString(36);
 
@@ -16,12 +18,14 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — liquidación por línea y reparación'
   let h: E2EHarness;
   let fx: VaultOrphansDb;
   let repair: VaultOrphanRepairService;
+  let adminToken: string;
 
   beforeAll(async () => {
     h = await E2EHarness.create();
     fx = new VaultOrphansDb(h, RUN);
     await fx.init();
     repair = h.app.get(VaultOrphanRepairService);
+    adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
   });
   afterAll(async () => {
     await fx.cleanup();
@@ -336,6 +340,111 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — liquidación por línea y reparación'
       expect(await fx.movements(a.id, 'settle')).toHaveLength(1);
       expect(await ledgerRows([o1.order.id, o2.order.id])).toBe(0);
       expect(h.stripe.refundCreateCalls).toHaveLength(0);
+
+      // B-2: TODA línea «requiere atención» (aquí `double_charge`, con la pieza ya del comprador) cuenta y se ve.
+      const found = await findUnassignedLines(h.prisma, { orderIds: [o1.order.id, o2.order.id] });
+      expect(found.map((l) => l.orderItemId).sort()).toEqual([l1.id, l2.id].sort());
+      expect(distinctOrders(found).sort()).toEqual([o1.order.id, o2.order.id].sort());
+      const mm = await h.api('GET', '/admin/orders?mismatch=true&pageSize=100', { token: adminToken });
+      expect(mm.body.data.map((o: { id: string }) => o.id)).toEqual(expect.arrayContaining([o1.order.id, o2.order.id]));
+      const orph = await h.api('GET', '/admin/vault-orphans', { token: adminToken });
+      expect(orph.body.data.find((o: { orderId: string }) => o.orderId === o1.order.id).lines[0].state).toBe('needs_attention');
+      const vaults = await h.api('GET', `/admin/vaults?q=${encodeURIComponent(buyer.email as string)}`, { token: adminToken });
+      expect(vaults.body.data.find((v: { userId: string }) => v.userId === buyer.id).unassignedPaidOrders.map((o: { orderId: string }) => o.orderId).sort()).toEqual([o1.order.id, o2.order.id].sort());
+      // La reparación no vuelve a auditar ni a re-marcar lo que ya está marcado (flagOther).
+      const attn = () => h.prisma.auditLog.count({ where: { entityId: { in: [o1.order.id, o2.order.id] }, action: 'order.settle_item_attention' } });
+      const before = await attn();
+      await repair.run('deploy', new Date(), { onlyOrderIds: [o1.order.id, o2.order.id] });
+      expect(await attn()).toBe(before);
+    });
+  });
+
+  // ------------------------------------------------------------------------------------------------ B-1 / I-4
+  describe('B-1 — la invariante es por DUEÑO, no por lista de estados', () => {
+    it('pieza en `picking`/`shipped`/`delivered`/`lost` de otro pedido o dueño ⇒ detectada, repuesta si hay copia o «requiere atención»; la del propio comprador y los casos de reposición NO', async () => {
+      const buyer = await fx.user('b1');
+      const other = await fx.user('b1-other');
+      const cards = [await fx.card('b1a'), await fx.card('b1b'), await fx.card('b1c'), await fx.card('b1d'), await fx.card('b1e'), await fx.card('b1f')];
+      const bad = [
+        await fx.piece(cards[0].id, { status: 'picking' }), // plataforma en preparación de OTRO pedido
+        await fx.piece(cards[1].id, { status: 'shipped' }),
+        await fx.piece(cards[2].id, { status: 'delivered', ownerType: 'customer', ownerUserId: other.id, ownershipStatus: 'settled' }),
+        await fx.piece(cards[3].id, { status: 'lost' }),
+      ];
+      const legitOwn = await fx.piece(cards[4].id, { status: 'shipped', ownerType: 'customer', ownerUserId: buyer.id, ownershipStatus: 'settled' }); // retirada por SU pedido
+      const withCase = await fx.piece(cards[5].id, { status: 'picking' }); // pieza ya tratada por un caso «Por reponer»
+      const copy0 = await fx.piece(cards[0].id);
+      const copy1 = await fx.piece(cards[1].id);
+      const { order, lines } = await fx.settledVaultOrder(buyer.id, [...bad, legitOwn, withCase]);
+      await h.prisma.replacementCase.create({
+        data: { source: 'vault_purchase', customerUserId: buyer.id, originalInventoryItemId: withCase.id, originOrderItemId: lines[5].id, placementItemId: (await h.prisma.vaultPlacementItem.findFirstOrThrow({ where: { orderItemId: lines[5].id } })).id, missingReason: 'not_found', openedAt: new Date(), openedByUserId: other.id },
+      });
+      const found = await findUnassignedLines(h.prisma, { orderIds: [order.id] });
+      expect(found.map((l) => l.orderItemId).sort()).toEqual(lines.slice(0, 4).map((l) => l.id).sort());
+      const r = await repair.run('deploy', new Date(), { onlyOrderIds: [order.id] });
+      expect(r).toMatchObject({ total: 4, repaired: 2, replaced: 2, forDecision: 2 });
+      const after = await lineOf(order.id);
+      expect(after[0].inventoryItemId).toBe(copy0.id);
+      expect(after[1].inventoryItemId).toBe(copy1.id);
+      expect(after[2].fulfillmentFailedReason).toBe('no_equivalent_copy');
+      expect(after[3].fulfillmentFailedReason).toBe('no_equivalent_copy');
+      expect(after[4].inventoryItemId).toBe(legitOwn.id);
+      expect(after[4].fulfillmentFailedAt).toBeNull();
+      expect(after[5].fulfillmentFailedAt).toBeNull();
+      // La pieza ajena no se tocó.
+      expect(await fx.item(bad[2].id)).toMatchObject({ ownerUserId: other.id, status: 'delivered' });
+      // La ficha no dice «en su bóveda» de una línea sin pieza: el estado por línea sale del servidor.
+      const detail = await h.api('GET', `/admin/orders/${order.id}`, { token: adminToken });
+      const st = new Map(detail.body.items.map((i: { inventoryItemId: string; fulfillmentState: string }) => [i.inventoryItemId, i.fulfillmentState]));
+      expect(st.get(bad[2].id)).toBe('needs_attention');
+      expect(st.get(copy0.id)).toBe('replaced');
+      expect(st.get(legitOwn.id)).toBe('assigned');
+    });
+
+    it('una pieza de plataforma en `picking` (línea de bóveda sin marcar) cuenta como sin asignar ANTES de repararse', async () => {
+      const buyer = await fx.user('b1x');
+      const card = await fx.card('b1x');
+      const p = await fx.piece(card.id, { status: 'picking' });
+      const { order } = await fx.settledVaultOrder(buyer.id, [p]);
+      expect(distinctOrders(await findUnassignedLines(h.prisma, { orderIds: [order.id] }))).toEqual([order.id]);
+      const detail = await h.api('GET', `/admin/orders/${order.id}`, { token: adminToken });
+      expect(detail.body.items[0].fulfillmentState).toBe('unassigned');
+    });
+  });
+
+  describe('I-4 — exclusiones que no se pueden perder (mutaciones vivas)', () => {
+    it('la copia NUNCA es una pieza en un envío vivo ni reclamada por la línea de otro pedido liquidado', async () => {
+      const buyer = await fx.user('i4');
+      const owner = await fx.user('i4-owner');
+      const rival = await fx.user('i4-rival');
+      const card = await fx.card('i4');
+      const orig = await fx.piece(card.id, { status: 'in_custody', ownerType: 'customer', ownerUserId: owner.id, ownershipStatus: 'settled' });
+      const inShipment = await fx.piece(card.id, { createdAt: new Date('2025-01-01T00:00:00Z') });
+      await fx.shipmentWith([inShipment.id]);
+      const claimed = await fx.piece(card.id, { createdAt: new Date('2025-01-02T00:00:00Z') });
+      await fx.order({ userId: rival.id, pieces: [claimed], status: 'settled', pi: null }); // línea viva de otro pedido liquidado
+      const real = await fx.piece(card.id, { createdAt: new Date('2026-05-05T00:00:00Z') });
+      const { order } = await fx.settledVaultOrder(buyer.id, [orig]);
+      await repair.run('deploy', new Date(), { onlyOrderIds: [order.id] });
+      expect((await lineOf(order.id))[0].inventoryItemId).toBe(real.id);
+      expect((await fx.item(inShipment.id)).ownerUserId).toBeNull();
+      expect((await fx.item(claimed.id)).ownerUserId).toBeNull();
+    });
+
+    it('una línea REEMBOLSADA no cuenta ni se repara, aunque su pieza esté a la venta', async () => {
+      const buyer = await fx.user('i4r');
+      const card = await fx.card('i4r');
+      const p = await fx.piece(card.id);
+      const { order, lines } = await fx.settledVaultOrder(buyer.id, [p]);
+      const ship = await fx.shipmentWith([p.id], buyer.id);
+      const shipItem = await h.prisma.shipmentItem.findFirstOrThrow({ where: { shipmentRequestId: ship.id } });
+      await h.prisma.paymentRefund.create({
+        data: { idempotencyKey: `vo-${RUN}-${order.id}`, kind: 'item_missing', missingReason: 'not_found', shipmentItemId: shipItem.id, status: 'requested', orderId: order.id, orderItemId: lines[0].id, amountCents: 1, merchandiseCents: 1, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, requestedByUserId: buyer.id, requestedByRole: 'super_admin' },
+      });
+      expect(await findUnassignedLines(h.prisma, { orderIds: [order.id] })).toEqual([]);
+      const r = await repair.run('deploy', new Date(), { onlyOrderIds: [order.id] });
+      expect(r.total).toBe(0);
+      expect((await fx.item(p.id)).status).toBe('listed');
     });
   });
 

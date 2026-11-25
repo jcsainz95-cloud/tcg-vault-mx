@@ -1,4 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { headingRow, mailShell, proseRow, spacerRow } from '../buylist/mail-shell';
+import { ownerRecipients } from '../spend-alerts/spend-mail.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { SettleRecord, anomaliesOf } from './settle-line';
@@ -16,6 +19,8 @@ export class SettleReconciliationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    // Mismo canal que ya usa el dueño para otros avisos (`ownerRecipients` + `MailPort`, como `pattern-report`). Sin schema nuevo.
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
 
   async afterSettle(input: {
@@ -35,9 +40,33 @@ export class SettleReconciliationService {
             (attention.length > 0 ? `REQUIERE ATENCIÓN DEL DUEÑO: ${attention.length} línea(s) cobradas sin pieza ni copia equivalente.` : 'Resuelto automáticamente.'),
         );
       }
+      if (input.records.some((r) => r.outcome.kind === 'attention' && r.changed !== false)) {
+        await this.mailOwner(label, input.records.filter((r) => r.outcome.kind === 'attention' && r.changed !== false).length);
+      }
       for (const id of input.supersededOrderIds) await this.cancelPaymentIntentOf(id);
     } catch (e) {
       this.logger.error(`settle-reconciliation: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Aviso al DUEÑO (solo «requiere atención», que exige su decisión). ⛔ Sin datos personales: número de pedido y cuántas líneas.
+   * Best-effort: un fallo del correo nunca tumba el webhook. Una vez por liquidación/reparación que marca líneas NUEVAS.
+   */
+  private async mailOwner(orderLabel: string, lines: number): Promise<void> {
+    if (!this.mail) return;
+    try {
+      const owners = await ownerRecipients(this.prisma);
+      const subject = 'TCG HUNT: pedido cobrado con cartas sin pieza — requiere tu decisión';
+      const body = `El pedido ${orderLabel} ya está pagado, pero ${lines} carta(s) no tienen pieza ni copia equivalente disponible. No se reembolsó nada automáticamente: entra a Pedidos → «con cartas sin asignar» y decide si reembolsar esa línea o conseguir la carta.`;
+      const html = mailShell({
+        locale: 'es', title: subject, preheader: body.slice(0, 90),
+        blocks: [headingRow(subject, 22), spacerRow(24), proseRow(body), spacerRow(16)],
+        footerWhy: 'Recibes este aviso porque eres el dueño de la tienda.',
+      });
+      for (const o of owners) await this.mail.send({ to: o.email, subject, html, text: body });
+    } catch (e) {
+      this.logger.warn(`settle-reconciliation: no se pudo avisar al dueño: ${(e as Error).message}`);
     }
   }
 
