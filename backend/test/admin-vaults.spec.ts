@@ -33,6 +33,7 @@ function build(over: {
   refs?: Map<string, any>;
 } = {}) {
   const prisma = {
+    $queryRaw: jest.fn().mockResolvedValue([]), // §BOVEDA-COBRADA-SIN-PIEZAS: pedidos pagados con piezas sin asignar
     inventoryItem: { findMany: jest.fn().mockResolvedValue(over.pieces ?? []) },
     user: { findMany: jest.fn().mockResolvedValue(over.users ?? []) },
   } as unknown as PrismaService;

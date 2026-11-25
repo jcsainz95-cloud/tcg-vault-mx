@@ -60,6 +60,7 @@ describe('GET /admin/orders — columnas del motivo «tras envío» fuera de la 
       },
     ];
     const prisma: any = {
+      $queryRaw: jest.fn(async () => []),
       order: { findMany: jest.fn(async () => rows), count: jest.fn(async () => rows.length) },
     };
     const ctrl = new AdminOrdersController(

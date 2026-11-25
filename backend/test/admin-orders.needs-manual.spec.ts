@@ -21,6 +21,7 @@ describe('GET /admin/orders?needsManual', () => {
       { id: 'o2', guestEmail: null, chargebackNeedsManual: false },
     ];
     const prisma: any = {
+      $queryRaw: jest.fn(async () => []), // §BOVEDA-COBRADA-SIN-PIEZAS: cartas sin asignar por pedido
       order: {
         findMany: jest.fn(async ({ where }: any) =>
           rows.filter((r) =>

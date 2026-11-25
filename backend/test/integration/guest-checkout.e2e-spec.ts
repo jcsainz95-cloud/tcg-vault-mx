@@ -877,7 +877,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const { itemId, orderId: staleId, piId, totalCents } = await makeStaleGuestOrder('C2');
       await h.prisma.inventoryItem.update({
         where: { id: itemId },
-        data: { status: 'in_custody', ownerType: 'platform' },
+        // §BOVEDA-COBRADA-SIN-PIEZAS: la pieza es de idioma `es` para que NO exista una copia equivalente que la reponga
+        // (con copia el pedido se repone solo; aquí se mide el caso «sin copia ⇒ requiere atención», sin quitarle nada a nadie).
+        data: { status: 'in_custody', ownerType: 'platform', language: 'es' },
       });
       const wh = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',

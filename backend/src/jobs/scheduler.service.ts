@@ -11,6 +11,7 @@ import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { OrderReservationSweepJobService } from './order-reservation-sweep.service';
+import { VaultOrphanRepairService } from './vault-orphan-repair.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import {
@@ -191,6 +192,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly demandMatch?: DemandMatchService,
     // §PROV-F4: solicitudes sugeridas diarias (11:00 UTC = 05:00 CDMX) y tras cada refresco de meta decks.
     @Optional() private readonly supplySuggest?: SupplySuggestService,
+    // §BOVEDA-COBRADA-SIN-PIEZAS: reparación diaria (09:20 UTC) de pedidos liquidados con piezas sin asignar. Idempotente y sin dinero.
+    @Optional() private readonly vaultOrphanRepair?: VaultOrphanRepairService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -447,6 +450,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: DemandMatchService NO está inyectado; demand-match no queda programado.');
     }
 
+    if (this.vaultOrphanRepair) {
+      await this.queue.add('vault-orphan-repair', {}, { ...this.repeat('vault-orphan-repair', '20 9 * * *'), attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
+    } else {
+      this.logger.error('Scheduler: VaultOrphanRepairService NO está inyectado; vault-orphan-repair no queda programado.');
+    }
+
     // §PROV-F4: `supply-suggest` diario 11:00 UTC = 05:00 CDMX (idempotente y sin estado: recalcula todo). 3 intentos con espera exponencial.
     if (this.supplySuggest) {
       await this.queue.add('supply-suggest', {}, { ...this.repeat('supply-suggest', '0 11 * * *'), attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
@@ -581,6 +590,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       }
       case 'supply-suggest':
         return this.supplySuggest?.run() ?? null;
+      case 'vault-orphan-repair':
+        return this.vaultOrphanRepair?.run('daily') ?? null;
       // ⭐💰 D2d (§M4-SHIP.19.10): rastreo (lote), guía en proceso + verificación + huérfanas, cargos extra.
       case 'shipment-tracking-poll':
         return this.shipmentTrackingPoll?.run() ?? null;

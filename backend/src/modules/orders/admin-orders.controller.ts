@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
-import { OrderStatus, Prisma, Role } from '@prisma/client';
+import { FulfillmentMode, OrderStatus, Prisma, Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -15,6 +15,7 @@ import { OrderRefundService } from './order-refund.service';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { maskEmail } from './guest-privacy';
 import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from './guest-checkout.constants';
+import { distinctOrders, findUnassignedLines, lineFulfillmentState } from '../payments/vault-orphans';
 import { RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { customerDisplayName } from '../vault/customer-display-name';
@@ -33,6 +34,7 @@ const ORDER_STATUS_FILTER_VALUES: readonly OrderStatus[] = Object.values(OrderSt
  * 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)) — `?refundReview=` · clase **L** (un solo valor: modo de consulta, ⛔ no existe en
  * el schema). `pending` ⇔ `REFUND_REVIEW_PENDING_WHERE` (el mismo predicado de `isRefundReviewPending`).
  */
+const FULFILLMENT_MODE_FILTER_VALUES: readonly FulfillmentMode[] = Object.values(FulfillmentMode);
 export const REFUND_REVIEW_FILTER_VALUES = ['pending'] as const;
 
 @Controller('admin/orders')
@@ -69,6 +71,10 @@ export class AdminOrdersController {
     @Query('maxCents') maxCents?: string,
     // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «reembolso por revisar» (clase L, `pending`).
     @Query('refundReview') refundReview?: string,
+    // §BOVEDA-COBRADA-SIN-PIEZAS (aditivos): `fulfillmentMode` (vault|direct_ship) y `mismatch` (true ⇒ solo pedidos liquidados con
+    // piezas sin asignar; false ⇒ solo los que no).
+    @Query('fulfillmentMode') fulfillmentMode?: string,
+    @Query('mismatch') mismatch?: string,
   ) {
     // Validación TRANSVERSAL (paginación/fecha/monto/`q`) → 400 VALIDATION_ERROR (§Convenciones),
     // mismos nombres/semántica que `GET /admin/buylist`.
@@ -95,6 +101,13 @@ export class AdminOrdersController {
     if (needsManual === 'false') where.chargebackNeedsManual = false;
     if (parseEnumFilter('refundReview', refundReview, REFUND_REVIEW_FILTER_VALUES) === 'pending') {
       Object.assign(where, REFUND_REVIEW_PENDING_WHERE);
+    }
+    const modeFilter = parseEnumFilter('fulfillmentMode', fulfillmentMode, FULFILLMENT_MODE_FILTER_VALUES);
+    if (modeFilter) where.fulfillmentMode = modeFilter;
+    const mismatchFilter = parseEnumFilter('mismatch', mismatch, ['true', 'false'] as const);
+    if (mismatchFilter) {
+      const ids = distinctOrders(await findUnassignedLines(this.prisma));
+      where.id = mismatchFilter === 'true' ? { in: ids } : { notIn: ids };
     }
     if (f.dateRange) where.createdAt = f.dateRange;
     // v1.25 (§M3): rango de MONTO sobre `totalCents` — total canónico de la orden (gte/lte).
@@ -125,6 +138,13 @@ export class AdminOrdersController {
       }),
       this.prisma.order.count({ where }),
     ]);
+    // §BOVEDA-COBRADA-SIN-PIEZAS: cartas sin asignar por pedido de ESTA página (una consulta, ⛔ sin N+1).
+    const unassignedByOrder = new Map<string, number>();
+    if (data.length > 0) {
+      for (const l of await findUnassignedLines(this.prisma, { orderIds: data.map((o) => o.id) })) {
+        unassignedByOrder.set(l.orderId, (unassignedByOrder.get(l.orderId) ?? 0) + 1);
+      }
+    }
     // v1.21-guest-checkout (§M3, ADITIVO): `isGuestOrder` derivado. Las columnas nuevas
     // (`guestEmail`, `orderNumber`, `fulfillmentMode`, `shippingFeeCents`, `claimedAt`,
     // `shippingAddressSnapshot`) ya viajan en la fila; el back-office está protegido por rol y el
@@ -137,6 +157,7 @@ export class AdminOrdersController {
         ...o,
         refundReviewPending: isRefundReviewPending({ fullRefundAfterShipment, shippedRefundReason }),
         isGuestOrder: o.guestEmail != null,
+        unassignedItemCount: unassignedByOrder.get(o.id) ?? 0,
         // v1.80 (§M4-SHIP.10): `CustomerRefDTO | null` (`null` ⇔ invitado) y lo devuelto por Stripe.
         customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: customerEmailOrBlank(user.email, 'AdminOrderSummary.customer', user.id) } : null,
         refundedCents: refundedCentsOf(refunds ?? []), // (`?? []`: dobles legacy sin relaciones)
@@ -185,6 +206,16 @@ export class AdminOrdersController {
     });
     // ⭐ v1.80.4 (§M4-SHIP.18.6) — `vaultPieces`, DERIVADO en la lectura (un cuerpo con el cierre).
     const vaultPieces = extra?.fulfillmentMode === 'vault' ? await this.refunds.vaultPieces(id) : undefined;
+    // §BOVEDA-COBRADA-SIN-PIEZAS: estado de cumplimiento POR LÍNEA (asignada / repuesta X→Y / requiere atención / sin asignar).
+    const lineRows = await this.prisma.orderItem.findMany({
+      where: { orderId: id },
+      select: { inventoryItemId: true, replacedInventoryItemId: true, fulfillmentFailedAt: true, fulfillmentFailedReason: true, inventoryItem: { select: { folio: true } } },
+    });
+    const replacedFolios = new Map(
+      (await this.prisma.inventoryItem.findMany({ where: { id: { in: lineRows.map((l) => l.replacedInventoryItemId).filter((x): x is string => !!x) } }, select: { id: true, folio: true } })).map((r) => [r.id, r.folio]),
+    );
+    const unassignedItemIds = new Set((await findUnassignedLines(this.prisma, { orderIds: [id] })).map((l) => l.inventoryItemId));
+    const lineByItem = new Map(lineRows.map((l) => [l.inventoryItemId, l]));
     if (!extra) throw BusinessException.notFound();
     // 💰 v1.82 (§PNL.2): `items[].deliveredRefund` — el MISMO cuerpo que el verbo `refund-delivered` (pasos 3–4), sin candados.
     const deliveredViews = await this.refunds.deliveredRefundViews(id);
@@ -228,7 +259,20 @@ export class AdminOrdersController {
         const i = rows.findIndex((r) => r.orderItem?.inventoryItemId === it.inventoryItemId);
         const refund = i >= 0 ? refundDtos[i] : null;
         const dv = deliveredViews.get(it.inventoryItemId);
-        return { ...it, orderItemId: dv?.orderItemId ?? null, refund, deliveredRefund: refund ? null : (dv?.view ?? null) };
+        const ln = lineByItem.get(it.inventoryItemId);
+        return {
+          ...it,
+          orderItemId: dv?.orderItemId ?? null,
+          refund,
+          deliveredRefund: refund ? null : (dv?.view ?? null),
+          // §BOVEDA-COBRADA-SIN-PIEZAS (aditivo): `fulfillmentState` ∈ assigned|replaced|needs_attention|unassigned.
+          fulfillmentState: lineFulfillmentState({ fulfillmentFailedAt: ln?.fulfillmentFailedAt ?? null, replacedInventoryItemId: ln?.replacedInventoryItemId ?? null, unassigned: unassignedItemIds.has(it.inventoryItemId) }),
+          fulfillmentFailedAt: ln?.fulfillmentFailedAt ? ln.fulfillmentFailedAt.toISOString() : null,
+          fulfillmentFailedReason: ln?.fulfillmentFailedReason ?? null,
+          replacedInventoryItemId: ln?.replacedInventoryItemId ?? null,
+          folio: ln?.inventoryItem.folio ?? null,
+          replacedFolio: ln?.replacedInventoryItemId ? (replacedFolios.get(ln.replacedInventoryItemId) ?? null) : null,
+        };
       }),
       shipments: shipmentRequests.map((s) => ({
         id: s.id,

@@ -1,3 +1,4 @@
+import { findUnassignedLines } from '../payments/vault-orphans';
 import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { Injectable } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
@@ -39,6 +40,11 @@ export interface AdminVaultSummaryDTO {
   pieceCount: number;
   totalValueMxnCents: number;
   pendingPriceCount: number;
+  /**
+   * §BOVEDA-COBRADA-SIN-PIEZAS (aditivo): pedidos de bóveda PAGADOS con piezas sin asignar al cliente («pedido pagado, faltan k piezas»).
+   * Solo viene cuando hay alguno; el cliente aparece en la lista aunque aún no tenga ninguna pieza (se listaba solo por piezas).
+   */
+  unassignedPaidOrders?: { orderId: string; orderNumber: string | null; missingCount: number }[];
 }
 
 export interface AdminVaultListResponse {
@@ -107,10 +113,20 @@ export class AdminVaultsService {
         tcgplayerProductId: true,
       },
     });
-    if (pieces.length === 0) return { data: [], page: q.page, pageSize: q.pageSize, total: 0 };
+    // §BOVEDA-COBRADA-SIN-PIEZAS: pedidos de bóveda liquidados con líneas sin asignar, por comprador (la MISMA consulta de la invariante).
+    const missingByUser = new Map<string, Map<string, { orderId: string; orderNumber: string | null; missingCount: number }>>();
+    for (const l of await findUnassignedLines(this.prisma)) {
+      if (l.fulfillmentMode !== 'vault' || !l.userId) continue;
+      const byOrder = missingByUser.get(l.userId) ?? new Map();
+      const cur = byOrder.get(l.orderId) ?? { orderId: l.orderId, orderNumber: l.orderNumber, missingCount: 0 };
+      cur.missingCount += 1;
+      byOrder.set(l.orderId, cur);
+      missingByUser.set(l.userId, byOrder);
+    }
+    if (pieces.length === 0 && missingByUser.size === 0) return { data: [], page: q.page, pageSize: q.pageSize, total: 0 };
 
     // (2) Identificación mínima de los dueños (filtro q por nombre/email aquí).
-    const ownerIds = [...new Set(pieces.map((p) => p.ownerUserId as string))];
+    const ownerIds = [...new Set([...pieces.map((p) => p.ownerUserId as string), ...missingByUser.keys()])];
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: ownerIds },
@@ -135,7 +151,7 @@ export class AdminVaultsService {
     // con el gate de dial de `/vault/sealed`; sin mapeo ⇒ sin clave ⇒ pendiente. ⛔ Nunca la fila
     // legada `'sealed'` (clave de COLA: puede ser el precio de otra caja anclada a la misma `Card`).
     // 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): UNA llamada a la puerta con todas las piezas (SK-5 + versión + D-IDS-S + dial).
-    const values = await this.patrimony.valuePieces(pieces);
+    const values = pieces.length > 0 ? await this.patrimony.valuePieces(pieces) : new Map<string, { status: string; referenceMxnCents?: number | null }>();
 
     const agg = new Map<
       string,
@@ -156,10 +172,21 @@ export class AdminVaultsService {
       agg.set(userId, a);
     });
 
+    // El cliente con pedido pagado sin piezas aún no está en `agg` (se agregaba por piezas): entra con 0 piezas.
+    for (const userId of missingByUser.keys()) {
+      if (userById.has(userId) && !agg.has(userId)) agg.set(userId, { pieceCount: 0, totalValueMxnCents: 0, pendingPriceCount: 0 });
+    }
     let rows: AdminVaultSummaryDTO[] = [...agg.entries()].map(([userId, a]) => {
       const u = userById.get(userId)!;
+      const missing = missingByUser.get(userId);
       // v1.80.9 (I-STF-1): dueño de bóveda = cliente ⇒ con correo; `null` ⇒ log + `""`.
-      return { userId, name: customerDisplayName(u), email: customerEmailOrBlank(u.email, 'AdminVaultSummary', userId), ...a };
+      return {
+        userId,
+        name: customerDisplayName(u),
+        email: customerEmailOrBlank(u.email, 'AdminVaultSummary', userId),
+        ...a,
+        ...(missing ? { unassignedPaidOrders: [...missing.values()] } : {}),
+      };
     });
 
     rows = this.sortRows(rows, q.sort);

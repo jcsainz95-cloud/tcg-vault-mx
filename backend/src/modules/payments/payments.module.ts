@@ -12,6 +12,8 @@ import { ManualRefundService } from './refunds/manual-refund.service';
 import { AdminManualRefundsController } from './refunds/admin-manual-refunds.controller';
 import { WithdrawalDeliveredRefundService } from './refunds/withdrawal-delivered-refund.service';
 import { VaultModule } from '../vault/vault.module';
+import { SettleReconciliationService } from './settle-reconciliation.service';
+import { AdminVaultOrphansController } from './admin-vault-orphans.controller';
 
 @Global()
 @Module({
@@ -23,8 +25,8 @@ import { VaultModule } from '../vault/vault.module';
   // `ManualRefundService`/`RefundLedgerService` y aquí solo se consume `VaultService` (que no depende de payments).
   // rev v1.87⟨wishlist⟩ (816): `WishlistService.consumeForSettledOrder` tras las dos liquidaciones (sin ciclo: Wishlist no importa Payments).
   imports: [GuestOrderTokensModule, VaultModule, WishlistModule],
-  providers: [StripeService, PaymentsService, FullRefundService, RefundLedgerService, RefundReportsService, ManualRefundService, WithdrawalDeliveredRefundService],
-  controllers: [WebhooksController, AdminRefundsController, AdminManualRefundsController],
-  exports: [StripeService, PaymentsService, FullRefundService, RefundLedgerService, RefundReportsService, ManualRefundService],
+  providers: [StripeService, PaymentsService, FullRefundService, RefundLedgerService, RefundReportsService, ManualRefundService, WithdrawalDeliveredRefundService, SettleReconciliationService],
+  controllers: [WebhooksController, AdminVaultOrphansController, AdminRefundsController, AdminManualRefundsController],
+  exports: [StripeService, PaymentsService, FullRefundService, RefundLedgerService, RefundReportsService, ManualRefundService, SettleReconciliationService],
 })
 export class PaymentsModule {}

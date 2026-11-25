@@ -50,6 +50,8 @@ function makeHarness() {
       updateMany: rec('inventoryItem.updateMany', () => ({ count: 1 })),
     },
     inventoryMovement: { create: rec('inventoryMovement.create') },
+    // §BOVEDA-COBRADA-SIN-PIEZAS: el settle audita en la misma tx cada línea que no estaba reservada por la orden.
+    auditLog: { create: rec('auditLog.create') },
     shipmentItem: { findFirst: rec('shipmentItem.findFirst', () => null) },
     shipmentRequest: {
       findFirst: rec('shipmentRequest.findFirst', () => null),
@@ -211,10 +213,11 @@ describe('M-59 · nacimiento de la colocación en la rama `vault` de onPaymentSu
   it('⭐ TODAS las cartas tienen fila, también la que fue anomalía de settle (no se filtra por estado de la pieza)', async () => {
     const h = makeHarness();
     h.prisma.order.findUnique.mockResolvedValue(vaultOrder());
-    // item2 NO estaba reservada por esta orden: el settle no la mueve (anomalía auditada).
+    // item2 NO estaba reservada por esta orden: la función de liquidación la recupera (libre) y queda auditada.
     h.tx.inventoryItem.updateMany.mockImplementation(async (args: any) => {
       h.calls.push({ op: 'inventoryItem.updateMany', args });
-      return { count: args.where.id === 'item2' ? 0 : 1 };
+      // item2 NO estaba reservada por esta orden (la guarda de reserva no casa) pero SIGUE LIBRE: se recupera (c) y conserva su fila.
+      return { count: args.where.id === 'item2' && args.where.status === 'reserved' ? 0 : 1 };
     });
     h.tx.inventoryItem.findUnique.mockImplementation(async (args: any) => {
       h.calls.push({ op: 'inventoryItem.findUnique', args });

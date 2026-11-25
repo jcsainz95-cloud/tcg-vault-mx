@@ -1802,6 +1802,12 @@ model OrderItem {
 
   // v1.79.1 (M-59, §M4-VAULT.2): su fila de preparación de bóveda (solo órdenes `vault` liquidadas).
   vaultPlacementItem VaultPlacementItem?
+  // §BOVEDA-COBRADA-SIN-PIEZAS (aditivo, sin backfill): pieza ORIGINAL que esta línea reemplazó con una copia equivalente
+  // (`inventoryItemId` apunta a la copia entregada). Sin FK a propósito: es un dato de auditoría, no una relación viva.
+  replacedInventoryItemId String?
+  // «requiere atención»: la línea se cobró y no hubo pieza ni copia equivalente. NULL = la línea está bien (o aún sin evaluar).
+  fulfillmentFailedAt     DateTime?
+  fulfillmentFailedReason String?
   // v1.80 (M-61): una carta se reembolsa UNA vez en su vida (`item_missing` o `case_refund`), venga por donde venga.
   refund             PaymentRefund?
   // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» cuyo dinero vino de esta línea (`resolveOrigin`).

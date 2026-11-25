@@ -47,7 +47,7 @@ function build(orderCasCount: number, stripe: Partial<Record<keyof StripeService
     prisma as PrismaService,
     {} as never,
     ivaDialsStub() as unknown as SettingsService,
-    stripe as unknown as StripeService,
+    { getPendingVoucherExpiry: jest.fn(async () => null), ...stripe } as unknown as StripeService,
     {} as never,
   );
   return { svc, prisma, calls };
@@ -58,6 +58,7 @@ const own = (status = 'pending') => ({
     id: 'o1',
     orderNumber: 'TCG-000001',
     status,
+    createdAt: new Date(0),
     stripePaymentIntentId: 'pi_1',
     items: [{ inventoryItemId: 'x' }, { inventoryItemId: 'y' }],
   } as any,

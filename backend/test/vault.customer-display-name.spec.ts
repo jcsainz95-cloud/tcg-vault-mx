@@ -72,6 +72,7 @@ const PIECE = (ownerUserId: string, cardId = 'c1') => ({
 
 function buildList(users: any[], pieces: any[]) {
   const prisma = {
+    $queryRaw: jest.fn().mockResolvedValue([]), // §BOVEDA-COBRADA-SIN-PIEZAS: pedidos pagados con piezas sin asignar
     inventoryItem: { findMany: jest.fn().mockResolvedValue(pieces) },
     user: { findMany: jest.fn().mockResolvedValue(users), findUnique: jest.fn() },
   } as unknown as PrismaService;

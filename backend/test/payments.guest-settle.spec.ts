@@ -58,7 +58,11 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
         return { count: 1 };
       }),
       update: jest.fn(async () => ({})),
+      // §BOVEDA-COBRADA-SIN-PIEZAS (d): sin copia equivalente en estos casos ⇒ «requiere atención».
+      findFirst: jest.fn(async () => null),
     },
+    auditLog: { create: jest.fn(async () => ({})) },
+    orderItem: { findFirst: jest.fn(async () => null), updateMany: jest.fn(async () => ({ count: 1 })), update: jest.fn(async () => ({})) },
     inventoryMovement: {
       create: jest.fn(async ({ data }: any) => {
         created.movements.push(data);
@@ -72,7 +76,8 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
         return data;
       }),
     },
-    shipmentItem: { findFirst: jest.fn(async () => null) },
+    // (b) `picking` solo es «ya entregada» si el envío de ESTA orden la lleva (un reintento del webhook).
+    shipmentItem: { findFirst: jest.fn(async () => null), count: jest.fn(async () => (opts.itemStatus === 'picking' ? 1 : 0)), updateMany: jest.fn(async () => ({ count: 0 })) },
     // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
     // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
     vaultPlacement: {
@@ -80,7 +85,7 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
       findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
   const prisma: any = {
     order: { findUnique: jest.fn(async () => opts.order ?? GUEST_ORDER), update: jest.fn() },

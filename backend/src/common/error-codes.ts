@@ -222,6 +222,10 @@ export const ErrorCode = {
   // libera, no se reserva, no se crea orden ni PI («un cobro por pieza», regla 1). El front lleva al
   // cliente a ese pedido. `details: { orderId, orderNumber }`. 409. Audiencia: cliente.
   PAYMENT_IN_PROGRESS: 'PAYMENT_IN_PROGRESS',
+  // §BOVEDA-COBRADA-SIN-PIEZAS R1(a) — la orden de ESTE intento ya no es vigente (otra petición del mismo cliente la sustituyó
+  // mientras se creaba su PaymentIntent). El PI recién creado se cancela y su `clientSecret` ⛔ nunca se entrega. El front
+  // recarga el carrito. 409. Audiencia: cliente.
+  ORDER_SUPERSEDED: 'ORDER_SUPERSEDED',
 
   // Inventory (M1) — WS-E hardening
   // Una pieza cuyo status de ORIGEN no es seguro para listar (reserved/in_custody/picking/

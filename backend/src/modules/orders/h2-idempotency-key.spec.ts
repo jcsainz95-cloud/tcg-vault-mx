@@ -10,7 +10,7 @@ import { StripeService } from '../payments/stripe.service';
 function build() {
   const createPaymentIntent = jest.fn().mockResolvedValue({ id: 'pi_x', clientSecret: 'cs_x' });
   const stripe = { createPaymentIntent } as unknown as StripeService;
-  const prisma = { order: { update: jest.fn().mockResolvedValue({}) } } as unknown as PrismaService;
+  const prisma = { order: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) } } as unknown as PrismaService;
   const svc = new OrdersService(
     prisma,
     {} as never,

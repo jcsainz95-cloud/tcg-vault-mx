@@ -27,6 +27,28 @@ function sameSettingValue(dtoKey: string, a: unknown, b: unknown): boolean {
 }
 
 /**
+ * §BOVEDA-COBRADA-SIN-PIEZAS — acciones cuyo `before`/`after` se expone al súper-admin en `GET /admin/audit-log`. Lista blanca: los
+ * payloads son ids, folios, estados y motivos (⛔ sin correo, nombre, dirección ni importes de tarjeta); una acción nueva no
+ * viaja con detalle hasta que alguien la añada aquí.
+ */
+export const AUDIT_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
+  'order.settle_item_not_reserved',
+  'order.settle_item_replaced',
+  'order.settle_item_transferred',
+  'order.settle_item_recovered',
+  'order.settle_item_attention',
+  'order.settle_inventory_anomaly',
+  'order.orphan_pi',
+  'order.sweep_no_pi',
+  'order.sweep_blocked',
+  'vault.orphan_scan',
+  'vault.orphan_repaired',
+  'vault.orphan_replaced',
+  'vault.orphan_attention',
+  'vault.orphan_repair_run',
+]);
+
+/**
  * M10 — Config (diales) y bitácora global. API_CONTRACT §M10. Solo super_admin.
  *
  * 💰 D2g (§19.29.8): `@Roles(vault_operator, super_admin)` + `@MoneyOut()` de CLASE — los diales mueven topes de dinero; el
@@ -271,6 +293,7 @@ export class SettingsController {
     @Query('to') to?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @CurrentUser('role') role?: Role,
   ) {
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
@@ -300,11 +323,20 @@ export class SettingsController {
           createdAt: true,
           // §PRICE-PATTERN 6.3: el informe de la corrida (`items`, sin PII: carta, set, acabado, centavos) solo se expone al filtrar por esa acción.
           ...(action === 'pricing.pattern_reclassify_run' ? { after: true } : {}),
+          // §BOVEDA-COBRADA-SIN-PIEZAS: el DETALLE (`before`/`after`) de las acciones de reparación/liquidación solo al súper-admin.
+          ...(role === Role.super_admin ? { before: true, after: true } : {}),
         },
       }),
       this.prisma.auditLog.count({ where }),
     ]);
-    return { data, page: p, pageSize: ps, total };
+    // Los demás registros conservan su forma de siempre: el detalle solo viaja en la lista blanca (ids y folios, sin datos personales).
+    const rows = data.map((r) => {
+      const detailed = r as typeof r & { before?: unknown; after?: unknown };
+      if (action === 'pricing.pattern_reclassify_run' || (role === Role.super_admin && AUDIT_DETAIL_ACTIONS.has(r.action))) return r;
+      const { before: _b, after: _a, ...rest } = detailed;
+      return rest as typeof r;
+    });
+    return { data: rows, page: p, pageSize: ps, total };
   }
 }
 

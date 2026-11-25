@@ -7,6 +7,8 @@ import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, failPendingOrder, releaseReservationData, reservationGuard } from '../orders/reservation';
+import { SettleLineContext, SettleRecord, anomaliesOf, releaseSupersededLeftovers, settleLineOrReplace } from './settle-line';
+import { SettleReconciliationService } from './settle-reconciliation.service';
 import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
 import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
 import { PRICE_CONVENTION_OF_NEW_ROWS, FEE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
@@ -58,6 +60,9 @@ export class PaymentsService {
     // v1.102⟨mkt-fase2⟩ (§MKT.H.6): `@Optional()` por los tests que construyen este servicio a mano. Se llama POST-COMMIT,
     // después de `notifyOrderSettled`, y ⛔ jamás tumba ni cambia el webhook (C-B2).
     @Optional() private readonly measurement?: MeasurementService,
+    // §BOVEDA-COBRADA-SIN-PIEZAS: lo que va POST-COMMIT de la liquidación con anomalías (cancelar el PI de la orden sustituida,
+    // aviso al operador/dueño). `@Optional()` por los tests unitarios que construyen este servicio a mano.
+    @Optional() private readonly reconcile?: SettleReconciliationService,
   ) {}
 
   /**
@@ -343,13 +348,18 @@ export class PaymentsService {
         await this.settleDirectShipOrder(order);
         return;
       }
-      // v1.68: piezas que NO estaban reservadas por esta orden al liquidar (se auditan fuera del tx).
-      const anomalies: { inventoryItemId: string; was: string }[] = [];
+      // §BOVEDA-COBRADA-SIN-PIEZAS: cada línea pasa por `settleLineOrReplace` (misma función que `direct_ship`): reservada por esta
+      // orden ⇒ como siempre; libre ⇒ se asigna; reservada por otra orden del mismo usuario ⇒ se transfiere; no disponible ⇒ copia
+      // equivalente; sin copia ⇒ «requiere atención». ⛔ Nunca «liquidada normal» sin pieza.
+      const records: SettleRecord[] = [];
+      const supersededOrderIds: string[] = [];
       // v1.79 (M-59, §M4-VAULT.2-bis): UN instante para UN hecho — `Order.settledAt` y
       // `VaultPlacement.createdAt` son el mismo valor, escrito explícitamente en las dos filas.
       const now = new Date();
       let lateDiscount = false;
-      const settled = await this.prisma.$transaction(async (tx) => {
+      const settled = await this.settleTx(async (tx) => {
+        records.length = 0;
+        supersededOrderIds.length = 0;
         // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el settle es un CAS: el estado va en el `WHERE` (`REL-B`) y
         // es la PRIMERA escritura de la tx. El early-return de arriba lee FUERA de la tx: dos entregas
         // `succeeded` concurrentes (event.id distintos) lo pasan las dos; la segunda espera aquí el
@@ -366,41 +376,32 @@ export class PaymentsService {
         if (won.count === 0) return false; // perdedor: ⛔ nada más en esta tx
         // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Consumir»): el uso del código se consume en ESTA tx, tras ganar el CAS.
         lateDiscount = (await consumeOrderRedemption(tx, order.id, now)).late;
+        const ctx: SettleLineContext = {
+          tx,
+          order: { id: order.id, userId: order.userId, orderNumber: order.orderNumber },
+          mode: 'vault',
+          now,
+          allowReplace: true,
+          source: 'settle',
+          failedHere: new Set<string>(),
+        };
+        const lines: { orderItemId: string; inventoryItemId: string }[] = [];
         for (const oi of order.items) {
-          const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
-          if (!item) continue;
-          // Transición de reserva a custodia liquidada: reserved → in_custody, settled.
-          // v1.68 (§4-R.2 regla 2): SOLO si la pieza sigue `reserved` por ESTA orden (o legada). Un
-          // settle de una orden que ya no es dueña NO mueve la pieza (defensa en profundidad: su PI
-          // se canceló antes de la sustitución, no debería ocurrir). Se limpia dueño/vencimiento.
-          const moved = await tx.inventoryItem.updateMany({
-            where: { id: oi.inventoryItemId, ...reservationGuard(order.id) },
-            data: { status: 'in_custody', ownershipStatus: 'settled', ...clearReservation },
-          });
-          if (moved.count !== 1) {
-            // Reintento del webhook con la pieza ya en custodia de este comprador: idempotencia
-            // legítima. Cualquier otro estado es una ANOMALÍA: se registra, no se toca (no se le
-            // quita la pieza a nadie automáticamente).
-            if (item.status === 'in_custody' && item.ownerUserId === order.userId) continue;
-            this.logger.error(
-              `settle: pieza ${oi.inventoryItemId} NO reservada por el pedido ${order.orderNumber ?? order.id} ` +
-                `al liquidar (estaba ${item.status}, dueño ${item.reservedByOrderId ?? 'ninguno'}); no se mueve.`,
-            );
-            anomalies.push({ inventoryItemId: oi.inventoryItemId, was: item.status });
-            continue;
-          }
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: oi.inventoryItemId,
-              fromStatus: item.status,
-              toStatus: 'in_custody',
-              reason: MovementReason.settle,
-              note: `order ${order.id} settled`,
-            },
+          const res = await settleLineOrReplace(ctx, oi);
+          records.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId, outcome: res.outcome });
+          if (res.outcome.kind !== 'attention') lines.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId });
+        }
+        await releaseSupersededLeftovers(tx, ctx.failedHere);
+        supersededOrderIds.push(...ctx.failedHere);
+        const anomalies = anomaliesOf(records);
+        if (anomalies.length > 0) {
+          await tx.auditLog.create({
+            data: { actorUserId: null, actorRole: null, action: 'order.settle_item_not_reserved', entityType: 'Order', entityId: order.id, after: { anomalies } },
           });
         }
-        // v1.79 (M-59) — nace la colocación, en ESTA transacción y DESPUÉS del bucle de piezas.
-        await this.createVaultPlacement(tx, order, now);
+        // v1.79 (M-59) — nace la colocación, en ESTA transacción y DESPUÉS del bucle de piezas. Una línea «requiere atención» no
+        // crea fila de preparación.
+        await this.createVaultPlacement(tx, order, now, lines);
         return true;
       });
       // v1.79.4 — el perdedor de la carrera ⛔ no avisa: ni AV-2 ni auditoría de anomalías (su bucle no
@@ -408,20 +409,7 @@ export class PaymentsService {
       if (!settled) return;
       await this.captureStripeFee('order', order.id, order.stripePaymentIntentId);
       if (lateDiscount) await this.auditLateDiscount(order.id);
-      if (anomalies.length > 0) {
-        await this.audit
-          .log({
-            actorUserId: null,
-            actorRole: null,
-            action: 'order.settle_item_not_reserved',
-            entityType: 'Order',
-            entityId: order.id,
-            after: { anomalies },
-          })
-          .catch((e: unknown) =>
-            this.logger.error(`No se pudo auditar la anomalía de settle: ${(e as Error).message}`),
-          );
-      }
+      await this.reconcile?.afterSettle({ orderId: order.id, orderNumber: order.orderNumber, records, supersededOrderIds });
       // v1.74 (§R) — `AV-2`, POST-COMMIT y best-effort. Las DOS ramas del settle lo mandan (bóveda
       // aquí, `direct_ship` en `settleDirectShipOrder`): el criterio 200 no distingue por ruta de
       // fulfillment, distingue por **quién recibe**.
@@ -449,6 +437,26 @@ export class PaymentsService {
         data: { status: 'picking', pickingAt: new Date() },
       });
       await this.captureStripeFee('shipment', shipment.id, shipment.stripePaymentIntentId);
+    }
+  }
+
+  /**
+   * §BOVEDA-COBRADA-SIN-PIEZAS — la tx del settle con REINTENTO acotado ante deadlock/serialización: dos liquidaciones que
+   * compiten por la misma copia equivalente pueden cruzar candados de fila (el CAS decide quién gana; el perdedor reintenta).
+   * Un fallo que no es de concurrencia se propaga (Stripe reintenta el evento; el marcador de idempotencia se revierte).
+   */
+  private async settleTx<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(fn, { maxWait: 10_000, timeout: 30_000 });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '';
+        const retriable =
+          (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === 'P2034' || e.code === 'P2028')) ||
+          /deadlock detected|could not serialize|40P01|40001/i.test(msg);
+        if (!retriable || attempt >= 5) throw e;
+        await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 60) * (attempt + 1)));
+      }
     }
   }
 
@@ -555,7 +563,10 @@ export class PaymentsService {
     tx: Prisma.TransactionClient,
     order: Order & { items: OrderItem[] },
     now: Date,
+    // §BOVEDA-COBRADA-SIN-PIEZAS: las líneas que SÍ tienen pieza (la copia repuesta si la hubo). Sin él, todas como estaban.
+    lines: { orderItemId: string; inventoryItemId: string }[] = order.items.map((oi) => ({ orderItemId: oi.id, inventoryItemId: oi.inventoryItemId })),
   ): Promise<void> {
+    if (lines.length === 0 && order.items.length > 0) return; // todo «requiere atención»: no hay nada que preparar
     await tx.vaultPlacement.createMany({
       data: [{ orderId: order.id, createdAt: now }],
       skipDuplicates: true,
@@ -564,12 +575,12 @@ export class PaymentsService {
       where: { orderId: order.id },
       select: { id: true },
     });
-    if (order.items.length === 0) return;
+    if (lines.length === 0) return;
     await tx.vaultPlacementItem.createMany({
-      data: order.items.map((oi) => ({
+      data: lines.map((l) => ({
         placementId,
-        orderItemId: oi.id,
-        inventoryItemId: oi.inventoryItemId,
+        orderItemId: l.orderItemId,
+        inventoryItemId: l.inventoryItemId,
       })),
       skipDuplicates: true,
     });
@@ -601,13 +612,16 @@ export class PaymentsService {
       ? await this.stripe.getCardDetails(order.stripePaymentIntentId).catch(() => null)
       : null;
     const now = new Date();
-    // B3: anomalías de inventario detectadas al liquidar (ver dentro del bucle). Se reportan FUERA
-    // de la transacción para que el log y la auditoría no dependan de su commit.
-    const anomalies: { inventoryItemId: string; was: string; recovered: boolean }[] = [];
+    // §BOVEDA-COBRADA-SIN-PIEZAS: lo que `settleLineOrReplace` hizo por línea (se reporta FUERA de la tx).
+    const records: SettleRecord[] = [];
+    const supersededOrderIds: string[] = [];
     const accessoryAnomalies: AccessorySettleAnomaly[] = [];
     let lateDiscount = false;
 
-    const settled = await this.prisma.$transaction(async (tx) => {
+    const settled = await this.settleTx(async (tx) => {
+      records.length = 0;
+      supersededOrderIds.length = 0;
+      accessoryAnomalies.length = 0;
       // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
       // primera escritura, estado en el `WHERE`, `count === 0` ⇒ el perdedor no escribe nada más.
       // v1.80 (§M4-VAULT.2-bis.2): mismo predicado, misma constante que el early-return.
@@ -622,62 +636,33 @@ export class PaymentsService {
       if (won.count === 0) return false;
       // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Consumir»): rama directo, misma regla que la de bóveda.
       lateDiscount = (await consumeOrderRedemption(tx, order.id, now)).late;
+      // §BOVEDA-COBRADA-SIN-PIEZAS: la MISMA función que la bóveda (⛔ no dos cuerpos). Reservada por esta orden ⇒ `picking`;
+      // libre ⇒ se re-congela en `picking` (el pago confirmado manda); no disponible ⇒ copia equivalente; sin copia ⇒ «requiere
+      // atención». Una pieza que otro flujo ya tiene NUNCA se le quita a nadie.
+      const ctx: SettleLineContext = {
+        tx,
+        order: { id: order.id, userId: order.userId, orderNumber: order.orderNumber },
+        mode: 'direct_ship',
+        now,
+        allowReplace: true,
+        source: 'settle',
+        failedHere: new Set<string>(),
+      };
+      const effective = new Map<string, string>(); // orderItemId → pieza que respalda la línea
       for (const oi of order.items) {
-        const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
-        if (!item) continue;
-        // Guardia positiva: solo una pieza aún `reserved` avanza (idempotencia ante reintentos).
-        // v1.68 (§4-R.2 regla 2): … y reservada por ESTA orden (o legada); se limpia dueño/vencimiento.
-        const moved = await tx.inventoryItem.updateMany({
-          where: { id: oi.inventoryItemId, ...reservationGuard(order.id) },
-          data: { status: 'picking', ...clearReservation },
-        });
-        if (moved.count === 1) {
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: oi.inventoryItemId,
-              fromStatus: item.status,
-              toStatus: 'picking',
-              reason: MovementReason.settle,
-              note: `guest order ${order.orderNumber ?? order.id} settled (direct_ship)`,
-            },
+        const res = await settleLineOrReplace(ctx, oi);
+        records.push({ orderItemId: oi.id, inventoryItemId: res.inventoryItemId, outcome: res.outcome });
+        if (res.outcome.kind !== 'attention') effective.set(oi.id, res.inventoryItemId);
+      }
+      await releaseSupersededLeftovers(tx, ctx.failedHere);
+      supersededOrderIds.push(...ctx.failedHere);
+      {
+        const anomalies = anomaliesOf(records);
+        if (anomalies.length > 0) {
+          await tx.auditLog.create({
+            data: { actorUserId: null, actorRole: null, action: 'order.settle_item_not_reserved', entityType: 'Order', entityId: order.id, after: { anomalies } },
           });
-          continue;
         }
-
-        // B3 (v1.21.2) — la pieza NO estaba `reserved` al liquidar. Esto NO es un no-op: es una
-        // ANOMALÍA. Así sobrevivió el bug del barrido: un `continue` mudo en el camino del dinero.
-        // Un reintento del webhook la deja ya en `picking` (idempotencia legítima); cualquier otro
-        // estado significa que la reserva se soltó por debajo (p. ej. el barrido liberó la pieza y
-        // el pago se confirmó después).
-        if (item.status === 'picking') continue;
-
-        // Recuperación: si la pieza volvió al pool y NADIE la tomó, el pedido PAGADO manda — se
-        // re-congela en `picking`, que es donde debía estar. Restaura el invariante «ShipmentItem
-        // en envío no terminal ⇒ item fuera de {listed, in_stock}» y corta el double-sell ANTES de
-        // que ocurra.
-        const recovered = await tx.inventoryItem.updateMany({
-          where: { id: oi.inventoryItemId, status: { in: ['listed', 'in_stock'] } },
-          data: { status: 'picking', ...clearReservation },
-        });
-        if (recovered.count === 1) {
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: oi.inventoryItemId,
-              fromStatus: item.status,
-              toStatus: 'picking',
-              reason: MovementReason.settle,
-              note:
-                `ANOMALÍA: pieza no reservada al liquidar el pedido ` +
-                `${order.orderNumber ?? order.id} (estaba ${item.status}); re-congelada por pago confirmado`,
-            },
-          });
-          anomalies.push({ inventoryItemId: oi.inventoryItemId, was: item.status, recovered: true });
-          continue;
-        }
-
-        // La pieza ya está en manos de otro flujo (reservada por otro checkout, enviada, perdida…):
-        // NO se le quita a nadie automáticamente. Queda registrada para intervención humana.
-        anomalies.push({ inventoryItemId: oi.inventoryItemId, was: item.status, recovered: false });
       }
       // A lo más UN envío activo por orden (invariante de aplicación, §4-G.10).
       const existing = await tx.shipmentRequest.findFirst({
@@ -704,7 +689,7 @@ export class PaymentsService {
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
             // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
             feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
-            items: { create: order.items.map((oi) => ({ inventoryItemId: oi.inventoryItemId })) },
+            items: { create: order.items.filter((oi) => effective.has(oi.id)).map((oi) => ({ inventoryItemId: effective.get(oi.id) as string })) },
           },
         });
         shipmentId = createdShipment?.id ?? null;
@@ -737,21 +722,12 @@ export class PaymentsService {
         .catch((e: unknown) => this.logger.error(`No se pudo auditar la anomalía del renglón de accesorio: ${(e as Error).message}`));
     }
 
-    // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se
-    // liquidan en silencio: cada una significa que una pieza única no estaba donde el pedido
-    // pagado suponía, y las no recuperadas exigen intervención humana.
-    if (anomalies.length > 0) {
-      const unrecovered = anomalies.filter((a) => !a.recovered);
-      const detail = anomalies
-        .map((a) => `${a.inventoryItemId}:${a.was}${a.recovered ? '→picking' : ':SIN RECUPERAR'}`)
-        .join(', ');
-      this.logger.error(
-        `ANOMALÍA al liquidar el pedido ${order.orderNumber ?? order.id}: ${anomalies.length} ` +
-          `pieza(s) no estaban 'reserved' (${detail}). ` +
-          (unrecovered.length > 0
-            ? 'Requiere INTERVENCIÓN HUMANA: la pieza está comprometida con otro flujo.'
-            : 'Recuperadas: el pago confirmado manda sobre una reserva liberada.'),
-      );
+    // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se liquidan en silencio.
+    // §BOVEDA-COBRADA-SIN-PIEZAS: `recovered` = la línea quedó respaldada (asignada, transferida o repuesta); `needsHumanReview` =
+    // alguna línea quedó «requiere atención». La fila `order.settle_item_not_reserved` (detalle por línea) ya se escribió en la tx.
+    const dsAnomalies = anomaliesOf(records).map((a) => ({ inventoryItemId: a.inventoryItemId, was: a.was, recovered: a.outcome !== 'attention' }));
+    if (dsAnomalies.length > 0) {
+      const unrecovered = dsAnomalies.filter((a) => !a.recovered);
       await this.audit
         .log({
           actorUserId: null,
@@ -759,12 +735,13 @@ export class PaymentsService {
           action: 'order.settle_inventory_anomaly',
           entityType: 'Order',
           entityId: order.id,
-          after: { anomalies, needsHumanReview: unrecovered.length > 0 },
+          after: { anomalies: dsAnomalies, needsHumanReview: unrecovered.length > 0 },
         })
         .catch((e: unknown) =>
           this.logger.error(`No se pudo auditar la anomalía de settle: ${(e as Error).message}`),
         );
     }
+    await this.reconcile?.afterSettle({ orderId: order.id, orderNumber: order.orderNumber, records, supersededOrderIds });
 
     // 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio del correo (⛔ sin foto). Best-effort: un fallo
     // al leerlos deja el correo sin ellos, ⛔ nunca tumba el webhook.
