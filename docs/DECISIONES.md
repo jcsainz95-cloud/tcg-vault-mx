@@ -642,3 +642,62 @@ Hecho medido: al cerrar por regla 2, `closeWithGuideTask` (`buylist-sweep.servic
 - **e) Reapertura acotada (G3-2/I-8).** Se compara la hora del PRIMER evento de movimiento de la guía (`T1`, mínimo de `occurredAt` entre `picked_up…delivered`, no `carrierStatusAt` último) con el plazo: reabre solo si `T1 ≤ shipDeadlineAt + 24 h` (24 h = una vuelta del barrido). Si `T1` es posterior ⇒ NO reabre, se lista con motivo `shipped_late` (folio, sin datos del vendedor). Se conservan las demás condiciones (sin pago, no cancelada ante proveedor, ≤30 d, sin sustituta, tope AML). Correo, primera frase: «Corrección: la paquetería registró tu paquete a tiempo.» (se quita «sí llegó a la paquetería a tiempo»). Para el dueño: su opción B queda limitada a envíos escaneados a más tardar 24 h después del plazo; un envío hecho días después NO reabre y le aparece listado.
 - **f) DTO y alertas.** `shipmentConfirmedBy` va solo en `AdminBuylistDTO` (no en el del vendedor). `pollError` solo puede ser true si la solicitud está `aceptada`/`en_transito`, la guía es nuestra y el proveedor está activo; en `recibida` o posteriores, o con proveedor `off`/`noop`, es false y se pinta «Sin rastreo automático». G3-3: `en_transito` sin escaneo nuevo y sin `delivered` por N días ⇒ alerta «Sin movimiento de la paquetería hace N días» en la cola «por atender» (dial `buylist_inbound_stalled_days`, default 10; no mueve estado ni dinero). m-9: ante incidencia, texto al vendedor: «La paquetería reportó un problema con tu paquete. Lo estamos revisando; el avance se verá aquí.» (sin «Te escribiremos»).
 - **g) Textos (criterio 9/B-2, I-6).** «La paquetería lo entregó. Falta recibirlo.» y «Va de regreso al vendedor» se pintan en `aceptada` Y `en_transito` (mientras la solicitud no esté `recibida`/cerrada), en la ficha de M5; el vendedor ve «La paquetería lo entregó. Lo estamos recibiendo en la tienda.» y «Tu paquete va de regreso; revisamos qué pasó». Sustituto de «Sin rastreo»: guía nuestra sin escaneo ⇒ «Aún sin movimiento de la paquetería»; guía del vendedor o proveedor apagado ⇒ «Sin rastreo automático». Todo en es/en, sin copy hardcodeado.
+
+## §BUSCADOR-CARTAS · Búsqueda completa de cartas: código impreso, número y nombre (2026-11-25; HECHOS 2026-11-25 «Sí, que haga una búsqueda más completa de las cartas»; origen: «PRE 078» ⇒ «Ninguna carta coincide»; `GET /buylist/cards` = cotizador buylist ⇒ gates qa + seguridad-lead; SIN cambio de `schema.prisma` ni de forma de respuesta ⇒ sin cambio de `API_CONTRACT.md`)
+**Medido:** `catalog.service.ts:2175-2181` (`searchAllCards`) hace `contains` del texto ENTERO contra `name` o `number`; `Card.number` sin ceros («78»); `CardSet.ptcgoCode` (`schema.prisma:906`) no se usa al buscar; hay `numberPrefix/numberSort` (`:1064-1065`) y `@@index([name])`. `CardSet` creado por TCGCSV no escribe `ptcgoCode` (`tcgcsv-set-import.service.ts:259-269`). Otros buscadores por texto de carta: `catalog.service.ts:1411` (Compra pública, solo nombre), `admin-bounties.service.ts:215-216` (M2), `master-set.service.ts:514`, `sealed-graded.service.ts:149/381`, y consumidores de `searchAllCards`: alta M1 (`AddItemModal.tsx`), alta graduada, `GradedEstimateCaptureSection`, wishlist, `HomeQuoter`, `demand-match.service.ts:56`. Cobertura de `ptcgoCode` en producción: **NO MEDIDO** (lo mide el job de abajo).
+
+**1. Qué entiende (una sola función compartida, `backend/src/common/card-search.ts`).** Se pliega el texto (sin acentos, minúsculas, `δ`→`delta`, `♀♂` fuera) y se parte en palabras por todo lo que no sea letra/dígito (espacio, `-`, `/`, `'`, `.`). Cada palabra se clasifica y TODAS deben cumplirse (Y), en cualquier orden:
+- **Número** (1-3 dígitos, con o sin ceros: «078», «78»; «078/131» = número 78 y total 131): coincide EXACTO con `Card.number` normalizado (sin ceros). El total solo sube prioridad (set con `printedTotal` = 131), nunca filtra.
+- **Código con prefijo** (1-5 letras + 1-3 dígitos: «SWSH132», «TG12», «GG05», «BW100», y también «PRE078»): coincide exacto con `number` (probando «GG05» y «GG5») **o**, si las letras son clave de set, clave + número.
+- **Clave de set** (2-5 caracteres que sea `ptcgoCode` de algún set, sin importar mayúsculas): limita a ese(s) set(s).
+- **Palabra de nombre** (el resto): `name contains` (sin distinguir mayúsculas); para acentos se prueba la palabra tal cual y con `e`→`é` («pokemon»⇒«Pokémon», «flabebe»). Palabras de 1 letra se ignoran. Una palabra que sea a la vez nombre y clave («pre») vale por cualquiera de las dos.
+- **Consulta de UNA sola palabra** conserva hoy: `name contains` OR `number contains` (así «78» sigue trayendo 78/178/278 y «char» sigue igual); además suma set por clave.
+- **NO en esta fase (fase 2, no preguntar al dueño):** errores de ortografía/difusa («pikchu», «charzard»). Requiere `pg_trgm` (extensión de Postgres, migración); se hará solo como «¿Quisiste decir…?» cuando haya 0 resultados, si las consultas sin resultado de la tienda lo justifican. Tampoco claves con guion unido («PR-SV 12»: se parte en «pr», «sv»; resolver solo si la medición de cobertura lo pide).
+
+**2. Orden.** Con `setId`: SIN CAMBIO (`CARD_ORDER_BY_IN_SET`, orden natural puro, v1.22). Sin `setId`: dos niveles ANTES de paginar: nivel 1 = coincidencia de identidad (clave+número, o número exacto + nombre, o código exacto; tope 200 ids, ordenado con `CARD_ORDER_BY_GLOBAL`); nivel 2 = el resto con `id NOT IN nivel1`, también `CARD_ORDER_BY_GLOBAL`. La página es el tramo del arreglo nivel1⧺nivel2 (`skip/take`), `total` = `count(where)` del conjunto completo. Orden determinista (desempate `id`), sin filas repetidas ni saltadas entre páginas. Si no hay palabra de número/clave, solo existe el nivel 2 (idéntico a hoy).
+
+**3. De dónde sale la clave impresa (AUTO).** (a) Fuente: `CardSet.ptcgoCode` de pokemontcg.io (ya existe). (b) Sets TCGCSV: al crear o actualizar el set se lee `abbreviation` del grupo y se guarda en `ptcgoCode` **solo si está vacío y ningún otro set ya usa esa clave** (nunca pisa el de pokemontcg.io; evita ambigüedad). (c) Job diario existente de sync de catálogo (frecuencia actual) rellena también los sets viejos con `tcgcsvGroupId` y clave vacía; si el proveedor falla se reintenta al día siguiente solo. (d) Set nuevo ⇒ se rellena solo al importarse; cero tablas a mano. Claves repetidas: la búsqueda trae los sets que la comparten (no se rompe); el job no crea repetidas. Sin clave (proveedor no la publica): el set sigue buscable por nombre y número (cuarentena automática = degradación suave, sin lista de pendientes). **Riesgo a vigilar:** `deck-matcher` casa por `ptcgoCode` ⇒ qa corre sus pruebas (`deck-matcher.service.spec.ts`) y comprueba que ningún `unmatched_set` previo pasa a `ambiguous`; si el gate objeta, plan B = columna nueva `CardSet.searchKey` (cambio de schema, vuelve al arquitecto). **Medición:** el mismo job escribe en log y en la sección de salud del catálogo ya existente (backend elige la superficie existente; si no hay, un contador en el panel M2) «sets con cartas sin clave: X de Y»; objetivo ≥ 95 % de sets con clave y 100 % de los de los últimos 24 meses. El dueño solo ve el número; no tiene acción.
+
+**4. Límites (endpoint público, throttle 60/min intacto).** `q` se recorta a 60 caracteres y 6 palabras (palabra ≤ 24 caracteres); sin regex del usuario (las palabras quedan solo en [a-z0-9δ], así no hay comodines `%`/`_`); todo parametrizado por Prisma. Con `q` y sin `setId`: `page × pageSize` ≤ 1000 (más allá ⇒ lista vacía, `total` real) para no facilitar el volcado; sin `q` (binder por `setId`) no cambia. Costo: la clave se resuelve primero contra `CardSet` (≈ cientos de filas, cacheada 10 min en memoria) y entra como `setId IN (…)` (usa `@@index([setId])`); `name contains` es el mismo escaneo de hoy (sin empeorar); el nivel 1 son ≤ 200 ids. Sin índices nuevos. **Una sola función** `parseCardQuery` + `buildCardSearchWhere` para: `searchAllCards`, `listCards` (`:1411`), `admin-bounties` (`:215`), `master-set` (`:514`), `sealed-graded` (cartas) y cualquier otro buscador de `Card` que `backend` encuentre con Grep `contains` sobre `Card`. Prohibido volver a escribir `contains` de carta en otro sitio (spec que lo verifique).
+
+**5. Textos (es/en, sin copy hardcodeado; frontend).** Ayuda bajo/placeholder de cada buscador de cartas: «Busca por nombre, número o código impreso: PRE 078» / «Search by name, number or printed code: PRE 078». Sin resultados: «No encontramos «{q}». Prueba solo el nombre, o el código impreso abajo a la izquierda de la carta (ej. PRE 078).» / «No cards found for “{q}”. Try just the name, or the printed code at the bottom left of the card (e.g. PRE 078).»
+
+**6. Criterios de aceptación (spec en `catalog.service.spec` / `card-search.spec.ts`; BD de prueba con sets PRE, BS, SVI, PAL, promos SWSH/GG/TG, set sin clave, dos sets con clave repetida).**
+| # | Consulta | Esperado |
+|---|---|---|
+| 1 | `PRE 078` | carta 78 de Prismatic Evolutions, primera |
+| 2 | `PRE078` / `pre 78` / `PRE-078` / `pre078` | igual que 1 |
+| 3 | `078` | cartas con número 78 primero, luego 178/278… (una palabra = hoy) |
+| 4 | `078/131` | carta 78 primero; las de set con total 131 antes |
+| 5 | `78/131` | igual que 4 |
+| 6 | `SWSH132` / `swsh 132` | carta SWSH132 (promo SWSH) |
+| 7 | `TG12` | TG12 de los sets con galería TG |
+| 8 | `GG05` / `gg5` | GG05 (Crown Zenith GG) |
+| 9 | `BW100` | BW100 |
+| 10 | `charizard 4` | Charizard número 4 (Base Set) antes que otros Charizard |
+| 11 | `pikachu 078` | solo Pikachu con número 78, primero |
+| 12 | `umbreon pre` | Umbreon de Prismatic Evolutions primero/únicas |
+| 13 | `pre umbreon` | igual que 12 (orden libre) |
+| 14 | `Charizard` / `charizard` / `CHARIZARD` | idéntico al resultado actual (mismos ids y orden) |
+| 15 | `char` | idéntico al actual |
+| 16 | `78` | idéntico al actual |
+| 17 | `pokemon catcher` | trae «Pokémon Catcher» |
+| 18 | `flabebe` | trae «Flabébé» |
+| 19 | `farfetchd` y `farfetch'd` | «Farfetch'd» (el segundo; el primero solo si hay coincidencia de sub-cadena, no se promete) |
+| 20 | `mr mime` / `mr. mime` | «Mr. Mime» |
+| 21 | `charizard ex` / `charizard EX` | iguales entre sí |
+| 22 | `charizard δ` / `charizard delta` | Charizard δ |
+| 23 | `nidoran` | ambas «Nidoran♀» y «Nidoran♂» |
+| 24 | `30C 12` (set TCGCSV con abreviatura) | carta 12 de ese set (tras el job de relleno) |
+| 25 | `zzzz 999` | 0 resultados, `total` 0, sin error |
+| 26 | `PRE 078` con `setId` de otro set | 0 resultados |
+| 27 | `PRE 078` con `setId` de PRE | solo esa carta |
+| 28 | `q` de 500 caracteres / `%%%` / `_` / `.*` | 200, recortada a 60; los comodines no coinciden con todo |
+| 29 | clave repetida entre dos sets + número | trae de ambos, sin error |
+| 30 | páginas 1 y 2 de `charizard` (pageSize 20) | sin ids repetidos ni saltados; orden idéntico entre dos corridas |
+| 31 | `q=a`, `page=60 pageSize=20` con q | página vacía (tope 1000), `total` real |
+| 32 | sin `q` con `setId` | orden y paginación idénticos a hoy |
+Tiempo: p95 ≤ 300 ms en servidor sobre el catálogo de producción (30 corridas de las filas 1, 10, 14; medir antes/después, hoy **NO MEDIDO**); no peor que +20 % frente a hoy en la fila 14. Cobertura de claves: se reporta k/N sets (§3).
+
+**Reparto.** `backend`: `backend/src/common/card-search.ts` (+spec), cambios en `catalog.service.ts` (`searchAllCards`, `listCards`), `admin-bounties.service.ts`, `master-set.service.ts`, `sealed-graded.service.ts`, `tcgcsv-set-import.service.ts` y `tcgcsv-group-discovery.service.ts` (clave) + job de relleno/medición en el sync existente; tope de `q` en `buylist-catalog.controller.ts`. `frontend`: textos es/en en `messages/*` y placeholders/ayuda/sin-resultados en `AddItemModal.tsx`, `AddGradedModal.tsx`, `HomeQuoter.tsx`, `WishlistSearch.tsx`, `GradedEstimateCaptureSection.tsx`, `BountiesView.tsx` (y buscador de Compra si lo hay); sin cambio de `api.ts`. **Gates:** `qa` (tabla de 32 filas, regresión del deck-matcher, tiempos) y `seguridad-lead` (límites de `q`, tope de volcado, sin comodines) antes de publicar; `/buylist/cards` es del cotizador de buylist. Sin migración ⇒ revertir = revert del commit; las claves rellenadas se quedan (inocuas).
+
