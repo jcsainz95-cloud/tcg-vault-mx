@@ -1145,8 +1145,8 @@ export function sellRequestReopenedTemplate(
   const en = l === 'en';
   const title = en ? 'Correction: your sell request is active again' : 'Corrección: tu solicitud de venta sigue activa';
   const body1 = en
-    ? `Correction: your package did reach the carrier on time. We reactivated your request ${params.folio}; as soon as we receive it at the store we will review it.`
-    : `Corrección: tu paquete sí llegó a la paquetería a tiempo. Reactivamos tu solicitud ${params.folio}; en cuanto lo recibamos en la tienda lo revisamos.`;
+    ? `Correction: the carrier registered your package on time. We reactivated your request ${params.folio}; as soon as we receive it at the store we will review it.`
+    : `Corrección: la paquetería registró tu paquete a tiempo. Reactivamos tu solicitud ${params.folio}; en cuanto lo recibamos en la tienda lo revisamos.`;
   const body2 = en ? 'Please ignore the previous notice.' : 'Ignora el aviso anterior.';
   const ctaLabel = en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD';
   const eyebrow = en ? 'REQUEST REACTIVATED' : 'SOLICITUD REACTIVADA';

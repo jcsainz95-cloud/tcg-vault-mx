@@ -1,4 +1,4 @@
-import { planCardLinks, LinkCard, LinkProduct } from '../src/modules/catalog/card-link-plan';
+import { planCardLinks, namesCompatible, LinkCard, LinkProduct } from '../src/modules/catalog/card-link-plan';
 import { normalizeCardNumber, CardProductResolverService } from '../src/modules/catalog/card-product-resolver.service';
 import { deriveAvailableFinishesFromProducts } from '../src/common/card-order';
 import { deriveCardProductsFromTcgcsv } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
@@ -50,9 +50,22 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     expect(r.collisions).toBe(2);
   });
 
-  it('número único en ambos lados ⇒ enlaza por número aunque el nombre difiera', () => {
-    const r = plan([prod(1, 'Mr. Mime', '7/100')], [card('c1', '7', 'Mister Mime')]);
+  it('número único en ambos lados y nombre COMPATIBLE (uno contenido en el otro por palabras) ⇒ enlaza por número', () => {
+    const r = plan([prod(1, 'Charizard ex', '7/100')], [card('c1', '7', 'Charizard')]);
     expect(r.links.get(1)).toEqual({ cardId: 'c1', rule: 'number' });
+  });
+
+  it('G3-4: número único pero nombre INCOMPATIBLE ⇒ `name_mismatch`, no enlaza (un homónimo por número no cuelga precio ajeno)', () => {
+    const r = plan([prod(1, 'Pikachu', '7/100')], [card('c1', '7', 'Mewtwo')]);
+    expect(r.links.size).toBe(0);
+    expect(r.unlinked).toEqual([{ productId: 1, reason: 'name_mismatch' }]);
+    expect(r.omitted).toBe(1);
+  });
+
+  it('namesCompatible: palabras completas, no subcadenas', () => {
+    expect(namesCompatible('mew', 'mewtwo')).toBe(false);
+    expect(namesCompatible('charizard', 'charizard ex')).toBe(true);
+    expect(namesCompatible('', 'x')).toBe(false);
   });
 
   it('regla a: tcgplayerId manda aunque el número se repita', () => {
@@ -63,9 +76,42 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
   it('un producto con OTRO dueño no se pisa; una carta ya enlazada no recibe un base por número', () => {
     const r1 = plan([prod(1, 'Foo', '5')], [card('c1', '5', 'Foo', 0, '1'), card('c2', '9', 'X')], [[1, 'c2']]);
     expect(r1.links.has(1)).toBe(false);
-    expect(r1.omitted).toBe(1);
+    expect(r1.conflicts).toBe(1);
+    expect(r1.omitted).toBe(0);
     const r2 = plan([prod(1, 'Foo', '5')], [card('c1', '5', 'Foo', 1)], [], { onlyUnlinked: true });
     expect(r2.links.has(1)).toBe(false);
+  });
+
+  it('I-9: unicidad del lado CARTA — dos cartas locales con el mismo (número, nombre) ⇒ no se adivina cuál; mismo número y nombres distintos ⇒ la regla b enlaza a la correcta', () => {
+    const dup = plan([prod(1, 'Foo', '5')], [card('c1', '5', 'Foo'), card('c2', '5', 'Foo')]);
+    expect(dup.links.size).toBe(0);
+    expect(dup.collisions).toBe(1);
+    const ok = plan([prod(1, 'Foo', '5'), prod(2, 'Bar', '5')], [card('c1', '5', 'Foo'), card('c2', '5', 'Bar')]);
+    expect(ok.links.get(1)).toEqual({ cardId: 'c1', rule: 'number_name' });
+    expect(ok.links.get(2)).toEqual({ cardId: 'c2', rule: 'number_name' });
+  });
+
+  it('I-9: una carta con DOS productos base (mismo número, nombres distintos, una sola carta) ⇒ ninguno se enlaza por número', () => {
+    const r = plan([prod(1, 'Foo', '5'), prod(2, 'Foo Special', '5')], [card('c1', '5', 'Foo')]);
+    expect(r.links.get(1)).toEqual({ cardId: 'c1', rule: 'number_name' }); // el exacto sí
+    expect(r.links.has(2)).toBe(false); // el otro no se cuelga de la misma carta por número
+  });
+
+  it('I-9: enrutado de promos/variantes por número ÚNICO local; con número repetido ⇒ colisión; en reparación no pisa una carta enlazada', () => {
+    const ok = plan([prod(1, 'Foo (Prerelease)', '5', 'promo')], [card('c1', '5', 'Foo', 1)]);
+    expect(ok.links.get(1)).toEqual({ cardId: 'c1', rule: 'number_unique_local' });
+    const dup = plan([prod(1, 'Foo (Prerelease)', '5', 'promo')], [card('c1', '5', 'Foo'), card('c2', '5', 'Bar')]);
+    expect(dup.links.size).toBe(0);
+    expect(dup.collisions).toBe(1);
+    const rep = plan([prod(1, 'Foo (Prerelease)', '5', 'promo')], [card('c1', '5', 'Foo', 1)], [], { onlyUnlinked: true });
+    expect(rep.links.size).toBe(0);
+  });
+
+  it('I-4: en modo reparación un producto con OTRO dueño que una carta SIN enlace habría tomado ⇒ conflicto contado (no silencio)', () => {
+    const r = plan([prod(1, 'Foo', '5')], [card('c1', '5', 'Foo', 0), card('c2', '9', 'X', 1)], [[1, 'c2']], { onlyUnlinked: true });
+    expect(r.links.size).toBe(0);
+    expect(r.unlinked).toEqual([{ productId: 1, reason: 'owner_conflict' }]);
+    expect(r.conflicts).toBe(1);
   });
 
   it('modo reparación: cartas/productos ya enlazados ⇒ 0 enlaces nuevos (idempotencia)', () => {

@@ -1,4 +1,4 @@
-import { inboundCarrierOf, sweepHoldReason, InboundCarrierRow } from '../src/modules/shipments/inbound-carrier';
+import { inboundCarrierOf, sweepHoldReason, InboundCarrierRow, InboundCarrierCtx } from '../src/modules/shipments/inbound-carrier';
 
 // §BUYLIST-RASTREO criterio 5 con reloj inyectado + forma del DTO `inboundCarrier`.
 const H = 3_600_000;
@@ -29,16 +29,31 @@ describe('sweepHoldReason (regla 2, reloj inyectado)', () => {
   });
 });
 
+const ctx = (over: Partial<InboundCarrierCtx> = {}): InboundCarrierCtx => ({ requestStatus: 'en_transito', providerOn: true, pollMinutes: 60, stalledDays: 10, ...over });
+
 describe('inboundCarrierOf (forma del DTO)', () => {
-  it('sin guía viva ⇒ null', () => expect(inboundCarrierOf(live({ labelSource: 'manual' }), NOW)).toBeNull());
-  it('entregado ⇒ deliveredAt = statusAt; estimatedDeliveryAt siempre null', () => {
+  it('sin guía viva ⇒ null', () => expect(inboundCarrierOf(live({ labelSource: 'manual' }), NOW, ctx())).toBeNull());
+  it('entregado ⇒ deliveredAt = statusAt; estimatedDeliveryAt siempre null; sin alertas', () => {
     const at = new Date('2026-11-24T10:00:00.000Z');
-    expect(inboundCarrierOf(live({ carrierStatus: 'delivered', carrierStatusAt: at }), NOW)).toEqual({
-      status: 'delivered', statusAt: at.toISOString(), estimatedDeliveryAt: null, polledAt: live().carrierPolledAt!.toISOString(), deliveredAt: at.toISOString(), pollError: false,
+    expect(inboundCarrierOf(live({ carrierStatus: 'delivered', carrierStatusAt: at }), NOW, ctx())).toEqual({
+      status: 'delivered', statusAt: at.toISOString(), estimatedDeliveryAt: null, polledAt: live().carrierPolledAt!.toISOString(), deliveredAt: at.toISOString(), pollError: false, stalledDays: null,
     });
   });
   it('pollError tras 3 ciclos sin sondeo exitoso', () => {
-    expect(inboundCarrierOf(live({ carrierPolledAt: new Date(NOW.getTime() - 2 * H) }), NOW)?.pollError).toBe(false);
-    expect(inboundCarrierOf(live({ carrierPolledAt: new Date(NOW.getTime() - 3 * H) }), NOW)?.pollError).toBe(true);
+    expect(inboundCarrierOf(live({ carrierPolledAt: new Date(NOW.getTime() - 2 * H) }), NOW, ctx())?.pollError).toBe(false);
+    expect(inboundCarrierOf(live({ carrierPolledAt: new Date(NOW.getTime() - 3 * H) }), NOW, ctx())?.pollError).toBe(true);
+  });
+  it('I-7: pollError es false en `recibida` o posteriores y con el proveedor apagado', () => {
+    const old = live({ carrierPolledAt: new Date(NOW.getTime() - 30 * H) });
+    expect(inboundCarrierOf(old, NOW, ctx())?.pollError).toBe(true);
+    for (const st of ['recibida', 'verificacion', 'aprobada', 'pagada', 'expirada']) expect(inboundCarrierOf(old, NOW, ctx({ requestStatus: st }))?.pollError).toBe(false);
+    expect(inboundCarrierOf(old, NOW, ctx({ providerOn: false }))?.pollError).toBe(false);
+  });
+  it('G3-3: en_transito sin escaneo nuevo hace ≥ N días ⇒ stalledDays; antes o con otro estado ⇒ null', () => {
+    const scan = (days: number) => live({ carrierStatus: 'in_transit', carrierStatusAt: new Date(NOW.getTime() - days * 24 * H), carrierPolledAt: new Date(NOW.getTime() - H) });
+    expect(inboundCarrierOf(scan(10), NOW, ctx())?.stalledDays).toBe(10);
+    expect(inboundCarrierOf(scan(9), NOW, ctx())?.stalledDays).toBeNull();
+    expect(inboundCarrierOf(scan(30), NOW, ctx({ requestStatus: 'aceptada' }))?.stalledDays).toBeNull();
+    expect(inboundCarrierOf(scan(30), NOW, ctx({ providerOn: false }))?.stalledDays).toBeNull();
   });
 });

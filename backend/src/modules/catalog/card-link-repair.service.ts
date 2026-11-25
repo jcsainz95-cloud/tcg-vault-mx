@@ -1,11 +1,14 @@
-import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from '@nestjs/common';
 import { Finish, InventoryStatus, MovementReason } from '@prisma/client';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { BusinessException } from '../../common/business.exception';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
+
+export type NotLinkableReason = 'no_group' | 'tcgcsv_source';
 
 /** Forma EXACTA de `GET /admin/catalog/sync-status` → `unlinkedPrice` (aditivo, §PRECIO-SIN-ENLACE). */
 export interface UnlinkedPriceSet {
@@ -16,49 +19,83 @@ export interface UnlinkedPriceSet {
   total: number;
   /** Productos no enlazados por número/nombre repetido, según la ÚLTIMA corrida de `card-link-repair`; `null` = aún sin medir. */
   collisions: number | null;
-  /** Productos no enlazados por otro motivo (sin carta local, ya enlazada), última corrida; `null` = aún sin medir. */
+  /** Productos no enlazados por otro motivo (sin carta local, ya enlazada, nombre incompatible), última corrida; `null` = aún sin medir. */
   omittedProducts: number | null;
+  /** Productos con otro dueño (`product_owned_by_other`), última corrida; `null` = aún sin medir. */
+  conflicts: number | null;
+}
+export interface UnlinkedPriceNotLinkableSet {
+  setId: string;
+  name: string;
+  unlinked: number;
+  reason: NotLinkableReason;
 }
 export interface UnlinkedPrice {
-  /** Cartas sin enlace en TODOS los sets con `unlinked > 0` (no solo los 100 listados). */
+  /** Cartas sin enlace en los sets REPARABLES con `unlinked > 0` (no solo los 100 listados). Los «no ligables» NO cuentan aquí. */
   totalCards: number;
-  /** Solo sets con `unlinked > 0`, orden descendente por `unlinked`, máx. 100. */
+  /** Solo sets reparables con `unlinked > 0`, orden descendente por `unlinked`, máx. 100. */
   sets: UnlinkedPriceSet[];
+  /** Sets que `card-link-repair` no puede ligar (origen `tcgcsv:` o sin grupo TCGCSV), con su motivo. */
+  notLinkable: { totalCards: number; sets: UnlinkedPriceNotLinkableSet[] };
 }
 
+/** Espacio del candado consultivo del reclamo de `link-repair` por set (`pg_advisory_xact_lock(NS, hashtext(setId))`). */
+export const LINK_REPAIR_GATE_NAMESPACE = 118_125_011;
 export const LINK_REPAIR_MAX_SETS = 20;
+/** I-5: una corrida MANUAL por set cada 10 min (si no, 429). */
+export const LINK_REPAIR_MANUAL_COOLDOWN_MS = 10 * 60_000;
+/** I-3: la rotación corre cada hora hasta que todo set reparable fue intentado. */
+export const LINK_REPAIR_ROTATION_MS = 60 * 60_000;
 const MAX_LISTED_SETS = 100;
 const ACTION = 'catalog.link_repair';
+const CLAIM = 'catalog.link_repair_claim';
 const DEPLOY_MARKER = 'catalog.link_repair_deploy';
+const DEPLOY_START = 'catalog.link_repair_deploy_start';
+
+export interface LinkRepairSetResult {
+  setId: string;
+  name: string;
+  linked: number;
+  collisions: number;
+  conflicts: number;
+  omitted: { reason: string; count: number }[];
+  notLinkable: NotLinkableReason | null;
+  piecesCorrected: number;
+  piecesExcluded: { reason: string; count: number }[];
+  examples: { cardId: string | null; number: string | null; reason: string }[];
+  error?: string;
+}
 
 export interface LinkRepairRun {
-  sets: { setId: string; name: string; linked: number; collisions: number; omitted: number; error?: string }[];
+  sets: LinkRepairSetResult[];
   linked: number;
   errors: number;
-  /**
-   * Decisión del dueño (opción A, 2026-11-25): piezas raw dadas de alta con un acabado que la carta recién enlazada ya no
-   * tiene. `corrected` = pasaron al único acabado de la carta (auditadas, costo intacto); `excluded` = tienen venta, reserva,
-   * pedido, envío, disputa o cualquier movimiento de dinero (solo se reportan); `ambiguous` = la carta tiene varios acabados
-   * (no hay uno solo al que moverla; solo se reportan).
-   */
+  /** Agregado de las piezas (opción A del dueño); `excluded` incluye las de cliente, con venta/reserva/dinero y `ambiguous` va aparte. */
   inventory: { corrected: number; excluded: number; ambiguous: number };
+  /** `deploy`: todo set reparable con `unlinked>0` fue intentado al menos una vez desde el despliegue (⇒ se escribe el marcador). */
+  complete: boolean;
 }
 
 /** Piezas en estos estados son las únicas corregibles; el resto (reservada, en picking, enviada…) solo se reporta. */
 const CORRECTABLE_STATUS: InventoryStatus[] = ['in_stock', 'listed'];
 /** Movimientos que implican dinero ya movido con esa pieza. */
-const MONEY_MOVEMENTS: MovementReason[] = ['sale', 'settle', 'chargeback_return', 'replacement', 'withdrawal'];
+const MONEY_MOVEMENTS: MovementReason[] = ['sale', 'settle', 'chargeback_return', 'replacement', 'withdrawal', 'refund_return', 'refund_release', 'buylist_convert'];
 
 /**
- * §PRECIO-SIN-ENLACE (fase 1) — `card-link-repair`: enlaza (reglas de `card-link-plan.ts`) las cartas con 0
- * `CardProduct` de los sets con `unlinked > 0` (tope 20 sets por corrida). Idempotente: solo actúa sobre cartas
- * sin enlace (modo `onlyUnlinked` del resolver), así que la 2.ª corrida escribe 0 filas. Una vez al desplegar
- * (marcador de auditoría); el atajo manual es el `POST /admin/catalog/sync {setId, force:true}` existente.
+ * §PRECIO-SIN-ENLACE — `card-link-repair`: enlaza (reglas de `card-link-plan.ts`) las cartas con 0 `CardProduct`.
+ *  - Rotación (I-3): hasta 20 sets por corrida, el de intento más viejo primero (`lastLinkRepairAt` = la última fila de
+ *    bitácora `catalog.link_repair` del set; ⛔ sin columna nueva), cada hora tras desplegar hasta que todo set reparable fue
+ *    intentado; entonces se escribe el marcador y se detiene.
+ *  - Manual (I-5): `runForSet(setId)` — una corrida por set cada 10 min (429), candado `pg_advisory_xact_lock` en el reclamo.
+ *  - Idempotente: solo actúa sobre cartas sin enlace (modo `onlyUnlinked` del resolver), la 2.ª corrida escribe 0 filas.
+ *  - Sets «no ligables» (origen `tcgcsv:` o sin grupo TCGCSV): salen aparte, no cuentan como pendientes.
  */
 @Injectable()
-export class CardLinkRepairService implements OnApplicationBootstrap {
+export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(CardLinkRepairService.name);
   private running: Promise<LinkRepairRun> | null = null;
+  private readonly inflightSets = new Set<string>();
+  private timer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -70,30 +107,87 @@ export class CardLinkRepairService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     if (isSchedulerDisabled()) return;
+    // La ruta de pruebas nativa (NODE_ENV=development) lo apaga con `CARD_LINK_REPAIR_BOOT=off` (setup de la integración);
+    // en producción la variable no existe ⇒ corre.
+    if (process.env.CARD_LINK_REPAIR_BOOT === 'off') return;
     try {
       const done = await this.prisma.auditLog.findFirst({ where: { action: DEPLOY_MARKER }, select: { id: true } });
       if (done) return;
-      void this.run('deploy').catch((e) => this.logger.error(`card-link-repair: corrida de despliegue falló (${(e as Error).message}).`));
+      this.startRotation();
     } catch (e) {
       this.logger.error(`card-link-repair: no se pudo comprobar el marcador de despliegue (${(e as Error).message}).`);
     }
   }
 
-  /** Cartas sin `CardProduct` por set (consulta LOCAL; no llama a proveedores). */
+  onModuleDestroy(): void {
+    this.stopRotation();
+  }
+
+  private startRotation(): void {
+    const tick = async (): Promise<void> => {
+      try {
+        const r = await this.run('deploy');
+        if (r.complete) this.stopRotation();
+      } catch (e) {
+        this.logger.error(`card-link-repair: corrida de despliegue falló (${(e as Error).message}); reintenta en 1 h.`);
+      }
+    };
+    void tick();
+    this.timer = setInterval(() => void tick(), LINK_REPAIR_ROTATION_MS);
+    this.timer.unref();
+  }
+
+  private stopRotation(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** Todos los sets con cartas sin enlace, clasificados (consulta LOCAL; no llama a proveedores). */
+  private async scan(): Promise<{
+    repairable: { setId: string; unlinked: number }[];
+    notLinkable: { setId: string; unlinked: number; reason: NotLinkableReason }[];
+    lastAttempt: Map<string, Date>;
+    lastNoGroup: Set<string>;
+  }> {
+    const unlinkedBy = await this.prisma.card.groupBy({ by: ['setId'], where: { cardProducts: { none: {} } }, _count: { _all: true } });
+    const ids = unlinkedBy.map((g) => g.setId);
+    const [sets, attempts, noGroup] = await Promise.all([
+      this.prisma.cardSet.findMany({ where: { id: { in: ids } }, select: { id: true, externalId: true } }),
+      this.prisma.auditLog.groupBy({ by: ['entityId'], where: { action: ACTION, entityId: { in: ids } }, _max: { createdAt: true } }),
+      // «Sin grupo» vigente: último intento con ese motivo en los últimos 7 días (luego se reintenta: el grupo puede aparecer).
+      this.prisma.auditLog.findMany({
+        where: { action: ACTION, entityId: { in: ids }, createdAt: { gt: new Date(Date.now() - 7 * 86_400_000) }, after: { path: ['notLinkable'], equals: 'no_group' } },
+        select: { entityId: true },
+      }),
+    ]);
+    const ext = new Map(sets.map((x) => [x.id, x.externalId]));
+    const lastAttempt = new Map<string, Date>();
+    for (const a of attempts) if (a.entityId && a._max.createdAt) lastAttempt.set(a.entityId, a._max.createdAt);
+    const lastNoGroup = new Set(noGroup.map((n) => n.entityId).filter((x): x is string => !!x));
+    const repairable: { setId: string; unlinked: number }[] = [];
+    const notLinkable: { setId: string; unlinked: number; reason: NotLinkableReason }[] = [];
+    for (const g of unlinkedBy) {
+      const unlinked = g._count._all;
+      if (isTcgcsvOrigin(ext.get(g.setId))) notLinkable.push({ setId: g.setId, unlinked, reason: 'tcgcsv_source' });
+      else if (lastNoGroup.has(g.setId)) notLinkable.push({ setId: g.setId, unlinked, reason: 'no_group' });
+      else repairable.push({ setId: g.setId, unlinked });
+    }
+    return { repairable, notLinkable, lastAttempt, lastNoGroup };
+  }
+
+  /** `GET /admin/catalog/sync-status` → `unlinkedPrice`. */
   async unlinkedPrice(): Promise<UnlinkedPrice> {
-    const unlinkedBy = await this.prisma.card.groupBy({
-      by: ['setId'],
-      where: { cardProducts: { none: {} } },
-      _count: { _all: true },
-    });
-    const sorted = [...unlinkedBy].sort((a, b) => b._count._all - a._count._all);
-    const totalCards = sorted.reduce((n, g) => n + g._count._all, 0);
+    const sc = await this.scan();
+    const sorted = [...sc.repairable].sort((a, b) => b.unlinked - a.unlinked);
+    const totalCards = sorted.reduce((n, g) => n + g.unlinked, 0);
+    const nl = [...sc.notLinkable].sort((a, b) => b.unlinked - a.unlinked);
     const top = sorted.slice(0, MAX_LISTED_SETS);
-    if (top.length === 0) return { totalCards: 0, sets: [] };
-    const ids = top.map((g) => g.setId);
+    const nlTop = nl.slice(0, MAX_LISTED_SETS);
+    const ids = [...top.map((g) => g.setId), ...nlTop.map((g) => g.setId)];
+    if (ids.length === 0) return { totalCards: 0, sets: [], notLinkable: { totalCards: 0, sets: [] } };
     const [sets, totals, audits] = await Promise.all([
       this.prisma.cardSet.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
-      this.prisma.card.groupBy({ by: ['setId'], where: { setId: { in: ids } }, _count: { _all: true } }),
+      this.prisma.card.groupBy({ by: ['setId'], where: { setId: { in: top.map((g) => g.setId) } }, _count: { _all: true } }),
       this.prisma.auditLog.findMany({
         where: { action: ACTION, entityId: { in: ids } },
         orderBy: { createdAt: 'desc' },
@@ -103,30 +197,33 @@ export class CardLinkRepairService implements OnApplicationBootstrap {
     ]);
     const name = new Map(sets.map((s) => [s.id, s.name]));
     const total = new Map(totals.map((t) => [t.setId, t._count._all]));
-    const last = new Map<string, { collisions: number | null; omitted: number | null }>();
+    const last = new Map<string, { collisions: number | null; omitted: number | null; conflicts: number | null }>();
+    const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
     for (const a of audits) {
       if (!a.entityId || last.has(a.entityId)) continue;
-      const after = (a.after ?? {}) as { collisions?: unknown; omitted?: unknown };
-      last.set(a.entityId, {
-        collisions: typeof after.collisions === 'number' ? after.collisions : null,
-        omitted: typeof after.omitted === 'number' ? after.omitted : null,
-      });
+      const after = (a.after ?? {}) as { collisions?: unknown; omitted?: unknown; conflicts?: unknown };
+      last.set(a.entityId, { collisions: num(after.collisions), omitted: num(after.omitted), conflicts: num(after.conflicts) });
     }
     return {
       totalCards,
       sets: top.map((g) => ({
         setId: g.setId,
         name: name.get(g.setId) ?? g.setId,
-        unlinked: g._count._all,
-        total: total.get(g.setId) ?? g._count._all,
+        unlinked: g.unlinked,
+        total: total.get(g.setId) ?? g.unlinked,
         collisions: last.get(g.setId)?.collisions ?? null,
         omittedProducts: last.get(g.setId)?.omitted ?? null,
+        conflicts: last.get(g.setId)?.conflicts ?? null,
       })),
+      notLinkable: {
+        totalCards: nl.reduce((n, g) => n + g.unlinked, 0),
+        sets: nlTop.map((g) => ({ setId: g.setId, name: name.get(g.setId) ?? g.setId, unlinked: g.unlinked, reason: g.reason })),
+      },
     };
   }
 
-  /** Una corrida a la vez (single-flight en el proceso); una segunda llamada recibe la promesa en curso. */
-  run(trigger: 'deploy' | 'manual' = 'manual'): Promise<LinkRepairRun> {
+  /** Rotación (despliegue / cada hora): una a la vez en el proceso; una segunda llamada recibe la promesa en curso. */
+  run(trigger: 'deploy' | 'manual' | 'hourly' = 'manual'): Promise<LinkRepairRun> {
     if (this.running) return this.running;
     const p = this.doRun(trigger).finally(() => {
       this.running = null;
@@ -135,63 +232,136 @@ export class CardLinkRepairService implements OnApplicationBootstrap {
     return p;
   }
 
-  private async doRun(trigger: 'deploy' | 'manual'): Promise<LinkRepairRun> {
-    const { sets: pending } = await this.unlinkedPrice();
-    const out: LinkRepairRun = { sets: [], linked: 0, errors: 0, inventory: { corrected: 0, excluded: 0, ambiguous: 0 } };
-    const linkedCardIds: string[] = [];
-    let attempted = 0;
-    for (const s of pending) {
-      if (attempted >= LINK_REPAIR_MAX_SETS) break;
-      const set = await this.prisma.cardSet.findUnique({ where: { id: s.setId }, select: { externalId: true } });
-      if (!set || isTcgcsvOrigin(set.externalId)) continue; // los sets `tcgcsv:` los puebla su importador
-      attempted += 1;
+  private async doRun(trigger: 'deploy' | 'manual' | 'hourly'): Promise<LinkRepairRun> {
+    const out: LinkRepairRun = { sets: [], linked: 0, errors: 0, inventory: { corrected: 0, excluded: 0, ambiguous: 0 }, complete: false };
+    if (trigger === 'deploy' && !(await this.prisma.auditLog.findFirst({ where: { action: DEPLOY_START }, select: { id: true } }))) {
+      await this.audit.log({ actorUserId: null, action: DEPLOY_START, entityType: 'CardSet', after: {} });
+    }
+    const sc = await this.scan();
+    const order = [...sc.repairable].sort((a, b) => {
+      const ta = sc.lastAttempt.get(a.setId)?.getTime() ?? -1;
+      const tb = sc.lastAttempt.get(b.setId)?.getTime() ?? -1;
+      return ta - tb || b.unlinked - a.unlinked;
+    });
+    for (const s of order.slice(0, LINK_REPAIR_MAX_SETS)) {
+      if (this.inflightSets.has(s.setId)) continue;
+      this.inflightSets.add(s.setId);
       try {
-        const r = await this.resolver.resolveCardProductsForSet(s.setId, { onlyUnlinked: true });
-        const linked = r?.touchedCardIds?.length ?? 0;
-        linkedCardIds.push(...(r?.touchedCardIds ?? []));
-        out.linked += linked;
-        const row = { setId: s.setId, name: s.name, linked, collisions: r?.collisions ?? 0, omitted: r?.omittedProducts ?? 0 };
-        out.sets.push(row);
-        if (r) {
-          await this.audit.log({
-            actorUserId: null,
-            action: ACTION,
-            entityType: 'CardSet',
-            entityId: s.setId,
-            after: { setId: s.setId, linked, collisions: row.collisions, omitted: row.omitted, trigger },
-          });
+        const r = await this.attemptSet(s.setId, trigger, null);
+        out.sets.push(r);
+        out.linked += r.linked;
+        if (r.error) out.errors += 1;
+        out.inventory.corrected += r.piecesCorrected;
+        for (const e of r.piecesExcluded) {
+          if (e.reason === 'ambiguous_finishes') out.inventory.ambiguous += e.count;
+          else out.inventory.excluded += e.count;
         }
-      } catch (e) {
-        out.errors += 1;
-        out.sets.push({ setId: s.setId, name: s.name, linked: 0, collisions: 0, omitted: 0, error: (e as Error).message });
-        this.logger.warn(`card-link-repair: set ${s.setId} falló (${(e as Error).message}); queda para la próxima corrida.`);
+      } finally {
+        this.inflightSets.delete(s.setId);
       }
     }
-    if (linkedCardIds.length > 0) out.inventory = await this.correctInventoryFinish(linkedCardIds, trigger);
-    if (trigger === 'deploy' && out.errors === 0) {
-      await this.audit.log({
-        actorUserId: null,
-        action: DEPLOY_MARKER,
-        entityType: 'CardSet',
-        after: { linked: out.linked, sets: out.sets.length, inventory: out.inventory },
-      });
+    if (trigger === 'deploy') {
+      const start = await this.prisma.auditLog.findFirst({ where: { action: DEPLOY_START }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } });
+      const after = await this.scan();
+      // Todo set reparable pendiente debe tener un intento POSTERIOR al inicio del despliegue (un intento sin progreso cuenta).
+      out.complete = !!start && after.repairable.every((r) => (after.lastAttempt.get(r.setId)?.getTime() ?? 0) >= start.createdAt.getTime());
+      if (out.complete) {
+        await this.audit.log({ actorUserId: null, action: DEPLOY_MARKER, entityType: 'CardSet', after: { linked: out.linked, sets: out.sets.length, inventory: out.inventory } });
+      }
     }
     this.logger.log(
       `card-link-repair (${trigger}): sets=${out.sets.length} enlazadas=${out.linked} errores=${out.errors} ` +
-        `piezas con acabado corregido=${out.inventory.corrected} excluidas=${out.inventory.excluded} ambiguas=${out.inventory.ambiguous}.`,
+        `piezas con acabado corregido=${out.inventory.corrected} excluidas=${out.inventory.excluded} ambiguas=${out.inventory.ambiguous} completa=${out.complete}.`,
     );
     return out;
   }
 
   /**
-   * Opción A del dueño: una pieza raw (sin versión de liga) cuyo acabado no existe en la carta recién enlazada, y la carta
-   * tiene UN solo acabado, pasa a ese acabado. NO se toca el costo de adquisición ni ningún otro campo: solo `finish`
-   * (y, por consecuencia, el precio de venta automático, que se recalcula). Sin pedido/envío/disputa/reserva/venta ni
-   * movimiento de dinero. Escritura condicionada (solo si la pieza sigue como se leyó) + auditoría por pieza; idempotente
-   * (corregida, su acabado ya está en la carta y no vuelve a salir).
+   * `POST /admin/catalog/link-repair {setId}` — UN set, solo cartas sin enlace. 429 si el set se reparó hace < 10 min (reclamo bajo
+   * `pg_advisory_xact_lock` ⇒ dos instancias no pasan las dos). Un fallo del proveedor ⇒ 503 `UPSTREAM_ERROR` (no se audita intento).
    */
-  private async correctInventoryFinish(cardIds: string[], trigger: string): Promise<LinkRepairRun['inventory']> {
-    const res = { corrected: 0, excluded: 0, ambiguous: 0 };
+  async runForSet(setId: string, actorUserId: string): Promise<LinkRepairSetResult> {
+    const exists = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { id: true } });
+    if (!exists) throw BusinessException.notFound();
+    if (this.inflightSets.has(setId)) throw this.tooSoon(0);
+    const now = Date.now();
+    const wait = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LINK_REPAIR_GATE_NAMESPACE}::int, hashtext(${setId}))`;
+      const last = await tx.auditLog.findFirst({ where: { action: CLAIM, entityId: setId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+      if (last && now - last.createdAt.getTime() < LINK_REPAIR_MANUAL_COOLDOWN_MS) return LINK_REPAIR_MANUAL_COOLDOWN_MS - (now - last.createdAt.getTime());
+      await this.audit.log({ actorUserId, action: CLAIM, entityType: 'CardSet', entityId: setId, after: { setId } }, tx);
+      return 0;
+    });
+    if (wait > 0) throw this.tooSoon(wait);
+    this.inflightSets.add(setId);
+    try {
+      const r = await this.attemptSet(setId, 'manual', actorUserId);
+      if (r.error) throw BusinessException.retriable('UPSTREAM_ERROR', 'The price provider failed; try again later', { setId });
+      return r;
+    } finally {
+      this.inflightSets.delete(setId);
+    }
+  }
+
+  private tooSoon(waitMs: number): BusinessException {
+    return new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, 'This set was repaired a moment ago', { retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
+  }
+
+  /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
+  private async attemptSet(setId: string, trigger: string, actorUserId: string | null): Promise<LinkRepairSetResult> {
+    const blank = (name: string): LinkRepairSetResult => ({
+      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
+    });
+    const set = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { name: true, externalId: true } });
+    if (!set) return { ...blank(setId), error: 'not_found' };
+    const res = blank(set.name);
+    try {
+      const r = isTcgcsvOrigin(set.externalId) ? null : await this.resolver.resolveCardProductsForSet(setId, { onlyUnlinked: true });
+      if (!r) {
+        res.notLinkable = isTcgcsvOrigin(set.externalId) ? 'tcgcsv_source' : 'no_group';
+      } else {
+        res.linked = r.touchedCardIds?.length ?? 0;
+        res.collisions = r.collisions ?? 0;
+        res.conflicts = r.conflicts ?? 0;
+        res.omitted = Object.entries(r.reasonCounts ?? {})
+          .filter(([reason]) => reason !== 'collision' && reason !== 'owner_conflict')
+          .map(([reason, count]) => ({ reason, count }));
+        res.examples = r.examples ?? [];
+        if (res.linked > 0) {
+          const inv = await this.correctInventoryFinish(r.touchedCardIds ?? [], trigger);
+          res.piecesCorrected = inv.corrected;
+          res.piecesExcluded = inv.excluded;
+        }
+      }
+      await this.audit.log({
+        actorUserId,
+        action: ACTION,
+        entityType: 'CardSet',
+        entityId: setId,
+        after: {
+          setId, linked: res.linked, collisions: res.collisions, conflicts: res.conflicts,
+          omitted: res.omitted.reduce((n, o) => n + o.count, 0), omittedReasons: res.omitted, notLinkable: res.notLinkable,
+          piecesCorrected: res.piecesCorrected, trigger,
+        },
+      });
+    } catch (e) {
+      res.error = (e as Error).message;
+      this.logger.warn(`card-link-repair: set ${setId} falló (${res.error}); queda para la próxima corrida.`);
+    }
+    return res;
+  }
+
+  /**
+   * Opción A del dueño: una pieza raw (sin versión de liga) cuyo acabado no existe en la carta recién enlazada, y la carta
+   * tiene UN solo acabado, pasa a ese acabado. G3-1: SOLO piezas `ownerType='platform'` (las de clientes en bóveda se cuentan,
+   * `customer_vault`, y nunca se tocan). NO se toca el costo de adquisición ni ningún otro campo: solo `finish` (y, por
+   * consecuencia, el precio automático, que se recalcula). Sin pedido/envío/disputa/reserva/venta ni movimiento de dinero.
+   * Escritura condicionada + auditoría por pieza; idempotente.
+   */
+  private async correctInventoryFinish(cardIds: string[], trigger: string): Promise<{ corrected: number; excluded: { reason: string; count: number }[] }> {
+    const counts = new Map<string, number>();
+    const bump = (r: string): void => void counts.set(r, (counts.get(r) ?? 0) + 1);
+    let corrected = 0;
     const items = await this.prisma.inventoryItem.findMany({
       where: { cardId: { in: cardIds }, productType: 'raw', cardProductId: null },
       select: {
@@ -199,43 +369,44 @@ export class CardLinkRepairService implements OnApplicationBootstrap {
         cardId: true,
         finish: true,
         status: true,
+        ownerType: true,
         reservedByOrderId: true,
         card: { select: { availableFinishes: true } },
         _count: { select: { orderItems: true, shipmentItems: true, disputes: true } },
       },
     });
     const mismatched = items.filter((i) => !i.card.availableFinishes.includes(i.finish));
-    if (mismatched.length === 0) return res;
-    const moneyMoved = new Set(
-      (
-        await this.prisma.inventoryMovement.findMany({
-          where: { itemId: { in: mismatched.map((i) => i.id) }, reason: { in: MONEY_MOVEMENTS } },
-          select: { itemId: true },
+    const platform = mismatched.filter((i) => i.ownerType === 'platform');
+    for (const i of mismatched) if (i.ownerType !== 'platform') bump('customer_vault');
+    const movements = platform.length
+      ? await this.prisma.inventoryMovement.findMany({
+          where: { itemId: { in: platform.map((i) => i.id) }, reason: { in: MONEY_MOVEMENTS } },
+          select: { itemId: true, reason: true },
         })
-      ).map((m) => m.itemId),
-    );
+      : [];
+    const moneyReason = new Map(movements.map((m) => [m.itemId, m.reason]));
     const fixed: string[] = [];
-    for (const i of mismatched) {
+    for (const i of platform) {
       if (i.card.availableFinishes.length !== 1) {
-        res.ambiguous += 1;
+        bump('ambiguous_finishes');
         continue;
       }
-      const hasMoney =
-        !CORRECTABLE_STATUS.includes(i.status) ||
-        i.reservedByOrderId != null ||
-        i._count.orderItems > 0 ||
-        i._count.shipmentItems > 0 ||
-        i._count.disputes > 0 ||
-        moneyMoved.has(i.id);
-      if (hasMoney) {
-        res.excluded += 1;
+      const blocked =
+        (!CORRECTABLE_STATUS.includes(i.status) && 'status') ||
+        (i.reservedByOrderId != null && 'reserved') ||
+        (i._count.orderItems > 0 && 'order') ||
+        (i._count.shipmentItems > 0 && 'shipment') ||
+        (i._count.disputes > 0 && 'dispute') ||
+        (moneyReason.has(i.id) && `movement:${moneyReason.get(i.id)}`);
+      if (blocked) {
+        bump(blocked);
         continue;
       }
       const to: Finish = i.card.availableFinishes[0];
       const done = await this.prisma.$transaction(async (tx) => {
-        // Condicionada: solo si la pieza sigue libre y con el acabado leído (una venta concurrente no se pisa).
+        // Condicionada: solo si la pieza sigue libre, de la plataforma y con el acabado leído (una venta concurrente no se pisa).
         const w = await tx.inventoryItem.updateMany({
-          where: { id: i.id, finish: i.finish, status: { in: CORRECTABLE_STATUS }, reservedByOrderId: null, orderItems: { none: {} } },
+          where: { id: i.id, ownerType: 'platform', finish: i.finish, status: { in: CORRECTABLE_STATUS }, reservedByOrderId: null, orderItems: { none: {} } },
           data: { finish: to },
         });
         if (w.count !== 1) return false;
@@ -253,9 +424,9 @@ export class CardLinkRepairService implements OnApplicationBootstrap {
         return true;
       });
       if (done) {
-        res.corrected += 1;
+        corrected += 1;
         fixed.push(i.id);
-      } else res.excluded += 1;
+      } else bump('changed_concurrently');
     }
     if (fixed.length > 0 && this.listingPrice) {
       try {
@@ -264,6 +435,6 @@ export class CardLinkRepairService implements OnApplicationBootstrap {
         this.logger.warn(`card-link-repair: no se pudo recalcular el precio de ${fixed.length} pieza(s) corregida(s) (${(e as Error).message}); lo hará el recálculo diario.`);
       }
     }
-    return res;
+    return { corrected, excluded: [...counts.entries()].map(([reason, count]) => ({ reason, count })) };
   }
 }

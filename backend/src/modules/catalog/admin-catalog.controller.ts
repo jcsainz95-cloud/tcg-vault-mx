@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -17,6 +17,11 @@ class SyncDto {
    * default `false` (comportamiento previo exacto). Uso recomendado: `{ setId, force: true }`.
    */
   @IsOptional() @IsBoolean() force?: boolean;
+}
+
+/** §PRECIO-SIN-ENLACE — body de `POST /admin/catalog/link-repair`: el UUID LOCAL del set (⛔ no el id de pokemontcg.io). */
+class LinkRepairDto {
+  @IsUUID() setId!: string;
 }
 
 /**
@@ -119,6 +124,19 @@ export class AdminCatalogController {
         unmappedCount: res.unmapped.length,
       },
     });
+    return res;
+  }
+
+  /**
+   * POST /admin/catalog/link-repair {setId} — §PRECIO-SIN-ENLACE: liga SOLO las cartas sin enlace de UN set (jamás reescribe las
+   * enlazadas; no es `sync` ni usa `force`). super_admin, auditado (`catalog.link_repair`), una corrida por set cada 10 min (429).
+   */
+  @Post('link-repair')
+  @HttpCode(200)
+  async doLinkRepair(@Body() dto: LinkRepairDto, @CurrentUser() user: { id: string; role: Role }) {
+    const { name: _name, error: _error, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
+    void _name;
+    void _error;
     return res;
   }
 

@@ -51,7 +51,10 @@ export interface InboundCarrierRow {
  *  - `status`: último estado crudo de la paquetería (`null` = aún sin primera lectura).
  *  - `estimatedDeliveryAt`: siempre `null` hoy (NO MEDIDO: el adaptador de Skydropx no entrega fecha estimada).
  *  - `deliveredAt`: instante del último cambio si el estado es `delivered`/`delivered_to_branch`.
- *  - `pollError`: `true` si lleva ≥ 3 ciclos sin un sondeo exitoso (en esta clase de fila un fallo NO sella `carrierPolledAt`).
+ *  - `pollError`: `true` solo con la solicitud `aceptada`/`en_transito`, el proveedor activo y ≥ 3 ciclos sin un sondeo exitoso
+ *    (en esta clase de fila un fallo NO sella `carrierPolledAt`). En `recibida` o posteriores, o con el proveedor apagado ⇒ `false`.
+ *  - `stalledDays` (G3-3): solicitud `en_transito` sin `delivered`, con proveedor activo y SIN un escaneo nuevo hace ≥ N días
+ *    (`buylist_inbound_stalled_days`, 10) ⇒ los días; si no `null`. Alerta de la ficha: no mueve estado ni dinero.
  */
 export interface InboundCarrierDTO {
   status: CarrierStatus | null;
@@ -60,23 +63,43 @@ export interface InboundCarrierDTO {
   polledAt: string | null;
   deliveredAt: string | null;
   pollError: boolean;
+  stalledDays: number | null;
+}
+
+export interface InboundCarrierCtx {
+  /** Estado de la SOLICITUD (decide `pollError`/`stalledDays`). */
+  requestStatus: string;
+  /** `shipping_provider='skydropx'` (con `off`/`noop` no hay «error de sondeo»: la ficha dice «Sin rastreo automático»). */
+  providerOn: boolean;
+  pollMinutes: number;
+  stalledDays: number;
 }
 
 export function isLiveSkydropxInbound(r: Pick<InboundCarrierRow, 'labelSource' | 'providerShipmentId' | 'providerCanceledAt'>): boolean {
   return r.labelSource === 'skydropx' && !!r.providerShipmentId && r.providerCanceledAt == null;
 }
 
-export function inboundCarrierOf(row: InboundCarrierRow | null | undefined, now: Date, pollMinutes = 60): InboundCarrierDTO | null {
+const DAY_MS = 86_400_000;
+
+export function inboundCarrierOf(row: InboundCarrierRow | null | undefined, now: Date, ctx: InboundCarrierCtx): InboundCarrierDTO | null {
   if (!row || !isLiveSkydropxInbound(row)) return null;
+  const delivered = !!row.carrierStatus && INBOUND_DELIVERED_STATUSES.has(row.carrierStatus);
+  const open = ctx.requestStatus === 'aceptada' || ctx.requestStatus === 'en_transito';
   const since = row.carrierPolledAt ?? row.requestedAt;
-  const pollError = now.getTime() - since.getTime() >= INBOUND_POLL_ERROR_CYCLES * pollMinutes * 60_000 && !(row.carrierStatus && INBOUND_DELIVERED_STATUSES.has(row.carrierStatus));
+  const pollError = open && ctx.providerOn && !delivered && now.getTime() - since.getTime() >= INBOUND_POLL_ERROR_CYCLES * ctx.pollMinutes * 60_000;
+  const lastScan = row.carrierStatusAt;
+  const stalled =
+    ctx.requestStatus === 'en_transito' && ctx.providerOn && !delivered && lastScan != null && now.getTime() - lastScan.getTime() >= ctx.stalledDays * DAY_MS
+      ? Math.floor((now.getTime() - lastScan.getTime()) / DAY_MS)
+      : null;
   return {
     status: row.carrierStatus,
     statusAt: row.carrierStatusAt ? row.carrierStatusAt.toISOString() : null,
     estimatedDeliveryAt: null,
     polledAt: row.carrierPolledAt ? row.carrierPolledAt.toISOString() : null,
-    deliveredAt: row.carrierStatus && INBOUND_DELIVERED_STATUSES.has(row.carrierStatus) && row.carrierStatusAt ? row.carrierStatusAt.toISOString() : null,
+    deliveredAt: delivered && row.carrierStatusAt ? row.carrierStatusAt.toISOString() : null,
     pollError,
+    stalledDays: stalled,
   };
 }
 

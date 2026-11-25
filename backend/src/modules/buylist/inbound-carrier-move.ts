@@ -12,7 +12,7 @@
  */
 import { CarrierStatus, Prisma } from '@prisma/client';
 import { closeInboundShipment } from '../shipments/inbound-close';
-import { CARRIER_CONFIRMER } from '../shipments/inbound-carrier';
+import { CARRIER_CONFIRMER, INBOUND_MOVEMENT_LIST } from '../shipments/inbound-carrier';
 import { monthCommittedGrossCents, monthStartUtc } from '../../common/buylist-aml';
 
 export async function moveInboundRequestByCarrier(
@@ -50,10 +50,12 @@ export async function moveInboundRequestByCarrier(
 // ===================================================================================================
 
 export const REOPEN_WINDOW_MS = 30 * 86_400_000;
+/** G3-2/I-8: el PRIMER escaneo debe caer a más tardar 24 h (una vuelta del barrido) después del plazo de envío. */
+export const REOPEN_SCAN_GRACE_MS = 24 * 3_600_000;
 
 export type ReopenResult =
   | { reopened: true }
-  | { reopened: false; reason: 'not_candidate' | 'paid' | 'inventory' | 'guide_canceled' | 'substitute_open' | 'aml_cap' | 'race' };
+  | { reopened: false; reason: 'not_candidate' | 'paid' | 'inventory' | 'guide_canceled' | 'substitute_open' | 'aml_cap' | 'shipped_late' | 'race' };
 
 /** Lo que `reopenByCarrier` necesita de fuera (el tope AML mensual del vendedor: override del KYC o dial). */
 export interface ReopenDeps {
@@ -65,7 +67,7 @@ export interface ReopenDeps {
  * cierre `expirada/not_shipped` de ≤ 30 d; sin pago (`paidAt`, `payoutNetCents`) ni conversión a inventario; la guía de entrada
  * es de Skydropx y NO está cancelada ante el proveedor (`providerCanceledAt IS NULL`); la solicitud no tiene sustituta abierta
  * del mismo vendedor (fail-closed: cualquier solicitud suya creada después del cierre y aún abierta); y reabrir no rebasa el tope
- * AML mensual. Todo en la transacción de `applyCarrierStatus` (candados `SellRequest` → `ShipmentRequest` ya tomados, I-BSD-4).
+ * AML mensual; y el PRIMER escaneo de movimiento ≤ plazo de envío + 24 h (`shipped_late` si no). Todo en la transacción de `applyCarrierStatus` (candados `SellRequest` → `ShipmentRequest` ya tomados, I-BSD-4).
  * Efecto: `en_transito` (el escaneo ya ocurrió) con `system:carrier`, fila `cancelado → guia`, tarea manual de cancelar guía
  * cerrada, bitácora before/after. ⛔ La oferta (`offeredPriceCents`, `offerShippingFeeCents`, `offerGrossCents`) y `payoutNetCents`
  * no se tocan; ningún plazo de precio se renueva. Idempotente: el CAS exige `status='expirada'` ⇒ 2.º pase ⇒ 0 filas.
@@ -91,6 +93,7 @@ export async function reopenByCarrier(
       offerGrossCents: true,
       quotedTotalCents: true,
       guideCancellationPendingAt: true,
+      shipDeadlineAt: true,
       items: { select: { id: true } },
     },
   });
@@ -105,6 +108,14 @@ export async function reopenByCarrier(
   });
   if (!row || row.status !== 'cancelado' || row.labelSource !== 'skydropx' || !row.providerShipmentId) return { reopened: false, reason: 'not_candidate' };
   if (row.providerCanceledAt != null) return { reopened: false, reason: 'guide_canceled' };
+  // G3-2: `T1` = el PRIMER evento de movimiento de la guía (no el último): un envío hecho DESPUÉS del plazo + 24 h no reabre
+  // (el vendedor no obtiene una opción gratis de 30 d sobre un precio caducado); se lista con motivo `shipped_late`.
+  const first = await tx.shipmentCarrierEvent.aggregate({
+    where: { shipmentRequestId: shipmentId, status: { in: INBOUND_MOVEMENT_LIST } },
+    _min: { occurredAt: true },
+  });
+  const t1 = first._min.occurredAt ?? event.occurredAt;
+  if (!sr.shipDeadlineAt || t1.getTime() > sr.shipDeadlineAt.getTime() + REOPEN_SCAN_GRACE_MS) return { reopened: false, reason: 'shipped_late' };
   const substitute = await tx.sellRequest.count({
     where: { userId: sr.userId, id: { not: sellRequestId }, createdAt: { gt: sr.closedAt }, closedAt: null },
   });

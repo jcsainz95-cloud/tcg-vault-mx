@@ -8,6 +8,7 @@ import { FeaturedService } from './featured.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
 import { MerchantFeedService } from './merchant-feed.service';
+import { PublicSnapshotService } from './public-snapshot.service';
 import { SealedRestockNotifyService } from './sealed-restock-notify.service';
 import { CatalogController } from './catalog.controller';
 import { AdminCatalogController } from './admin-catalog.controller';
@@ -67,6 +68,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     SealedCatalogService,
     // §GSHOP.B: feed de Google Merchant Center.
     MerchantFeedService,
+    PublicSnapshotService,
     SealedRestockNotifyService,
     SetPriceSyncJobService,
     SetValueSnapshotJobService,

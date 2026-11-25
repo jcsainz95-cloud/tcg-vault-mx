@@ -194,7 +194,7 @@ describe('§BUYLIST-RASTREO — sondeo de la guía de entrada', () => {
     const det = await h.api('GET', `/admin/buylist/${f.sr.id}`, { token: operator.token });
     expect(det.body.inboundCarrier).toMatchObject({ status: 'delivered', estimatedDeliveryAt: null, pollError: false });
     expect(det.body.inboundCarrier.deliveredAt).toBe('2026-11-20T15:00:00.000Z');
-    expect(Object.keys(det.body.inboundCarrier).sort()).toEqual(['deliveredAt', 'estimatedDeliveryAt', 'pollError', 'polledAt', 'status', 'statusAt']);
+    expect(Object.keys(det.body.inboundCarrier).sort()).toEqual(['deliveredAt', 'estimatedDeliveryAt', 'pollError', 'polledAt', 'stalledDays', 'status', 'statusAt']);
     const mine = await h.api('GET', `/buylist/requests/${f.sr.id}`, { token: f.token });
     expect(mine.body.inboundCarrier).toMatchObject({ status: 'delivered' });
     // un entregado deja de sondearse
@@ -287,8 +287,12 @@ describe('§BUYLIST-RASTREO — reapertura automática (dueño: B), R1-R8', () =
     guideCancellationPendingAt: new Date(Date.now() - days * DAY),
     ...over,
   });
-  const reopenFixture = (days = 3, srOver: Over = {}, rowOver: Over = {}) =>
-    fixture({ sr: closed(days, srOver), row: { status: 'cancelado', ...rowOver } });
+  /** `scanOffsetH` = cuándo se vio el PRIMER escaneo respecto del plazo de envío (−2 h = a tiempo). */
+  const reopenFixture = (days = 3, srOver: Over = {}, rowOver: Over = {}, scanOffsetH = -2) => {
+    const sr0 = closed(days, srOver);
+    const at = new Date((sr0.shipDeadlineAt as Date).getTime() + scanOffsetH * H).toISOString();
+    return fixture({ sr: sr0, row: { status: 'cancelado', ...rowOver }, carrier: { status: 'in_transit', at } });
+  };
 
   it('R1+R7: reabre a en_transito, fila → guia, tarea cerrada, 1 auditoría before/after, 1 correo; 2.º ciclo 0/0/0; dinero idéntico', async () => {
     const f = await reopenFixture();
@@ -358,6 +362,27 @@ describe('§BUYLIST-RASTREO — reapertura automática (dueño: B), R1-R8', () =
       await dial(h, 'shipping_provider', 'skydropx');
     }
   });
+  it('G3-2/I-8: escaneo DESPUÉS del plazo + 24 h ⇒ NO reabre (`shipped_late`); justo dentro de las 24 h ⇒ sí reabre; el correo dice «la paquetería registró tu paquete a tiempo»', async () => {
+    await stays(await reopenFixture(3, {}, {}, 25));
+    await stays(await reopenFixture(10, {}, {}, 24 * 5)); // envío hecho días después del cierre
+    const ok = await reopenFixture(3, {}, {}, 23);
+    await pollOne(ok.row.id);
+    expect((await sr(ok.sr.id)).status).toBe('en_transito');
+    expect(mail.sent.find((m) => m.to === ok.u.email)?.text).toMatch(/la paquetería registró tu paquete a tiempo/);
+    expect(mail.sent.find((m) => m.to === ok.u.email)?.text).not.toMatch(/sí llegó/);
+  });
+  it('I-9: con inventario ya convertido de sus líneas ⇒ NO reabre', async () => {
+    const f = await reopenFixture();
+    const item = await h.prisma.sellRequestItem.findFirstOrThrow({ where: { sellRequestId: f.sr.id } });
+    const inv = await h.prisma.inventoryItem.create({
+      data: { folio: `RT-${RUN}-${seq}`, cardId, productType: 'raw', rawCondition: 'NM', finish: 'normal', ownerType: 'platform', status: 'in_stock', acquisitionType: 'compra', acquisitionCostCents: 1000, sourceSellRequestItemId: item.id },
+    });
+    try {
+      await stays(f);
+    } finally {
+      await h.prisma.inventoryItem.delete({ where: { id: inv.id } });
+    }
+  });
   it('R8: correo fallido ⇒ queda reabierta y NO hay segundo intento', async () => {
     const f = await reopenFixture();
     mail.failNext = 1;
@@ -366,5 +391,49 @@ describe('§BUYLIST-RASTREO — reapertura automática (dueño: B), R1-R8', () =
     await pollOne(f.row.id);
     expect(mail.sent.filter((m) => m.to === f.u.email)).toHaveLength(0);
     expect(mail.failNext).toBe(0); // se intentó UNA vez
+  });
+});
+
+describe('§BUYLIST-RASTREO — tras gates (I-1, I-7, I-9, m-2)', () => {
+  it('I-9 candado `status`: una solicitud que ya pasó de `aceptada` (recibida) NO se mueve ni se reabre por un escaneo', async () => {
+    const f = await fixture({ sr: { status: 'recibida', receivedAt: new Date() } });
+    const now = new Date();
+    await h.app.get(ShipmentCarrierService).applyCarrierStatus(f.row.id, { status: 'in_transit', occurredAt: now, observedAt: now, providerEventKey: 'rt-recibida', synthetic: false });
+    expect((await sr(f.sr.id)).status).toBe('recibida');
+    expect((await sr(f.sr.id)).shipmentConfirmedBy).toBeNull();
+    expect(await audits(f.sr.id, 'buylist.shipment.confirm')).toBe(0);
+  });
+
+  it('I-1: `shipmentConfirmedBy` viaja en el DTO ADMIN («system:carrier») y NO en el del vendedor; I-7: pollError false en recibida', async () => {
+    const f = await fixture();
+    await pollOne(f.row.id);
+    const adm = await h.api('GET', `/admin/buylist/${f.sr.id}`, { token: operator.token });
+    expect(adm.body.shipmentConfirmedBy).toBe('system:carrier');
+    expect(adm.body.inboundCarrier).toHaveProperty('stalledDays', null);
+    const mine = await h.api('GET', `/buylist/requests/${f.sr.id}`, { token: f.token });
+    expect(mine.body).not.toHaveProperty('shipmentConfirmedBy');
+    const stale = await fixture({ sr: { status: 'recibida', receivedAt: new Date() }, row: { carrierStatus: 'in_transit', carrierStatusAt: new Date(Date.now() - 20 * DAY), carrierPolledAt: new Date(Date.now() - 20 * DAY) } });
+    const d = await h.api('GET', `/admin/buylist/${stale.sr.id}`, { token: operator.token });
+    expect(d.body.inboundCarrier).toMatchObject({ pollError: false, stalledDays: null });
+  });
+
+  it('G3-3: en_transito sin escaneo nuevo hace ≥ 10 días ⇒ `stalledDays` en la ficha', async () => {
+    const f = await fixture({ sr: { status: 'en_transito', shipmentConfirmedAt: new Date(Date.now() - 12 * DAY), shipmentConfirmedBy: 'system:carrier' }, row: { carrierStatus: 'in_transit', carrierStatusAt: new Date(Date.now() - 12 * DAY), carrierPolledAt: new Date() } });
+    const d = await h.api('GET', `/admin/buylist/${f.sr.id}`, { token: operator.token });
+    expect(d.body.inboundCarrier.stalledDays).toBeGreaterThanOrEqual(11);
+  });
+
+  it('m-2: 30 guías de entrada que FALLAN: ≤ 25 por corrida y la siguiente corrida toma OTRAS (no tapan el lote)', async () => {
+    const fs = [] as Awaited<ReturnType<typeof fixture>>[];
+    for (let i = 0; i < 30; i++) fs.push(await fixture({ carrier: null, sr: { shipDeadlineAt: new Date(Date.now() + 5 * DAY) } }));
+    const mine = new Set(fs.map((f) => f.pid));
+    const seen = () => new Set(fake.callsOf('getShipment').map((c) => c.input as string).filter((x) => mine.has(x)));
+    const r1 = await poll.run();
+    const s1 = new Set(seen());
+    expect(s1.size).toBeGreaterThan(0);
+    expect(r1.polled).toBeLessThanOrEqual(50);
+    expect(s1.size).toBeLessThanOrEqual(25);
+    await poll.run();
+    expect(seen().size).toBeGreaterThan(s1.size); // la 2.ª corrida llegó a guías que la 1.ª no tocó
   });
 });

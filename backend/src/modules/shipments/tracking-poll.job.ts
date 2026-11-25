@@ -25,6 +25,10 @@ import { INBOUND_ONLY, OUTBOUND_ONLY, isBuylistInbound } from './label-subject';
 import { INBOUND_DELIVERED_STATUSES, INBOUND_MOVEMENT_LIST, SWEEP_PRE_POLL_LIMIT } from './inbound-carrier';
 import { REOPEN_WINDOW_MS } from '../buylist/inbound-carrier-move';
 
+/** m-2: las guías de ENTRADA ocupan como máximo 25 de los 50 lugares del lote (20 vivas + 5 de reapertura): las de salida nunca se quedan sin cupo. */
+const INBOUND_LIVE_SHARE = 20;
+const INBOUND_REOPEN_SHARE = 5;
+
 export interface TrackingPollResult {
   skipped?: 'provider_off' | 'not_configured' | 'running';
   polled: number;
@@ -37,6 +41,8 @@ export interface TrackingPollResult {
 export class ShipmentTrackingPollJob {
   private readonly logger = new Logger(ShipmentTrackingPollJob.name);
   private running = false;
+  /** m-2: guías de ENTRADA cuyo sondeo falló, id → instante. Salen del lote durante un ciclo para no taparle el lugar a las de salida. */
+  private readonly inboundBackoff = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -82,14 +88,18 @@ export class ShipmentTrackingPollJob {
       });
       // §BUYLIST-RASTREO: la guía de ENTRADA de una solicitud viva (`aceptada`/`en_transito`, sin cerrar) y aún no entregada.
       const inboundMinutes = await this.settings.getNumber(SettingKey.BUYLIST_INBOUND_TRACKING_POLL_MINUTES);
+      // m-2: un fallo del proveedor en una guía de entrada la saca del lote durante un ciclo (no sella `carrierPolledAt`).
+      for (const [id, at] of this.inboundBackoff) if (now.getTime() - at >= inboundMinutes * 60_000) this.inboundBackoff.delete(id);
+      const backedOff = [...this.inboundBackoff.keys()];
       const inbound = await this.prisma.shipmentRequest.findMany({
         where: {
           ...INBOUND_ONLY,
           ...this.inboundLiveWhere(),
+          id: { notIn: backedOff },
           AND: [{ OR: due(inboundMinutes) }],
         },
         orderBy: [{ carrierPolledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
-        take: TRACKING_POLL_BATCH,
+        take: INBOUND_LIVE_SHARE,
       });
       // Reapertura (dueño: B): `expirada/not_shipped` de ≤ 30 d con la guía VIVA (nunca cancelada ante el proveedor) y aún sin
       // lectura de movimiento: si la paquetería la muestra en camino, `applyCarrierStatus` la reabre (o la deja listada).
@@ -100,6 +110,7 @@ export class ShipmentTrackingPollJob {
           status: 'cancelado',
           providerCanceledAt: null,
           providerShipmentId: { not: null },
+          id: { notIn: backedOff },
           sellRequest: {
             is: {
               status: 'expirada',
@@ -112,7 +123,7 @@ export class ShipmentTrackingPollJob {
           AND: [{ OR: due(inboundMinutes) }, { OR: [{ carrierStatus: null }, { carrierStatus: { notIn: INBOUND_MOVEMENT_LIST } }] }],
         },
         orderBy: [{ carrierPolledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
-        take: TRACKING_POLL_BATCH,
+        take: INBOUND_REOPEN_SHARE,
       });
       // Misma cola y mismo tope (50) para entradas y salidas: orden `carrierPolledAt asc nulls first`.
       const rows = [...outbound, ...inbound, ...reopenable]
@@ -192,9 +203,8 @@ export class ShipmentTrackingPollJob {
         // El intento cuenta como sondeo: un envío que falla siempre no tapa a los demás del lote (orden por `carrierPolledAt`).
         // ⛔ Excepto la guía de ENTRADA: ahí `carrierPolledAt` = último sondeo EXITOSO (la regla 2 del barrido y `pollError` lo leen);
         // un fallo del proveedor no lo sella ni mueve nada, y reintenta en el siguiente ciclo.
-        if (!isBuylistInbound(row)) {
-          await this.prisma.shipmentRequest.updateMany({ where: { id: row.id }, data: { carrierPolledAt: this.clock.now() } });
-        }
+        if (isBuylistInbound(row)) this.inboundBackoff.set(row.id, this.clock.now().getTime());
+        else await this.prisma.shipmentRequest.updateMany({ where: { id: row.id }, data: { carrierPolledAt: this.clock.now() } });
       }
     }
     return out;

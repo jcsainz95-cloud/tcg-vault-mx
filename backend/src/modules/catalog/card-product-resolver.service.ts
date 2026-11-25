@@ -83,6 +83,12 @@ export class CardProductResolverService {
     /** §PRECIO-SIN-ENLACE: productos NO enlazados por número/nombre repetido (colisión) y por otro motivo (omitidos). */
     collisions?: number;
     omittedProducts?: number;
+    /** §PRECIO-SIN-ENLACE (I-4): productos con OTRO dueño que una carta sin enlace habría tomado (`product_owned_by_other`). */
+    conflicts?: number;
+    /** Productos no enlazados por motivo (`collision|owner_conflict|card_already_linked|no_local_card|name_mismatch`; sin `skipped_linked`). */
+    reasonCounts?: Record<string, number>;
+    /** Hasta 20 productos no enlazados: número y motivo (`cardId` = la carta que lo habría tomado, si la hay). */
+    examples?: { cardId: string | null; number: string | null; reason: string }[];
     /** Cartas tocadas por la corrida (para medir inventario con acabado distinto). */
     touchedCardIds?: string[];
     /** P-PROMOS-VIEJAS: productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo en esos sets). */
@@ -230,6 +236,15 @@ export class CardProductResolverService {
       cardsTouched: touched.size, // cartas DISTINTAS tocadas por ESTA corrida (D2)
       collisions: plan.collisions,
       omittedProducts: plan.omitted,
+      conflicts: plan.conflicts,
+      reasonCounts: plan.unlinked.reduce<Record<string, number>>((acc, u) => {
+        if (u.reason !== 'skipped_linked') acc[u.reason] = (acc[u.reason] ?? 0) + 1;
+        return acc;
+      }, {}),
+      examples: plan.unlinked
+        .filter((u) => u.reason !== 'skipped_linked')
+        .slice(0, 20)
+        .map((u) => ({ cardId: ownerOf.get(u.productId) ?? null, number: derived.find((d) => d.productId === u.productId)?.number ?? null, reason: u.reason })),
       touchedCardIds: [...touched],
     };
   }

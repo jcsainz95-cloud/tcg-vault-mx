@@ -24,10 +24,11 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
   let repair: CardLinkRepairService;
   const run = randomUUID().slice(0, 8);
   let setId: string;
+  let setB: string | undefined;
   const otherSetIds: string[] = [];
   const cardIds: string[] = [];
 
-  type Unlinked = { totalCards: number; sets: { setId: string; name: string; unlinked: number; total: number; collisions: number | null; omittedProducts: number | null }[] };
+  type Unlinked = { totalCards: number; sets: { setId: string; name: string; unlinked: number; total: number; collisions: number | null; omittedProducts: number | null; conflicts: number | null }[]; notLinkable: { totalCards: number; sets: { setId: string; name: string; unlinked: number; reason: string }[] } };
   const status = async () => (await h.api<{ unlinkedPrice: Unlinked }>('GET', '/admin/catalog/sync-status', { token: adminToken })).body.unlinkedPrice;
 
   async function snapshot(ids: string[]) {
@@ -85,13 +86,17 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
 
   afterAll(async () => {
     if (h) {
-      const allSets = [setId, ...otherSetIds];
+      const allSets = [setId, ...otherSetIds, ...(setB ? [setB] : [])];
+      // Hermético (I-10): se borra TODO lo que cuelga de los sets de esta suite (por set, no solo por los ids que se recuerdan).
+      const inSets = (await h.prisma.card.findMany({ where: { setId: { in: allSets } }, select: { id: true } })).map((c) => c.id);
+      cardIds.push(...inSets.filter((id) => !cardIds.includes(id)));
+      await h.prisma.inventoryMovement.deleteMany({ where: { item: { cardId: { in: cardIds } } } });
       await h.prisma.inventoryItem.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.priceReference.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.cardProduct.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.card.deleteMany({ where: { id: { in: cardIds } } });
       await h.prisma.cardSet.deleteMany({ where: { id: { in: allSets } } });
-      await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.link_repair', 'catalog.link_repair_deploy', 'inventory.finish_corrected'] } } });
+      await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.link_repair', 'catalog.link_repair_claim', 'catalog.link_repair_deploy', 'catalog.link_repair_deploy_start', 'inventory.finish_corrected'] } } });
       await h.close();
     }
   });
@@ -99,7 +104,7 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
   it('CA-7 (línea base): sync-status trae unlinkedPrice con el set sin enlace (29/35), solo lectura local', async () => {
     const u = await status();
     const mine = u.sets.find((s) => s.setId === setId)!;
-    expect(mine).toMatchObject({ unlinked: 29, total: 35, collisions: null, omittedProducts: null });
+    expect(mine).toMatchObject({ unlinked: 29, total: 35, collisions: null, omittedProducts: null, conflicts: null });
     expect(u.totalCards).toBeGreaterThanOrEqual(30);
     expect(u.sets.map((s) => s.unlinked)).toEqual([...u.sets.map((s) => s.unlinked)].sort((a, b) => b - a));
     expect(JSON.stringify(u)).not.toMatch(/token|secret|password/i);
@@ -123,9 +128,10 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
 
     const r = await repair.run('deploy');
     const mineRun = r.sets.find((s) => s.setId === setId)!;
-    expect(mineRun).toMatchObject({ linked: 29, collisions: 0, omitted: 0 });
+    expect(mineRun).toMatchObject({ linked: 29, collisions: 0, conflicts: 0, omitted: [], notLinkable: null });
     expect(r.errors).toBe(0);
     expect(r.inventory).toEqual({ corrected: 1, excluded: 2, ambiguous: 0 });
+    expect(mineRun.piecesExcluded.sort((a, b) => a.reason.localeCompare(b.reason))).toEqual([{ reason: 'movement:sale', count: 1 }, { reason: 'status', count: 1 }]);
     const after = async (id: string) => h.prisma.inventoryItem.findUniqueOrThrow({ where: { id }, select: { finish: true, status: true, acquisitionCostCents: true, acquisitionCostIvaCents: true } });
     expect(await after(free.id)).toMatchObject({ finish: 'holofoil', acquisitionCostCents: 5000, acquisitionCostIvaCents: 0 }); // costo intacto
     expect(await after(reserved.id)).toMatchObject({ finish: 'normal', status: 'reserved' }); // NO cambia
@@ -151,7 +157,9 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
 
     // Auditoría `catalog.link_repair` + marcador de despliegue.
     const audit = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'catalog.link_repair', entityId: setId } });
-    expect(audit.after).toMatchObject({ setId, linked: 29, collisions: 0, omitted: 0, trigger: 'deploy' });
+    expect(audit.after).toMatchObject({ setId, linked: 29, collisions: 0, conflicts: 0, omitted: 0, trigger: 'deploy' });
+    // Marcador: solo cuando TODO set reparable fue intentado (I-3); la BD compartida puede tener más de 20 pendientes ⇒ se rota.
+    for (let i = 0; i < 6 && (await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_deploy' } })) === 0; i++) await repair.run('deploy');
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_deploy' } })).toBe(1);
 
     // CA-3: 2.ª corrida = 0 filas escritas.
@@ -160,10 +168,43 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
     const r2 = await repair.run('manual');
     expect(r2.linked).toBe(0);
     expect(r2.inventory).toEqual({ corrected: 0, excluded: 0, ambiguous: 0 });
+    expect(r2.linked).toBe(0);
     expect(await snapshot(mine30)).toBe(snap1);
 
     // CA-7: el set ya no aparece (unlinked = 0).
     const u = await status();
     expect(u.sets.find((s) => s.setId === setId)).toBeUndefined();
+  });
+
+  it('I-5 + I-4: POST /admin/catalog/link-repair {setId UUID local} — conflicto de dueño contado con motivo, 0 enlaces, no toca lo enlazado; 2.º intento = 429; 403/400/404', async () => {
+    // Un set B con las MISMAS cartas: sus productos ya son de las cartas del set A ⇒ `product_owned_by_other`, nunca se mueven.
+    setB = (await h.prisma.cardSet.create({ data: { externalId: `ccy-${run}`, name: `Copia ${run}`, pptSetId: '24837' } })).id;
+    for (const p of fixture.products) {
+      const parsed = parseTcgcsvCardName(p.name, p.number);
+      const name = (parsed.ok ? parsed.name : p.name).replace(/\s*\((Delta Species|Prime|Top|Bottom|Supporter)\)/i, '');
+      await h.prisma.card.create({ data: { externalId: `ccy-${run}-${p.productId}`, setId: setB, name, number: String(parseInt(p.number!.split('/')[0], 10)), availableFinishes: ['normal'] } });
+    }
+    const ownersBefore = await h.prisma.cardProduct.findMany({ where: { card: { setId } }, select: { tcgplayerProductId: true, cardId: true }, orderBy: { tcgplayerProductId: 'asc' } });
+    const op = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
+    const call = (token: string, body: unknown) => h.api<Record<string, unknown>>('POST', '/admin/catalog/link-repair', { token, json: body });
+    expect((await call(op, { setId: setB })).status).toBe(403);
+    expect((await call(adminToken, { setId: 'no-es-uuid' })).status).toBe(400);
+    expect((await call(adminToken, { setId: randomUUID() })).status).toBe(404);
+    const res = await call(adminToken, { setId: setB });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(['collisions', 'conflicts', 'examples', 'linked', 'notLinkable', 'omitted', 'piecesCorrected', 'piecesExcluded', 'setId']);
+    expect(res.body).toMatchObject({ setId: setB, linked: 0, notLinkable: null, piecesCorrected: 0 });
+    expect(res.body.conflicts as number).toBeGreaterThanOrEqual(25);
+    expect((res.body.examples as { reason: string }[])[0].reason).toBe('owner_conflict');
+    expect((res.body.examples as unknown[]).length).toBeLessThanOrEqual(20);
+    expect(await h.prisma.cardProduct.count({ where: { card: { setId: setB } } })).toBe(0);
+    expect(await h.prisma.cardProduct.findMany({ where: { card: { setId } }, select: { tcgplayerProductId: true, cardId: true }, orderBy: { tcgplayerProductId: 'asc' } })).toEqual(ownersBefore);
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair', entityId: setB } })).toBe(1);
+    // 1 corrida por set cada 10 min.
+    const again = await call(adminToken, { setId: setB });
+    expect(again.status).toBe(429);
+    expect((again.body as { code?: string }).code ?? (again.body as { error?: { code?: string } }).error?.code).toBe('RATE_LIMITED');
+    // `unlinkedPrice` trae el conflicto de la última corrida.
+    expect((await status()).sets.find((x) => x.setId === setB)?.conflicts).toBeGreaterThanOrEqual(25);
   });
 });
