@@ -2232,10 +2232,9 @@
         "attentionHelp": "To close this order: get the card and add it to inventory (it is assigned automatically the next day), or refund just that card.",
         "reason": {
           "no_equivalent_copy": "no identical copy is available",
-          "sold_to_other": "the card was already sold to someone else",
-          "reserved_other": "the card is held for another purchase",
-          "withdrawn": "the card was removed from inventory",
-          "not_found": "the card was not found in inventory",
+          "double_charge": "the customer paid twice for this order: check which one to refund",
+          "item_missing": "the card no longer exists in inventory",
+          "unassigned": "the card is not yet assigned to the customer",
           "unknown": "the card could not be assigned"
         }
       },
@@ -5990,6 +5989,11 @@
         "saved": "Ingest provider saved."
       },
       "audit": {
+        "was": {
+          "listed": "for sale",
+          "reserved": "held by another order",
+          "in_custody": "in a customer's vault"
+        },
         "title": "Audit log",
         "subtitle": "Who did what and when. Every back-office action is logged.",
         "date": "Date",
@@ -9400,6 +9404,7 @@
     "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
     "OFFER_NOT_PENDING": "This offer is no longer waiting for a response.",
     "PHONE_INVALID": "Enter your 10-digit mobile number.",
+    "ORDER_SUPERSEDED": "Your cart changed; review your order and try again",
     "PHONE_REQUIRED": "The account has no mobile number. The carrier needs it to deliver the label and to call about the pickup.",
     "BOUNTY_TARGET_REQUIRED": "Give it a target: how many copies you want to pay that price for. Without one, the bounty never stops the buying. Nothing was saved.",
     "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",

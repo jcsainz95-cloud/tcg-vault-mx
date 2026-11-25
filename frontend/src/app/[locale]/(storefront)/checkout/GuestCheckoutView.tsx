@@ -499,6 +499,11 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         // §43.18m.7: la cota la da el servidor (⛔ la pantalla no la replica). Cero órdenes creadas.
         setServerAddressError({ field: e.details.field, message: ta('geo.tooLong', { max: String(e.details.max) }) });
         setPayError(getMessage(e));
+      } else if (e instanceof ApiClientError && e.code === 'ORDER_SUPERSEDED') {
+        // §BOVEDA-COBRADA R1: el intento ya no es el vigente; sin `clientSecret`. Se re-cotiza y el carrito no se toca.
+        setPayError(getMessage(e));
+        shipQuote.retry();
+        setOutcome(null);
       } else if (e instanceof ApiClientError && e.code === 'PHONE_INVALID') {
         // §CELULAR-ALTA §6.6: 422 del servidor sobre el celular ⇒ el mismo texto en el campo (cero órdenes creadas).
         setServerAddressError({ field: 'phone', message: ta('guestPhoneInvalid') });

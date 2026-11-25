@@ -13,6 +13,8 @@ import {
   unassignedOrdersCount,
   vaultMissingPieces,
 } from '@/lib/api/vault-unassigned';
+import es from '../../../../../../messages/es.json';
+import en from '../../../../../../messages/en.json';
 import { AdminDashboard } from '../AdminDashboard';
 import { M3View } from './M3View';
 import { M3OrderDetailView } from './[orderId]/M3OrderDetailView';
@@ -81,6 +83,37 @@ describe('mapeo único (lib/api/vault-unassigned)', () => {
     expect(rows.find((r) => r.key === 'at')!.value).toMatch(/24 nov 2026,? 11:54/);
     expect(rows.find((r) => r.key === 'n')).toEqual({ depth: 0, key: 'n', value: null });
     expect(rows.find((r) => r.key === 'b')).toEqual({ depth: 1, key: 'b', value: '—' });
+  });
+});
+
+describe('alineado con el backend a3f81be5', () => {
+  it('`fulfillmentState` manda sobre los campos sueltos', () => {
+    expect(lineFulfillment({ fulfillmentState: 'assigned', fulfillmentFailedAt: 'x' }, true)).toEqual({ kind: 'in_vault' });
+    expect(lineFulfillment({ fulfillmentState: 'assigned' }, false)).toBeNull();
+    expect(lineFulfillment({ fulfillmentState: 'replaced', folio: 'B', replacedFolio: 'A' }, true)).toEqual({ kind: 'replaced', from: 'A', to: 'B' });
+    expect(lineFulfillment({ fulfillmentState: 'needs_attention', fulfillmentFailedReason: 'double_charge' }, true)).toEqual({ kind: 'attention', reasonKey: 'double_charge' });
+    expect(lineFulfillment({ fulfillmentState: 'unassigned' }, true)).toEqual({ kind: 'attention', reasonKey: 'unassigned' });
+  });
+  it('motivos del backend en frase llana (es/en); los supuestos antes ya no existen', () => {
+    expect(reasonKey('double_charge')).toBe('double_charge');
+    expect(reasonKey('item_missing')).toBe('item_missing');
+    expect(reasonKey('sold_to_other')).toBe('unknown');
+    expect(es.admin.m3.fulfillment.reason.double_charge).toBe('el cliente pagó dos veces este pedido: revisa cuál reembolsar');
+    expect(es.admin.m3.fulfillment.reason.item_missing).toBe('la pieza ya no existe en el inventario');
+    expect(en.admin.m3.fulfillment.reason.double_charge).toContain('paid twice');
+  });
+  it('bitácora: `after.anomalies[{inventoryItemId,was,outcome}]` se lee clave: valor y traduce `was`', () => {
+    const t = (k: string, v: string) => (k === 'was' ? ({ listed: 'a la venta', reserved: 'apartada por otro pedido', in_custody: 'en bóveda de un cliente' } as Record<string, string>)[v] ?? null : null);
+    const s = auditDetail({ after: { anomalies: [{ inventoryItemId: 'inv-1', was: 'listed', outcome: 'recovered' }, { inventoryItemId: 'inv-2', was: 'in_custody', outcome: 'replaced' }] } }, 'es', 'Sí', 'No', t)!;
+    const rows = s[0]!.rows;
+    expect(rows.filter((r) => r.key === 'was').map((r) => r.value)).toEqual(['a la venta', 'en bóveda de un cliente']);
+    expect(rows.find((r) => r.key === 'outcome')!.value).toBe('recovered');
+    expect(rows.find((r) => r.key === 'anomalies')).toEqual({ depth: 0, key: 'anomalies', value: null });
+    expect(rows.find((r) => r.key === 'inventoryItemId')!.depth).toBe(2);
+  });
+  it('409 ORDER_SUPERSEDED tiene mensaje llano es/en', () => {
+    expect(es.error.ORDER_SUPERSEDED).toBe('Tu carrito cambió; revisa tu pedido y vuelve a intentar');
+    expect(en.error.ORDER_SUPERSEDED).toBe('Your cart changed; review your order and try again');
   });
 });
 

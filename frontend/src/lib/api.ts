@@ -6443,9 +6443,9 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
   const unassignedItems: AdminOrderDetailDTO['items'] =
     orderId === fx.MOCK_UNASSIGNED_ORDER_ID
       ? [
-          { ...items![0]!, inventoryItemId: 'inv-9051', folio: 'INV-009051', deliveredRefund: null },
-          { ...items![0]!, inventoryItemId: 'inv-9052', folio: 'INV-009052', replacedInventoryItemId: 'inv-9042', replacedFolio: 'INV-009042', deliveredRefund: null },
-          { ...items![0]!, inventoryItemId: 'inv-9053', fulfillmentFailedAt: '2026-11-24T23:54:05Z', fulfillmentFailedReason: 'no_equivalent_copy', deliveredRefund: null },
+          { ...items![0]!, inventoryItemId: 'inv-9051', folio: 'INV-009051', fulfillmentState: 'assigned', deliveredRefund: null },
+          { ...items![0]!, inventoryItemId: 'inv-9052', folio: 'INV-009052', fulfillmentState: 'replaced', replacedInventoryItemId: 'inv-9042', replacedFolio: 'INV-009042', deliveredRefund: null },
+          { ...items![0]!, inventoryItemId: 'inv-9053', fulfillmentState: 'needs_attention', fulfillmentFailedAt: '2026-11-24T23:54:05Z', fulfillmentFailedReason: 'no_equivalent_copy', deliveredRefund: null },
         ]
       : undefined;
   const detail: AdminOrderDetailDTO = {

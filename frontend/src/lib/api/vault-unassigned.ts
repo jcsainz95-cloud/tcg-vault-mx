@@ -49,13 +49,8 @@ export type LineFulfillment =
   | { kind: 'replaced'; from: string | null; to: string | null }
   | { kind: 'attention'; reasonKey: string };
 
-const KNOWN_REASONS = new Set([
-  'no_equivalent_copy',
-  'sold_to_other',
-  'reserved_other',
-  'withdrawn',
-  'not_found',
-]);
+// Motivos que emite el backend (a3f81be5). Cualquier otro ⇒ «unknown» (frase genérica, nunca el código).
+const KNOWN_REASONS = new Set(['no_equivalent_copy', 'double_charge', 'item_missing', 'unassigned']);
 
 /** Código crudo del servidor ⇒ clave de texto llano. Un código desconocido NUNCA se muestra tal cual. */
 export function reasonKey(raw: string | null | undefined): string {
@@ -63,7 +58,11 @@ export function reasonKey(raw: string | null | undefined): string {
   return KNOWN_REASONS.has(k) ? k : 'unknown';
 }
 
+export type FulfillmentState = 'assigned' | 'replaced' | 'needs_attention' | 'unassigned';
+
 export interface FulfillmentFields {
+  /** Fuente del estado por carta (backend). Ausente (servidor anterior) ⇒ se deriva de los campos de abajo. */
+  fulfillmentState?: FulfillmentState | null;
   fulfillmentFailedAt?: string | null;
   fulfillmentFailedReason?: string | null;
   replacedInventoryItemId?: string | null;
@@ -77,6 +76,18 @@ export interface FulfillmentFields {
  * `settledVault` = pedido de bóveda liquidado: ahí una línea sin novedad es «En su bóveda».
  */
 export function lineFulfillment(it: FulfillmentFields, settledVault: boolean): LineFulfillment | null {
+  switch (it.fulfillmentState) {
+    case 'assigned':
+      return settledVault ? { kind: 'in_vault' } : null;
+    case 'replaced':
+      return { kind: 'replaced', from: it.replacedFolio ?? null, to: it.folio ?? null };
+    case 'needs_attention':
+      return { kind: 'attention', reasonKey: reasonKey(it.fulfillmentFailedReason) };
+    case 'unassigned':
+      return { kind: 'attention', reasonKey: 'unassigned' };
+    default:
+      break;
+  }
   if (it.fulfillmentFailedAt || it.fulfillmentFailedReason) {
     return { kind: 'attention', reasonKey: reasonKey(it.fulfillmentFailedReason) };
   }
@@ -114,6 +125,9 @@ export interface AuditDetailSection {
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 const MAX_DEPTH = 4;
 
+/** Traduce el valor de ciertas claves del detalle (p. ej. `was`); `null` ⇒ se muestra tal cual. */
+export type AuditValueLabel = (key: string, value: string) => string | null;
+
 function flatten(
   value: unknown,
   depth: number,
@@ -121,6 +135,7 @@ function flatten(
   locale: AppLocale,
   yes: string,
   no: string,
+  label?: AuditValueLabel,
 ): void {
   if (value === null || typeof value !== 'object') return;
   const entries: [string, unknown][] = Array.isArray(value)
@@ -134,13 +149,14 @@ function flatten(
         out.push({ depth, key, value: '—' });
       } else {
         out.push({ depth, key, value: null });
-        flatten(v, depth + 1, out, locale, yes, no);
+        flatten(v, depth + 1, out, locale, yes, no, label);
       }
       continue;
     }
     let text: string;
     if (v === null || v === undefined) text = '—';
     else if (typeof v === 'boolean') text = v ? yes : no;
+    else if (typeof v === 'string' && label?.(key, v)) text = label(key, v)!;
     else if (typeof v === 'string' && ISO_DATETIME.test(v)) text = formatDateTimeShortMx(v, locale) || v;
     else text = String(v);
     out.push({ depth, key, value: text });
@@ -156,13 +172,14 @@ export function auditDetail(
   locale: AppLocale,
   yes: string,
   no: string,
+  label?: AuditValueLabel,
 ): AuditDetailSection[] | null {
   const sections: AuditDetailSection[] = [];
   for (const side of ['before', 'after'] as const) {
     const raw = a[side];
     if (raw === undefined || raw === null) continue;
     const rows: AuditDetailRow[] = [];
-    if (typeof raw === 'object') flatten(raw, 0, rows, locale, yes, no);
+    if (typeof raw === 'object') flatten(raw, 0, rows, locale, yes, no, label);
     else rows.push({ depth: 0, key: 'value', value: String(raw) });
     if (rows.length > 0) sections.push({ side, rows });
   }

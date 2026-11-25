@@ -176,6 +176,16 @@ describe('checkout con cuenta · reintento sobre la propia reserva (§4-R.2)', (
     expect(await screen.findByText(/Tus 2 intentos anteriores se cancelaron/)).toBeInTheDocument();
   });
 
+  it('409 ORDER_SUPERSEDED: «Tu carrito cambió…», sin clientSecret y el carrito se conserva', async () => {
+    const usr = userEvent.setup();
+    vi.mocked(createCheckoutSession).mockRejectedValueOnce(new ApiClientError(409, { code: 'ORDER_SUPERSEDED', message: 'superseded' }));
+    renderWithProviders(<CheckoutView />, 'es');
+    await usr.click(await screen.findByRole('button', { name: /Pagar/ }));
+    expect(await screen.findByText('Tu carrito cambió; revisa tu pedido y vuelve a intentar')).toBeInTheDocument();
+    expect(storedIds()).toEqual(['inv-1002']);
+    expect(screen.queryByTestId('payment-in-progress')).toBeNull();
+  });
+
   it('409 PAYMENT_IN_PROGRESS: bloqueo explicado, enlace al pedido y «Reintentar en un momento» que vuelve a llamar', async () => {
     const usr = userEvent.setup();
     vi.mocked(createCheckoutSession)

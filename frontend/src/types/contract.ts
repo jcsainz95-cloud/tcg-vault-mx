@@ -3175,6 +3175,7 @@ export interface AdminOrderDetailDTO {
     /** v1.82 (§PNL.2): ver `DeliveredRefundDTO`. Ausente ⇒ servidor anterior ⇒ nada que ofrecer. */
     deliveredRefund?: DeliveredRefundDTO | null;
     /** §BOVEDA-COBRADA-SIN-PIEZAS (por confirmar; se leen por `lineFulfillment`). */
+    fulfillmentState?: 'assigned' | 'replaced' | 'needs_attention' | 'unassigned' | null;
     fulfillmentFailedAt?: string | null;
     fulfillmentFailedReason?: string | null;
     replacedInventoryItemId?: string | null;

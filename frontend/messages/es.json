@@ -2232,10 +2232,9 @@
         "attentionHelp": "Para cerrar este pedido: consigue la carta y dala de alta en el inventario (se asigna sola al día siguiente), o reembolsa solo esa carta.",
         "reason": {
           "no_equivalent_copy": "no hay otra copia igual disponible",
-          "sold_to_other": "la carta ya se vendió a otra persona",
-          "reserved_other": "la carta está apartada para otra compra",
-          "withdrawn": "la carta se retiró del inventario",
-          "not_found": "no se encontró la carta en el inventario",
+          "double_charge": "el cliente pagó dos veces este pedido: revisa cuál reembolsar",
+          "item_missing": "la pieza ya no existe en el inventario",
+          "unassigned": "la carta aún no se asigna al cliente",
           "unknown": "no se pudo asignar la carta"
         }
       },
@@ -5990,6 +5989,11 @@
         "saved": "Proveedor de ingesta guardado."
       },
       "audit": {
+        "was": {
+          "listed": "a la venta",
+          "reserved": "apartada por otro pedido",
+          "in_custody": "en bóveda de un cliente"
+        },
         "title": "Bitácora de auditoría",
         "subtitle": "Quién hizo qué y cuándo. Toda acción de back-office queda registrada.",
         "date": "Fecha",
@@ -9400,6 +9404,7 @@
     "OFFER_EXPIRED": "El plazo para responder esta oferta ya venció, así que no pudimos registrar tu respuesta.",
     "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta.",
     "PHONE_INVALID": "Escribe tu celular de 10 dígitos.",
+    "ORDER_SUPERSEDED": "Tu carrito cambió; revisa tu pedido y vuelve a intentar",
     "PHONE_REQUIRED": "Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.",
     "BOUNTY_TARGET_REQUIRED": "Ponle un objetivo: hasta cuántas piezas quieres pagar ese precio. Sin objetivo, el bounty nunca frena la compra. No se guardó nada.",
     "INVALID_TRANSITION": "Esta acción no aplica al paso actual de la solicitud. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
