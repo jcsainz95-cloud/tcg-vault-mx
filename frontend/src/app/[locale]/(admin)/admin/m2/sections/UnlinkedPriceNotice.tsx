@@ -27,7 +27,16 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const pendingId = retry.isPending ? retry.variables : null;
   const lastName = report.sets.find((s) => s.setId === retry.variables)?.name ?? '';
 
-  const rateLimited = retry.isError && asApiError(retry.error)?.status === 429;
+  const apiErr = retry.isError ? asApiError(retry.error) : null;
+  const errorText = (() => {
+    if (!apiErr) return null;
+    if (apiErr.status === 429) {
+      const secs = Number((apiErr.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds);
+      return Number.isFinite(secs) && secs > 0 ? t('rate', { minutes: Math.max(1, Math.ceil(secs / 60)) }) : t('rateGeneric');
+    }
+    if (apiErr.status === 503 || apiErr.code === 'UPSTREAM_ERROR') return t('upstream');
+    return null;
+  })();
   const res = retry.data;
   const reasonText = (k: string) => t(`reason.${k}` as never);
   const hasLinkable = report.totalCards > 0 && report.sets?.length > 0;
@@ -48,6 +57,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                 {t('row', { unlinked: s.unlinked, total: s.total })}
                 {s.collisions != null && ` · ${t('collisions', { n: s.collisions })}`}
                 {s.omittedProducts != null && ` · ${t('omitted', { n: s.omittedProducts })}`}
+                {s.conflicts != null && s.conflicts > 0 && ` · ${t('conflictsCount', { n: s.conflicts })}`}
               </p>
             </div>
             <Button
@@ -68,11 +78,14 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
           {res.linked > 0
             ? t('ok', { n: res.linked, name: lastName })
             : t('none', { name: lastName, reason: reasonText(res.reason ?? 'other') })}
+          {res.piecesCorrected > 0 && ` ${t('piecesCorrected', { n: res.piecesCorrected })}`}
+          {res.piecesExcluded.length > 0 &&
+            ` ${t('piecesExcluded', { list: res.piecesExcluded.map((e) => (t as unknown as (k: string, v: Record<string, unknown>) => string)(`excl.${e.key}`, { n: e.count })).join(', ') })}`}
         </p>
       )}
       {retry.isError && (
         <p role="alert" className="mt-2 text-sm text-danger">
-          {rateLimited ? t('rate') : `${t('err', { name: lastName })} ${getError(retry.error)}`}
+          {errorText ?? `${t('err', { name: lastName })} ${getError(retry.error)}`}
         </p>
       )}
       {notLinkable.length > 0 && (

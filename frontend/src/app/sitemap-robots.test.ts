@@ -131,3 +131,10 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     expect(r.sitemap).toBe('https://tcghunt.mx/sitemap.xml');
   });
 });
+
+describe('frescura del sitemap = la del feed de Google', () => {
+  it('revalida cada 60 s (antes 3600)', async () => {
+    const mod = await import('./sitemap');
+    expect(mod.revalidate).toBe(60);
+  });
+});

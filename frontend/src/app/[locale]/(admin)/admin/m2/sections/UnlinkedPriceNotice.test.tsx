@@ -12,7 +12,7 @@ const REPORT: UnlinkedPriceReport = {
   totalCards: 12,
   sets: [
     { setId: UUID1, name: 'Scarlet', unlinked: 9, total: 100, collisions: 2, omittedProducts: null },
-    { setId: UUID2, name: 'Violet', unlinked: 3, total: 50, collisions: null, omittedProducts: 1 },
+    { setId: UUID2, name: 'Violet', unlinked: 3, total: 50, collisions: null, omittedProducts: 1, conflicts: 2 },
   ],
   notLinkable: { totalCards: 4, sets: [{ setId: 'x', name: 'Promos Raros', unlinked: 4, reason: 'no_group' }] },
 };
@@ -40,15 +40,17 @@ describe('UnlinkedPriceNotice', () => {
   });
 
   it('reintento ok: llama link-repair con el UUID local y dice cuántas se ligaron', async () => {
-    const spy = vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 5, reason: null });
+    const spy = vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 5, reason: null, piecesCorrected: 2, piecesExcluded: [{ key: 'customerVault', count: 3 }, { key: 'movement', count: 1 }] });
     renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
     fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Scarlet/ }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith(UUID1));
-    expect((await screen.findByTestId('unlinked-result')).textContent).toBe('Se ligaron 5 cartas en Scarlet.');
+    expect((await screen.findByTestId('unlinked-result')).textContent).toBe(
+      'Se ligaron 5 cartas en Scarlet. Se corrigieron los acabados de 2 piezas. No se tocaron: 3 en bóveda de clientes, 1 con movimientos.',
+    );
   });
 
   it('0 ligadas: dice la verdad con el motivo', async () => {
-    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 0, reason: 'collisions' });
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue({ linked: 0, reason: 'collisions', piecesCorrected: 0, piecesExcluded: [] });
     renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
     fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Violet/ }));
     expect((await screen.findByTestId('unlinked-result')).textContent).toBe(
@@ -59,22 +61,23 @@ describe('UnlinkedPriceNotice', () => {
   it('429: espera unos minutos; otro error: alerta', async () => {
     const spy = vi
       .spyOn(repair, 'repairCatalogLinks')
-      .mockRejectedValueOnce(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x' } as never))
-      .mockRejectedValueOnce(new Error('boom'));
+      .mockRejectedValueOnce(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x', details: { retryAfterSeconds: 540 } } as never))
+      .mockRejectedValueOnce(new ApiClientError(503, { code: 'UPSTREAM_ERROR', message: 'x' } as never));
     renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
     fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Scarlet/ }));
-    expect(await screen.findByText('Espera unos minutos antes de reintentar este set.')).toBeTruthy();
+    expect(await screen.findByText('Espera 9 minutos antes de reintentar este set.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Reintentar enlace de Violet/ }));
-    expect(await screen.findByText(/No se pudo reintentar el enlace de Violet/)).toBeTruthy();
+    expect(await screen.findByText('La fuente de precios no respondió, intenta más tarde.')).toBeTruthy();
     expect(spy).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('readLinkRepair', () => {
   it('mapea el motivo dominante', () => {
-    expect(repair.readLinkRepair({ linked: 3 })).toEqual({ linked: 3, reason: null });
+    expect(repair.readLinkRepair({ linked: 3 })).toEqual({ linked: 3, reason: null, piecesCorrected: 0, piecesExcluded: [] });
+    expect(repair.readLinkRepair({ linked: 0, piecesExcluded: [{ reason: 'movement:refund_return', count: 2 }, { reason: 'zzz', count: 1 }] }).piecesExcluded).toEqual([{ key: 'movement', count: 2 }, { key: 'other', count: 1 }]);
     expect(repair.readLinkRepair({ linked: 0, notLinkable: 'no_group' }).reason).toBe('noGroup');
-    expect(repair.readLinkRepair({ linked: 0, collisions: 1, conflicts: 4 }).reason).toBe('conflicts');
+    expect(repair.readLinkRepair({ linked: 0, collisions: 1, conflicts: 4 }).reason).toBe('ownerConflict');
     expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'name_mismatch', count: 2 }] }).reason).toBe('nameMismatch');
   });
 });

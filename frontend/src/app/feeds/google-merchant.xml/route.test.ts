@@ -22,7 +22,10 @@ describe('§GSHOP ruta /feeds/google-merchant.xml', () => {
     const res = await GET();
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
-    expect(res.headers.get('Cache-Control')).toContain('s-maxage=900');
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('Cache-Control')).not.toContain('stale-while-revalidate');
+    // Sin caché de datos de Next hacia el backend (con `revalidate: 900` la copia llegó a 55 min).
+    expect(getMerchantFeed).toHaveBeenCalledWith({ cache: 'no-store' });
     expect(res.headers.get('X-Feed-Items')).toBe('1');
     expect(res.headers.get('X-Feed-Skipped')).toBe('1');
     const xml = await res.text();

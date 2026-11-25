@@ -31,7 +31,8 @@ describe('InboundCarrierStatus', () => {
         req={req({ inboundCarrier: { status: 'in_transit', statusAt: '2026-11-25T16:00:00Z', estimatedDeliveryAt: '2026-11-30T18:00:00Z' } })}
       />,
     );
-    expect(screen.getByTestId('m5-inbound-carrier-line').textContent).toMatch(/^En camino · llega lun 30 nov$/);
+    expect(screen.getByTestId('m5-inbound-carrier-line').textContent).toBe('En camino');
+    expect(screen.queryByText(/llega/)).toBeNull();
     expect(screen.getByText(/Actualizado/)).toBeTruthy();
   });
   it('entregado e incidencia', () => {
@@ -108,6 +109,17 @@ describe('Plazo vencido sin confirmar', () => {
 });
 
 describe('Notas y respaldo de la cinta', () => {
+  it('stalledDays: aviso corto en la ficha; null o ausente: nada', () => {
+    const a = renderWithProviders(
+      <InboundCarrierStatus mode="notes" req={req({ status: 'en_transito', inboundCarrier: { status: 'in_transit', stalledDays: 12 } })} />,
+    );
+    expect(screen.getByTestId('m5-stalled').textContent).toBe('Lleva 12 días sin movimiento de la paquetería');
+    a.unmount();
+    const b = renderWithProviders(
+      <InboundCarrierStatus mode="notes" req={req({ status: 'en_transito', inboundCarrier: { status: 'in_transit', stalledDays: null } })} />,
+    );
+    expect(b.container.textContent).toBe('');
+  });
   it('modo notes: entregado y devuelto se pintan también con la solicitud en_transito', () => {
     const a = renderWithProviders(
       <InboundCarrierStatus mode="notes" req={req({ status: 'en_transito', inboundCarrier: { status: 'delivered' } })} />,
@@ -141,7 +153,8 @@ describe('Vista del vendedor', () => {
     renderWithProviders(
       <SellerCarrierLine data={{ inboundCarrier: { status: 'last_mile', estimatedDeliveryAt: '2026-11-30T18:00:00Z' } }} />,
     );
-    expect(screen.getByText('Tu paquete va en camino · llega aprox. lun 30 nov')).toBeTruthy();
+    expect(screen.getByText('Tu paquete va en camino')).toBeTruthy();
+    expect(screen.queryByText(/llega/)).toBeNull();
   });
   it('incidencia: texto en llano, sin «te escribiremos»', () => {
     renderWithProviders(<SellerCarrierLine data={{ inboundCarrier: { status: 'exception' } }} />);

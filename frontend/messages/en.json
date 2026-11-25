@@ -1057,7 +1057,6 @@
   "buylistCarrier": {
     "pickedUp": "Your package was picked up",
     "onTheWay": "Your package is on its way",
-    "onTheWayEta": "Your package is on its way · arrives approx. {date}",
     "delivered": "The carrier delivered it. We are receiving it at the store.",
     "incident": "The carrier reported a problem with your package. We are looking into it; progress will show here.",
     "returning": "Your package is heading back; we are checking what happened."
@@ -4183,12 +4182,12 @@
         }
       },
       "carrier": {
+        "stalled": "{n, plural, one {# day} other {# days}} without carrier movement",
         "pickedUp": "Picked up",
         "onTheWay": "On its way",
         "delivered": "Delivered",
         "incident": "Issue",
         "returning": "Returned",
-        "withEta": "{status} · arrives {date}",
         "updated": "Updated {when}",
         "deliveredWaiting": "The carrier delivered it. Still to be received.",
         "incidentNote": "Carrier issue. Check the label.",
@@ -4444,18 +4443,36 @@
           "ok": "{n, plural, one {# card was linked} other {# cards were linked}} in {name}.",
           "none": "No card could be linked in {name}: {reason}.",
           "cardsCount": "{n, plural, one {# card} other {# cards}}",
-          "rate": "Wait a few minutes before retrying this set.",
           "err": "Could not retry the link for {name}.",
           "notLinkableTitle": "{count, plural, one {# card cannot be linked} other {# cards cannot be linked}}",
           "reason": {
             "collisions": "repeated numbers, cannot tell which is which",
-            "conflicts": "the product already belongs to another card",
+            "ownerConflict": "the product already belongs to another card",
             "noGroup": "this set has no price group",
             "tcgcsvSource": "its price source does not allow linking",
             "nameMismatch": "the name does not match",
-            "unknownStamp": "variants with an unknown stamp",
+            "noLocalCard": "the product has no card in your catalog",
+            "alreadyLinked": "the card was already linked",
             "other": "no clear match"
-          }
+          },
+          "piecesCorrected": "{n, plural, one {The finish of # piece was corrected} other {The finishes of # pieces were corrected}}.",
+          "piecesExcluded": "Not touched: {list}.",
+          "excl": {
+            "customerVault": "{n} in customer vault",
+            "status": "{n} because of their status",
+            "reserved": "{n} reserved",
+            "order": "{n} with an order",
+            "shipment": "{n} with a shipment",
+            "dispute": "{n} with a dispute",
+            "movement": "{n} with movements",
+            "ambiguousFinishes": "{n} with an ambiguous finish",
+            "changedConcurrently": "{n} that changed while being corrected",
+            "other": "{n} for another reason"
+          },
+          "rate": "Wait {minutes, plural, one {# minute} other {# minutes}} before retrying this set.",
+          "rateGeneric": "Wait a few minutes before retrying this set.",
+          "upstream": "The price source did not respond, try again later.",
+          "conflictsCount": "{n} with a different owner"
         },
         "degradedTitle": "The list is incomplete",
         "degradedBody": "The list is incomplete because pokemontcg.io did not respond: only the sets already in your catalog are shown. It retries by itself; you can retry now if you want to see it right away.",

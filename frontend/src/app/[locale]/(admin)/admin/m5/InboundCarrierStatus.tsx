@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminBuylistDTO } from '@/types/contract';
-import { formatShortDayMx, formatUpdatedMx, movedBySystem, readInboundCarrier } from '@/lib/buylist-inbound-carrier';
+import { formatUpdatedMx, movedBySystem, readInboundCarrier } from '@/lib/buylist-inbound-carrier';
 
 /**
  * §BUYLIST-RASTREO — estado de la paquetería de la guía de entrada.
@@ -17,20 +17,21 @@ export function InboundCarrierStatus({ req, mode = 'line' }: { req: AdminBuylist
   const c = readInboundCarrier(req);
 
   if (mode === 'notes') {
-    if (!c?.kind) return null;
+    if (!c?.kind && c?.stalledDays == null) return null;
     return (
       <div className="flex flex-col gap-0.5" data-testid="m5-inbound-carrier-notes">
-        {c.kind === 'delivered' && <p className="text-sm text-text">{t('deliveredWaiting')}</p>}
-        {c.kind === 'incident' && <p className="text-sm text-accent">{t('incidentNote')}</p>}
-        {c.kind === 'returning' && <p className="text-sm text-accent">{t('returningNote')}</p>}
+        {c?.stalledDays != null && <p className="text-sm text-accent" data-testid="m5-stalled">{t('stalled', { n: c.stalledDays })}</p>}
+        {c?.kind === 'delivered' && <p className="text-sm text-text">{t('deliveredWaiting')}</p>}
+        {c?.kind === 'incident' && <p className="text-sm text-accent">{t('incidentNote')}</p>}
+        {c?.kind === 'returning' && <p className="text-sm text-accent">{t('returningNote')}</p>}
       </div>
     );
   }
 
   const auto = movedBySystem(req);
   const label = c?.kind ? t(c.kind) : null;
-  const eta = c?.estimatedDeliveryAt && c.kind !== 'delivered' ? formatShortDayMx(c.estimatedDeliveryAt, locale) : '';
-  const headline = label ? (eta ? t('withEta', { status: label, date: eta }) : label) : null;
+  // `estimatedDeliveryAt` llega siempre null del servidor: no se pinta «llega …».
+  const headline = label;
   // Sin escaneo: la guía es nuestra (hay envío de entrada) y el rastreo no falló ⇒ «aún sin movimiento»; si no, «sin rastreo automático».
   const fallback = headline ? null : req.inboundShipment && !c?.pollError ? t('idle') : t('none');
 

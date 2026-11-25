@@ -14,6 +14,7 @@ export interface InboundCarrierView {
   estimatedDeliveryAt: string | null;
   deliveredAt: string | null;
   pollError: boolean;
+  stalledDays: number | null;
 }
 
 const KIND_BY_STATUS: Record<string, InboundCarrierKind> = {
@@ -41,6 +42,7 @@ export function readInboundCarrier(src: { inboundCarrier?: InboundCarrierDTO | n
     estimatedDeliveryAt: c.estimatedDeliveryAt ?? null,
     deliveredAt: c.deliveredAt ?? null,
     pollError: c.pollError === true,
+    stalledDays: typeof c.stalledDays === 'number' && c.stalledDays > 0 ? c.stalledDays : null,
   };
 }
 

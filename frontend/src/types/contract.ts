@@ -5302,6 +5302,8 @@ export interface InboundCarrierDTO {
   polledAt?: string | null;
   deliveredAt?: string | null;
   pollError?: boolean;
+  /** ≥ 10 días en tránsito sin escaneo nuevo (lo dice el servidor); `null` si no aplica. */
+  stalledDays?: number | null;
 }
 
 export interface AdminBuylistDTO {
@@ -6427,6 +6429,7 @@ export interface UnlinkedPriceSet {
   total: number;
   collisions: number | null;
   omittedProducts: number | null;
+  conflicts?: number | null;
 }
 export interface UnlinkedPriceReport {
   totalCards: number;
@@ -6434,7 +6437,7 @@ export interface UnlinkedPriceReport {
   /** Sets que no se pueden ligar (sin grupo de precios o fuente distinta): se muestran aparte, sin botón. */
   notLinkable?: {
     totalCards: number;
-    sets: Array<{ setId: string; name: string; unlinked: number; reason: 'no_group' | 'tcgcsv_source' | string }>;
+    sets: Array<{ setId: string; name: string; unlinked: number; reason: 'no_group' | 'tcgcsv_source' }>;
   } | null;
 }
 

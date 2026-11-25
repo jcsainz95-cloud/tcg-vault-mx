@@ -1057,7 +1057,6 @@
   "buylistCarrier": {
     "pickedUp": "Tu paquete fue recolectado",
     "onTheWay": "Tu paquete va en camino",
-    "onTheWayEta": "Tu paquete va en camino · llega aprox. {date}",
     "delivered": "La paquetería lo entregó. Lo estamos recibiendo en la tienda.",
     "incident": "La paquetería reportó un problema con tu paquete. Lo estamos revisando; el avance se verá aquí.",
     "returning": "Tu paquete va de regreso; revisamos qué pasó."
@@ -4183,12 +4182,12 @@
         }
       },
       "carrier": {
+        "stalled": "Lleva {n, plural, one {# día} other {# días}} sin movimiento de la paquetería",
         "pickedUp": "Recolectado",
         "onTheWay": "En camino",
         "delivered": "Entregado",
         "incident": "Incidencia",
         "returning": "Devuelto",
-        "withEta": "{status} · llega {date}",
         "updated": "Actualizado {when}",
         "deliveredWaiting": "La paquetería lo entregó. Falta recibirlo.",
         "incidentNote": "Incidencia de paquetería. Revisa la guía.",
@@ -4444,18 +4443,36 @@
           "ok": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}} en {name}.",
           "none": "No se pudo ligar ninguna carta en {name}: {reason}.",
           "cardsCount": "{n, plural, one {# carta} other {# cartas}}",
-          "rate": "Espera unos minutos antes de reintentar este set.",
           "err": "No se pudo reintentar el enlace de {name}.",
           "notLinkableTitle": "{count, plural, one {# carta no se puede ligar} other {# cartas no se pueden ligar}}",
           "reason": {
             "collisions": "hay números repetidos y no se sabe cuál es cuál",
-            "conflicts": "el producto ya pertenece a otra carta",
+            "ownerConflict": "el producto ya pertenece a otra carta",
             "noGroup": "este set no tiene grupo de precios",
             "tcgcsvSource": "su fuente de precios no permite ligar",
             "nameMismatch": "el nombre no coincide",
-            "unknownStamp": "hay variantes con un sello desconocido",
+            "noLocalCard": "el producto no tiene carta en tu catálogo",
+            "alreadyLinked": "la carta ya estaba ligada",
             "other": "sin coincidencia clara"
-          }
+          },
+          "piecesCorrected": "{n, plural, one {Se corrigió el acabado de # pieza} other {Se corrigieron los acabados de # piezas}}.",
+          "piecesExcluded": "No se tocaron: {list}.",
+          "excl": {
+            "customerVault": "{n} en bóveda de clientes",
+            "status": "{n} por su estado",
+            "reserved": "{n} reservadas",
+            "order": "{n} con pedido",
+            "shipment": "{n} con envío",
+            "dispute": "{n} con disputa",
+            "movement": "{n} con movimientos",
+            "ambiguousFinishes": "{n} con acabado ambiguo",
+            "changedConcurrently": "{n} que cambiaron mientras se corregían",
+            "other": "{n} por otro motivo"
+          },
+          "rate": "Espera {minutes, plural, one {# minuto} other {# minutos}} antes de reintentar este set.",
+          "rateGeneric": "Espera unos minutos antes de reintentar este set.",
+          "upstream": "La fuente de precios no respondió, intenta más tarde.",
+          "conflictsCount": "{n} con dueño distinto"
         },
         "degradedTitle": "La lista está incompleta",
         "degradedBody": "La lista está incompleta porque pokemontcg.io no respondió: solo se muestran los sets que ya están en tu catálogo. Se vuelve a intentar sola; puedes reintentar ahora si quieres verla ya.",

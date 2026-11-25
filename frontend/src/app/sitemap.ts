@@ -17,9 +17,9 @@ import { contentSitemapPaths } from '@/lib/seo-content';
  * revisión/publicación como `lastmod`; una página sin contenido vigente (FAQ vencidas) NO se lista.
  *
  * Resiliente: si el backend no responde, se devuelven al menos las estáticas (nunca un 500 que deje
- * sin sitemap). Como el feed no es dato personal y cambia poco, se revalida cada hora.
+ * sin sitemap). Misma frescura que el feed de Google (el backend sirve ambos de UNA foto de 60 s): se revalida cada 60 s.
  */
-export const revalidate = 3600;
+export const revalidate = 60;
 
 const STATIC_PATHS = [
   '', // portada
