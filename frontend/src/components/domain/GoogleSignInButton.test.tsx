@@ -14,8 +14,7 @@ describe('GoogleSignInButton (§6.7, rama mock)', () => {
     expect(screen.getByRole('button', { name: /Continuar con Google/ })).toBeInTheDocument();
   });
 
-  it('al hacer clic (mock, cuenta Google existente) canjea el idToken, deja sesión y llama onSuccess', async () => {
-    window.localStorage.setItem('tcg.mock.googleExisting', '1');
+  it('al hacer clic (mock) canjea el idToken, deja sesión y llama onSuccess', async () => {
     const onSuccess = vi.fn();
     renderWithProviders(<GoogleSignInButton onSuccess={onSuccess} />, 'es');
 
@@ -25,7 +24,6 @@ describe('GoogleSignInButton (§6.7, rama mock)', () => {
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalled());
     expect(getToken()).toBe('mock.session.token');
-    window.localStorage.removeItem('tcg.mock.googleExisting');
   });
 });
 

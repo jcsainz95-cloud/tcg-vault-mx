@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { ClaimPhonePrompt } from './ClaimPhonePrompt';
 import { claimGuestOrders, getClaimableOrders } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
@@ -71,10 +70,9 @@ export function ClaimableOrdersNotice({ surface, className }: ClaimableOrdersNot
 
   const [result, setResult] = useState<ClaimOrdersResponse | null>(null);
   const [emailNotVerified, setEmailNotVerified] = useState(false);
-  const [phoneFor, setPhoneFor] = useState<string[] | null>(null);
 
   const claim = useMutation({
-    mutationFn: (v: { orderIds: string[]; phone?: string }) => claimGuestOrders(v.orderIds, v.phone),
+    mutationFn: (orderIds: string[]) => claimGuestOrders(orderIds),
     onSuccess: (res) => {
       // El bloque de éxito persiste hasta salir de la página; la siguiente consulta viene vacía.
       setResult(res);
@@ -83,10 +81,8 @@ export function ClaimableOrdersNotice({ surface, className }: ClaimableOrdersNot
       // CLM-F1 (§4-G.9c): la dirección del pedido pasó a la libreta ⇒ `GET /users/me/addresses` está viejo.
       if (res.addressesSaved > 0) void queryClient.invalidateQueries({ queryKey: ['addresses'] });
     },
-    onError: (e, vars) => {
+    onError: (e) => {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') setEmailNotVerified(true);
-      // §CELULAR-ALTA §6.5: 422 `PHONE_REQUIRED` ⇒ se pide el celular aquí mismo y se reintenta con los mismos pedidos.
-      if (e instanceof ApiClientError && e.code === 'PHONE_REQUIRED') setPhoneFor(vars.orderIds);
     },
   });
 
@@ -95,19 +91,6 @@ export function ClaimableOrdersNotice({ surface, className }: ClaimableOrdersNot
     return (
       <div className={className}>
         <EmailNotVerifiedNotice />
-      </div>
-    );
-  }
-
-  // §CELULAR-ALTA §6.5: pide el celular y reintenta el MISMO reclamo con `phone`.
-  if (phoneFor) {
-    return (
-      <div className={className}>
-        <ClaimPhonePrompt
-          busy={claim.isPending}
-          failed={claim.isError && !(claim.error instanceof ApiClientError && claim.error.code === 'PHONE_REQUIRED')}
-          onSubmit={(phone) => claim.mutate({ orderIds: phoneFor, phone }, { onSuccess: () => setPhoneFor(null) })}
-        />
       </div>
     );
   }
@@ -170,7 +153,7 @@ export function ClaimableOrdersNotice({ surface, className }: ClaimableOrdersNot
               variant="primary"
               className="w-full sm:w-auto"
               loading={claim.isPending}
-              onClick={() => claim.mutate({ orderIds: orders.map((o) => o.orderId) })}
+              onClick={() => claim.mutate(orders.map((o) => o.orderId))}
             >
               {claim.isPending ? t('claiming') : t('cta')}
             </Button>

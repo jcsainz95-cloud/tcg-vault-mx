@@ -163,9 +163,6 @@ import type {
   SetValueHistoryResponse,
   SealedValueHistoryResponse,
   AuthResponse,
-  GoogleAuthResult,
-  GoogleCompleteRequest,
-  GooglePendingSignup,
   VerifyEmailRequest,
   VerifyEmailResponse,
   ResendVerificationResponse,
@@ -388,7 +385,7 @@ import type { PeriodKind, SalesReportDTO, SalesReportParams, SalesTodayDTO } fro
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import type { PublicShippingRuleDTO } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
-import { isValidMxPhone, normalizeMxPhone } from './phone';
+import { isValidMxPhone } from './phone';
 import * as wishlistMock from './mock/wishlist';
 import type {
   WishlistCreateRequest,
@@ -3788,20 +3785,13 @@ export async function register(input: {
  * el `idToken` de Google Identity Services y lo canjea por los JWT propios;
  * la sesión resultante es idéntica a la de email/contraseña.
  */
-export async function loginWithGoogle(idToken: string): Promise<GoogleAuthResult> {
+export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    const res = await apiRequest<GoogleAuthResult>('/auth/google', { method: 'POST', body: { idToken } });
-    // §CELULAR-ALTA §6.2: correo sin cuenta ⇒ `{ pendingSignup }` sin sesión: NO se persiste nada.
-    return isGooglePending(res) ? res : persistSession(res);
-  }
-  // MOCK §CELULAR-ALTA: `tcg.mock.googleExisting=1` simula una cuenta Google existente (entra directo); si no, correo nuevo
-  // ⇒ paso «Completa tu cuenta». El doble no verifica firma; sólo demo.
-  if (!(typeof window !== 'undefined' && window.localStorage.getItem('tcg.mock.googleExisting') === '1')) {
-    return delay<GoogleAuthResult>(
-      { pendingSignup: { signupToken: 'mock-signup-token', email: 'google.user@gmail.com', name: 'Google User' } },
-      500,
+    return persistSession(
+      await apiRequest<AuthResponse>('/auth/google', { method: 'POST', body: { idToken } }),
     );
   }
+  // MOCK: simula el canje del idToken sin backend (no verifica firma; sólo demo).
   return delay(
     persistSession(
       mockAuthResponse({
@@ -3815,40 +3805,6 @@ export async function loginWithGoogle(idToken: string): Promise<GoogleAuthResult
       }),
     ),
     500,
-  );
-}
-
-function isGooglePending(r: GoogleAuthResult): r is GooglePendingSignup {
-  return typeof r === 'object' && r !== null && 'pendingSignup' in r;
-}
-
-/**
- * §CELULAR-ALTA (contrato §6.2, `POST /auth/google/complete`, público): crea la cuenta Google con el celular y da sesión.
- * `401 SIGNUP_EXPIRED` (token de 15 min vencido o inválido) ⇒ el llamador reinicia Google; `422 PHONE_INVALID`.
- * Idempotente en el servidor (si la cuenta ya existe responde como login). ⛔ El celular no sale a medición.
- */
-export async function completeGoogleSignup(input: GoogleCompleteRequest): Promise<AuthResponse> {
-  if (!(MOCKS_BUILD && config.useMocks)) {
-    return persistSession(await apiRequest<AuthResponse>('/auth/google/complete', { method: 'POST', body: input }));
-  }
-  if (input.signupToken !== 'mock-signup-token') {
-    throw new ApiClientError(401, { code: 'SIGNUP_EXPIRED', message: 'Signup token expired' });
-  }
-  if (!isValidMxPhone(input.phone)) {
-    throw new ApiClientError(422, { code: 'PHONE_INVALID', message: 'Invalid phone', details: { field: 'phone' } });
-  }
-  return delay(
-    persistSession(
-      mockAuthResponse({
-        email: 'google.user@gmail.com',
-        name: 'Google User',
-        authProvider: 'google',
-        emailVerified: true,
-        phone: normalizeMxPhone(input.phone) ?? input.phone,
-        phoneRequired: false,
-      }),
-    ),
-    400,
   );
 }
 
@@ -8309,17 +8265,9 @@ function mockClaimablePool(): ClaimableOrderDTO[] {
  * `failed[]` por pedido (`ORDER_ALREADY_CLAIMED` | `CLAIM_EMAIL_MISMATCH` | `NOT_FOUND`).
  * El reclamo NO cambia destino, precio, políticas ni estado del pedido (criterio 54).
  */
-export async function claimGuestOrders(orderIds: string[], phone?: string): Promise<ClaimOrdersResponse> {
+export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    // §CELULAR-ALTA §6.5: `phone` opcional; el servidor lo pide (422 `PHONE_REQUIRED`) solo si ni cuenta ni pedido lo traen.
-    return apiRequest<ClaimOrdersResponse>('/orders/claim', {
-      method: 'POST',
-      body: phone ? { orderIds, phone } : { orderIds },
-    });
-  }
-  // MOCK: `tcg.mock.claimNeedsPhone=1` ⇒ la cuenta y el pedido no traen celular ⇒ 422 hasta que llegue uno válido.
-  if (typeof window !== 'undefined' && window.localStorage.getItem('tcg.mock.claimNeedsPhone') === '1' && !isValidMxPhone(phone)) {
-    throw new ApiClientError(422, { code: 'PHONE_REQUIRED', message: 'Phone required', details: { field: 'phone' } });
+    return apiRequest<ClaimOrdersResponse>('/orders/claim', { method: 'POST', body: { orderIds } });
   }
   // MOCK: parcial-tolerante como el contrato — los ids que no están en el pool vienen en `failed`
   // (`NOT_FOUND`); los reclamados se vacían del pool (la siguiente consulta viene sin ellos).

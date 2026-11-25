@@ -50,7 +50,7 @@ describe('CTA-F1 · alta con solo el correo', () => {
   it('un solo campo (correo), leyenda del 504 con Términos y Aviso, y nada más que teclear', () => {
     renderWithProviders(
       <PrivacyLinkProvider linked>
-        <InlineAuthPanel variant="register" phone="5512345678" defaultEmail="ana@x.mx" onSuccess={vi.fn()} />
+        <InlineAuthPanel variant="register" defaultEmail="ana@x.mx" onSuccess={vi.fn()} />
       </PrivacyLinkProvider>,
       'es',
     );
@@ -70,20 +70,18 @@ describe('CTA-F1 · alta con solo el correo', () => {
     const user = userEvent.setup();
     registerEmailOnly.mockResolvedValue({ user: { role: 'customer' }, accessToken: 'a', refreshToken: 'r' });
     const onSuccess = vi.fn();
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail=" ana@x.mx " onSuccess={onSuccess} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail=" ana@x.mx " onSuccess={onSuccess} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
     expect(registerEmailOnly).toHaveBeenCalledTimes(1);
     const body = registerEmailOnly.mock.calls[0][0] as Record<string, unknown>;
     expect(body.email).toBe('ana@x.mx');
-    // §CELULAR-ALTA §6.3: lleva el celular del comprador (normalizado); ni contraseña ni nombre.
-    expect(Object.keys(body).sort()).toEqual(['email', 'locale', 'phone']);
-    expect(body.phone).toBe('5512345678');
+    expect(Object.keys(body).sort()).toEqual(['email', 'locale']);
     expect(register).not.toHaveBeenCalled();
   });
 
   it('en EN también: un solo campo y la leyenda', () => {
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" onSuccess={vi.fn()} />, 'en');
+    renderWithProviders(<InlineAuthPanel variant="register" onSuccess={vi.fn()} />, 'en');
     const form = screen.getByTestId('privacy-site-register').closest('form')!;
     expect(form.querySelectorAll('input:not([type="hidden"])')).toHaveLength(1);
     expect(registerEmailOnly).not.toHaveBeenCalled();
@@ -100,7 +98,7 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
     registerEmailOnly.mockRejectedValue(emailTaken());
     const before = cartSnapshot();
     const onSuccess = vi.fn();
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="juan@dominio.com" onSuccess={onSuccess} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={onSuccess} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
 
     expect(await screen.findByText(TAKEN)).toBeInTheDocument();
@@ -118,7 +116,7 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
     login.mockResolvedValue({ user: { role: 'customer' }, accessToken: 'a', refreshToken: 'r' });
     const onSuccess = vi.fn();
     const before = cartSnapshot();
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="juan@dominio.com" onSuccess={onSuccess} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={onSuccess} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await user.click(await screen.findByRole('button', { name: 'Ingresar a cuenta' }));
 
@@ -139,7 +137,6 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
     renderWithProviders(
       <InlineAuthPanel
         variant="register"
-        phone="5512345678"
         defaultEmail="juan@dominio.com"
         onSwitchVariant={onSwitchVariant}
         switchLabel="Ya tengo cuenta"
@@ -156,7 +153,7 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
     forgotPassword.mockResolvedValue({ ok: true });
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await user.click(await screen.findByRole('button', { name: '¿Olvidaste tu contraseña?' }));
     await waitFor(() => expect(forgotPassword).toHaveBeenCalledWith('juan@dominio.com'));
@@ -167,7 +164,7 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
   it('en EN: «Sign in to your account» (§CTA-UX.2)', async () => {
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="j@d.com" onSuccess={vi.fn()} />, 'en');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="j@d.com" onSuccess={vi.fn()} />, 'en');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     expect(await screen.findByRole('button', { name: 'Sign in to your account' })).toBeInTheDocument();
   });
@@ -182,7 +179,7 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
  */
 describe('CTA-UX.2 · ayuda, aviso informativo y tope en tinta', () => {
   it('alta: la ayuda describe el campo de correo; en la entrada no aparece', () => {
-    const { unmount } = renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" onSuccess={vi.fn()} />, 'es');
+    const { unmount } = renderWithProviders(<InlineAuthPanel variant="register" onSuccess={vi.fn()} />, 'es');
     expect(screen.getByLabelText('Correo')).toHaveAccessibleDescription(HINT);
     unmount();
     renderWithProviders(<InlineAuthPanel variant="login" onSuccess={vi.fn()} />, 'es');
@@ -192,7 +189,7 @@ describe('CTA-UX.2 · ayuda, aviso informativo y tope en tinta', () => {
   it('409 ⇒ Banner info con role=status', async () => {
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     const banner = (await screen.findByText(TAKEN)).closest('[role="status"]')!;
     expect(banner).toHaveAttribute('data-variant', 'info');
@@ -202,7 +199,7 @@ describe('CTA-UX.2 · ayuda, aviso informativo y tope en tinta', () => {
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
     forgotPassword.mockRejectedValue(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x' }));
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await user.click(await screen.findByRole('button', { name: '¿Olvidaste tu contraseña?' }));
     const tope = await screen.findByText('Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo.');
@@ -226,7 +223,7 @@ describe('TL-CTA-9 · «¿Olvidaste tu contraseña?» con 5xx o red ⇒ error, n
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
     forgotPassword.mockRejectedValueOnce(mkErr());
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await user.click(await screen.findByRole('button', { name: '¿Olvidaste tu contraseña?' }));
     const banner = (await screen.findByText(ERR)).closest('[data-variant]')!;
@@ -247,7 +244,7 @@ describe('TL-CTA-9 · «¿Olvidaste tu contraseña?» con 5xx o red ⇒ error, n
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
     forgotPassword.mockRejectedValueOnce(new ApiClientError(502, { code: 'INTERNAL', message: 'x' }));
-    renderWithProviders(<InlineAuthPanel variant="register" phone="5512345678" defaultEmail="j@d.com" onSuccess={vi.fn()} />, 'en');
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="j@d.com" onSuccess={vi.fn()} />, 'en');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     await user.click(await screen.findByRole('button', { name: 'Forgot your password?' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't send the link. Try again in a few minutes.");

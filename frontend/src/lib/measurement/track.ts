@@ -26,10 +26,7 @@ export type BrowserEvent =
   | 'add_payment_info'
   | 'purchase'
   | 'click_contact'
-  | 'search'
-  // §CELULAR-ALTA §6.9: sin valor del celular, solo `method`.
-  | 'signup_phone_shown'
-  | 'signup_phone_done';
+  | 'search';
 
 /** §MKT.H.4, literal. ⛔ Ampliar esta tabla es un cambio de contrato (regla 9), no de pantalla. */
 export const EVENT_PARAMS: Readonly<Record<BrowserEvent, readonly string[]>> = {
@@ -44,8 +41,6 @@ export const EVENT_PARAMS: Readonly<Record<BrowserEvent, readonly string[]>> = {
   purchase: ['transaction_id', 'items', 'value', 'currency', 'shipping_cents'],
   click_contact: ['contact_channel', 'page_path'],
   search: ['results_count'],
-  signup_phone_shown: ['method'],
-  signup_phone_done: ['method'],
 };
 
 /** Claves de cada `items[]` (§MKT.H.4: `items[{item_id, item_name, item_category, price}]`). */

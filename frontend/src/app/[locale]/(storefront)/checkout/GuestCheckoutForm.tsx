@@ -34,7 +34,7 @@ export interface GuestCheckoutFormProps {
    * BAJO su campo (§43.18m.7, `geo.tooLong`). Lo retira quien monta al tocar ese campo. v1.80.12.5
    * (§M4-SHIP.19.25): ⛔ ya no hay `422` geográficos que pintar.
    */
-  serverAddressError?: { field: 'neighborhood' | 'city' | 'state' | 'phone'; message: string } | null;
+  serverAddressError?: { field: 'neighborhood' | 'city' | 'state'; message: string } | null;
   /** El modo de la colonia (§43.18m.1): la validación de quien monta depende de él. */
   onGeoModeChange?: (mode: NeighborhoodMode) => void;
   /**
@@ -149,7 +149,7 @@ export function GuestCheckoutForm({
     if (field === 'emailConfirmed') return t('guest.payBlocked.email');
     if (field === 'terms') return t('guest.acceptTermsRequired');
     if (field === 'postalCode') return ta('postalCodeInvalid');
-    if (field === 'phone') return ta('guestPhoneInvalid');
+    if (field === 'phone') return ta('phoneInvalid');
     if (field === 'neighborhood') return ta(code === 'typeRequired' ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired');
     if (field === 'city') return ta('geo.cityRequired');
     if (field === 'state') return ta('geo.stateRequired');
@@ -339,7 +339,7 @@ export function GuestCheckoutForm({
             value={state.address.phone}
             onChange={(e) => onAddressChange({ phone: e.target.value })}
             onBlur={() => onBlurField('phone')}
-            error={serverAddressError?.field === 'phone' ? serverAddressError.message : visible('phone') ? messageFor('phone') : undefined}
+            error={visible('phone') ? messageFor('phone') : undefined}
             hint={ta('phoneHint')}
           />
 

@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { config } from '@/lib/config';
 import { loginWithGoogle } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { retryAfterMinutes } from '@/lib/password-attempts';
-import { stashGoogleSignup } from '@/lib/api/google-signup';
 import { Banner } from '@/components/ui/Banner';
 import type { Role, UserDTO } from '@/types/contract';
 
@@ -55,17 +54,6 @@ export interface GoogleSignInButtonProps {
    * reseteó puede entrar por Google y debe aterrizar igualmente en la página de contraseña.
    */
   onSuccess: (role?: Role, user?: UserDTO) => void;
-  /**
-   * §CELULAR-ALTA §6.2: destino (ruta interna) al terminar «Completa tu cuenta» cuando el correo de Google NO tiene
-   * cuenta. Ausente ⇒ la ruta actual (el checkout sigue con el carrito, que vive en localStorage).
-   */
-  next?: string;
-  /**
-   * Navegación al paso «Completa tu cuenta» (la pantalla de auth pasa su `router.push`). Ausente (p. ej. dentro del
-   * checkout, que no navega con router propio) ⇒ navegación completa a `/<locale>/completa-cuenta`: el carrito vive en
-   * localStorage y el token en sessionStorage, ambos sobreviven.
-   */
-  onPendingSignup?: (path: string) => void;
 }
 
 /**
@@ -75,8 +63,7 @@ export interface GoogleSignInButtonProps {
  * - En modo mocks (o sin client id) simula el login sin backend (Vercel).
  * Email/contraseña sigue siendo la acción primaria; este botón es alternativa neutra.
  */
-export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleSignInButtonProps) {
-  const locale = useLocale();
+export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   const t = useTranslations('auth.google');
   const tAuth = useTranslations('auth');
   const tErr = useTranslations('error');
@@ -103,16 +90,6 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
   async function exchange(idToken: string) {
     try {
       const res = await loginWithGoogle(idToken);
-      if ('pendingSignup' in res) {
-        // Correo SIN cuenta: no hay sesión. El token se guarda en sessionStorage (⛔ nunca en la URL) y se pide el celular.
-        stashGoogleSignup(res.pendingSignup);
-        const here = window.location.pathname.replace(new RegExp(`^/${locale}(?=/|$)`), '') || '/';
-        const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : here;
-        const path = `/completa-cuenta?next=${encodeURIComponent(dest)}`;
-        if (onPendingSignup) onPendingSignup(path);
-        else window.location.assign(`/${locale}${path}`);
-        return;
-      }
       onSuccess(res.user.role, res.user);
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 429) {

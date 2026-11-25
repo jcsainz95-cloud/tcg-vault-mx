@@ -1,7 +1,6 @@
 import type { GuestAddressInput } from '@/types/contract';
 import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
-import { isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
-import { isValidMxPhone, normalizeMxPhone as normalizeStrictPhone } from '@/lib/phone';
+import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
 
 // N-3: `normalizeMxPhone` vive desde v1.81 en `lib/address-rules` (la libreta la usa también); se
 // re-exporta para no mover a quien ya la importaba de aquí.
@@ -121,8 +120,7 @@ export function validateGuestForm(state: GuestFormState, geoMode: NeighborhoodMo
       if (!(a.state ?? '').trim()) errors.state = 'required';
     }
   }
-  // §CELULAR-ALTA §6.6: el celular del COMPRADOR es el estricto (sin ceros/repetidos/1234567890), el mismo que el servidor.
-  if (!isValidMxPhone(a.phone)) errors.phone = 'invalid';
+  if (!isMxPhone(a.phone)) errors.phone = 'invalid';
   if ((a.references ?? '').trim().length > REFERENCES_MAX) errors.references = 'tooLong';
 
   if (!state.acceptedTerms) errors.terms = 'required';
@@ -140,7 +138,7 @@ export function toAddressPayload(address: GuestAddressInput): GuestAddressInput 
     city: address.city.trim(),
     state: address.state.trim(),
     postalCode: address.postalCode.trim(),
-    phone: normalizeStrictPhone(address.phone) ?? normalizeMxPhone(address.phone),
+    phone: normalizeMxPhone(address.phone),
     references: address.references?.trim() || undefined,
     country: 'MX',
   };

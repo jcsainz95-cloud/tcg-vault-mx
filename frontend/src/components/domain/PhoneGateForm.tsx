@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getMe, listAddresses, logout, updateMe } from '@/lib/api';
 import { useCart } from '@/lib/cart';
-import { normalizeMxPhone, normalizePhoneInput } from '@/lib/phone';
+import { normalizeMxPhone } from '@/lib/phone';
 import { useSession } from '@/lib/session';
 import { ApiClientError } from '@/lib/api-client';
 import { usePathname, useRouter } from '@/i18n/navigation';
@@ -24,7 +24,7 @@ import { BodyPortal } from '@/components/ui/BodyPortal';
  * Fuera de la puerta: las rutas de auth (el login aún está navegando) y la sesión con contraseña temporal pendiente
  * (`PATCH /users/me` responde 403 hasta cambiarla: primero la contraseña). ⛔ El celular no va a medición ni a la URL.
  */
-const AUTH_PATH = /^\/(login|register|forgot-password|reset-password|verify-email|account-setup|completa-cuenta)(\/|$)/;
+const AUTH_PATH = /^\/(login|register|forgot-password|reset-password|verify-email|account-setup)(\/|$)/;
 
 export function PhoneGate() {
   const { user, ready } = useSession();
@@ -91,7 +91,13 @@ export function PhoneGateForm() {
   function onChange(raw: string) {
     setTouched(true);
     setError(null);
-    setPhone(normalizePhoneInput(raw));
+    const digits = raw.replace(/\D/g, '');
+    const plus = raw.trimStart().startsWith('+');
+    const n = normalizeMxPhone((plus ? '+' : '') + digits);
+    if (n) return setPhone(n);
+    if (plus) return setPhone('+' + digits.slice(0, 13));
+    if (digits.length > 10 && /^52/.test(digits)) return setPhone(digits.slice(0, 13));
+    setPhone(digits.slice(0, 10));
   }
 
   // Focus trap: Tab circula dentro de la tarjeta; Esc no cierra (no hay cierre: única salida, «Cerrar sesión»).

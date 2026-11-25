@@ -41,7 +41,7 @@ setCheckoutViewport('desktop');
  */
 describe('CTA-F6 · confirmación del invitado: cuenta con solo el correo', () => {
   it('el formulario trae solo el correo capturado: sin nombre ni contraseña', () => {
-    renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" phone="5512345678" />, 'es');
+    renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" />, 'es');
     const claim = screen.getByRole('region');
     expect(within(claim).getByLabelText('Correo')).toHaveValue('juan@dominio.com');
     expect(within(claim).queryByLabelText('Nombre')).toBeNull();
@@ -54,14 +54,14 @@ describe('CTA-F6 · confirmación del invitado: cuenta con solo el correo', () =
       new ApiClientError(403, { code: 'EMAIL_NOT_VERIFIED', message: 'verify' }),
     );
     const usr = userEvent.setup();
-    renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" phone="5512345678" />, 'es');
+    renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" />, 'es');
     await usr.click(screen.getByRole('button', { name: 'Crear cuenta con este correo' }));
     const notice = await screen.findByText('Cuenta creada. Abre el enlace de tu correo para ver este pedido.');
     expect(notice).toHaveAttribute('role', 'status');
     expect(screen.queryByRole('alert')).toBeNull();
     expect(vi.mocked(registerEmailOnly)).toHaveBeenCalledWith(expect.objectContaining({ email: 'juan@dominio.com' }));
-    expect(Object.keys(vi.mocked(registerEmailOnly).mock.calls[0][0]).sort()).toEqual(['email', 'locale', 'phone']);
-    expect(vi.mocked(claimGuestOrders)).toHaveBeenCalledWith(['o-1'], undefined);
+    expect(Object.keys(vi.mocked(registerEmailOnly).mock.calls[0][0]).sort()).toEqual(['email', 'locale']);
+    expect(vi.mocked(claimGuestOrders)).toHaveBeenCalledWith(['o-1']);
   });
 
   it('de punta a punta: el correo del checkout llega al alta de la confirmación', async () => {
