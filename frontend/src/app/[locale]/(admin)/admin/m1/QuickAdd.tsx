@@ -412,7 +412,6 @@ export function QuickAddSection({
             />
             <span className="text-sm font-medium text-text">{t('buy.label')}</span>
           </span>
-          <span className="text-xs text-muted">{t('buy.sublabel')}</span>
           <Input
             label={t('buy.priceLabel')}
             prefix="MX$"
@@ -428,6 +427,7 @@ export function QuickAddSection({
                 ? t('buy.priceRequired')
                 : undefined
             }
+            /* Importe POR PIEZA: cada pieza del lote nace con este mismo costo (inventory.service.ts:1659 createItemRow por folio). */
             hint={buyHelper}
           />
         </label>
@@ -506,7 +506,7 @@ export function QuickAddSection({
           validación ni el payload — solo hace legible por qué no se puede dar de alta todavía. */}
       {path === 'compra' && priceInvalid && (
         <p className="text-xs text-accent" role="status">
-          {t('buy.priceRequired')}
+          {price.trim() === '' ? t('buy.priceMissing') : t('buy.priceRequired')}
         </p>
       )}
     </section>

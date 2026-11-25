@@ -2127,7 +2127,8 @@
         "breakdownEnNoBase": "Base: {version} en inglés · mercado de TCGplayer",
         "breakdownEs": "Base: {version} en inglés · {base} × {pct} % (español)",
         "breakdownEsNoBase": "Base: {version} en inglés · × {pct} % (español)",
-        "noPrice": "Sin precio: esta versión no se puede dar de alta hoy (vuelve sola cuando haya mercado).",
+        "noPrice": "Sin precio de mercado: esta versión todavía no se puede dar de alta.",
+        "noPriceCanCreate": "Sin precio de mercado. Puedes darla de alta: escribe abajo lo que pagaste. Saldrá a la venta cuando tenga precio.",
         "loadingVersions": "Cargando versiones…",
         "reason": {
           "no_english_market": "Sin mercado del inglés",
@@ -7257,23 +7258,23 @@
       "acqLabel": "Adquisición",
       "buy": {
         "label": "Comprar",
-        "sublabel": "Pagamos por pieza:",
-        "priceLabel": "Costo TOTAL de la factura, IVA incluido (MXN)",
-        "priceRequired": "Captura un precio mayor a cero.",
+        "priceLabel": "Lo que pagamos por pieza (MXN, con IVA)",
+        "priceMissing": "Falta escribir lo que pagaste.",
+        "priceRequired": "Escribe un importe mayor a cero.",
         "helper": {
           "rule": "Sugerido por regla",
           "manual": "Precio manual activo",
           "bounty": "Precio bounty activo",
-          "none": "Sin sugerido — captura el precio pagado."
+          "none": "Escribe lo que pagaste por la carta."
         }
       },
       "contrib": {
         "label": "Aportación",
         "sublabel": "Se registra a valor de mercado:",
         "pendingPill": "Precio pendiente",
-        "pendingBlocked": "Sin valor de mercado — fija primero el precio de esta variante.",
-        "pendingBlockedAdmin": "Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar.",
-        "pendingBlockedInline": "Sin valor de mercado — captura el precio manual de arriba para habilitarla."
+        "pendingBlocked": "Aportación no disponible: la carta no tiene precio de mercado.",
+        "pendingBlockedAdmin": "Aportación no disponible: fija el precio en la sección Precios y vuelve a intentar.",
+        "pendingBlockedInline": "Aportación no disponible: escribe arriba el precio manual para habilitarla."
       },
       "cta": "Dar de alta al inventario",
       "loading": "Dando de alta…",
@@ -7281,7 +7282,7 @@
       "successSummary": "{count} piezas dadas de alta · {first} a {last}.",
       "successOneVersion": "Pieza dada de alta · {version} · {folio}.",
       "successSummaryVersion": "{count} piezas dadas de alta · {version} · {first} a {last}.",
-      "pricePendingError": "No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.",
+      "pricePendingError": "No se registró la aportación: la carta no tiene precio de mercado. Fija el precio y vuelve a intentar.",
       "versionRefreshed": "Esta versión se actualizó mientras la dabas de alta. Revisa la versión elegida y vuelve a dar de alta.",
       "partialSummary": "{created} creadas · {failed} rechazadas.",
       "replay": "Reintento idempotente (no se duplicó).",

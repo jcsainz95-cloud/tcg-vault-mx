@@ -72,7 +72,7 @@ describe('§ALTA-LIGA-2 · alta rápida: «+ Versión de liga»', () => {
     await waitFor(() => expect(within(version).getByRole('radio', { name: 'De liga · Prize Pack' })).toHaveAttribute('aria-checked', 'true'));
     expect(screen.getByTestId('ids-price-source')).toHaveTextContent('Precio de la carta normal hasta que llegue el precio real');
     expect(screen.queryByTestId('manual-version-form')).toBeNull();
-    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
     await waitFor(() => expect(batch).toHaveBeenCalled());
     expect(JSON.stringify(batch.mock.calls[0])).toContain('"cardProductId":-1');
@@ -130,7 +130,7 @@ describe('§ALTA-LIGA-2 · alta rápida: «+ Versión de liga»', () => {
       .mockResolvedValue({ batchKey: 'k', idempotentReplay: false, summary: { requested: 1, createdItems: 1, failedLines: 0 }, results: [{ index: 0, ok: true as const, folios: ['INV-2'], inventoryItemIds: ['id-2'] }] });
     const version = await screen.findByRole('radiogroup', { name: 'Versión' });
     fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Prize Pack' }));
-    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
     await waitFor(() => expect(batch).toHaveBeenCalledTimes(1));
     expect(JSON.stringify(batch.mock.calls[0])).toContain('"cardProductId":-1');
@@ -139,7 +139,7 @@ describe('§ALTA-LIGA-2 · alta rápida: «+ Versión de liga»', () => {
     await waitFor(() => expect(get.mock.calls.length).toBeGreaterThanOrEqual(2));
     // Sigue elegida "De liga · Prize Pack", ahora el producto real.
     await waitFor(() => expect(within(screen.getByRole('radiogroup', { name: 'Versión' })).getByRole('radio', { name: 'De liga · Prize Pack' })).toHaveAttribute('aria-checked', 'true'));
-    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
     await waitFor(() => expect(batch).toHaveBeenCalledTimes(2));
     expect(JSON.stringify(batch.mock.calls[1])).toContain('"cardProductId":777001');
@@ -152,7 +152,7 @@ describe('§ALTA-LIGA-2 · alta rápida: «+ Versión de liga»', () => {
     batch.mockRejectedValue(new ApiClientError(422, { code: 'PRODUCT_CARD_MISMATCH', message: 'x' }));
     const version = await screen.findByRole('radiogroup', { name: 'Versión' });
     fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Prize Pack' }));
-    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
     expect(await screen.findByText(/Esta versión se actualizó/)).toBeTruthy();
     await waitFor(() => expect(within(screen.getByRole('radiogroup', { name: 'Versión' })).getByRole('radio', { name: 'Sin liga' })).toHaveAttribute('aria-checked', 'true'));

@@ -56,7 +56,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
       'es',
     );
 
-    const price = screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)') as HTMLInputElement;
+    const price = screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)') as HTMLInputElement;
     expect(price.value).toBe('875');
     expect(screen.getByText('Sugerido por regla')).toBeInTheDocument();
     // SIN dropdown de acabado y SIN ubicación (la variante viene de la casilla picada).
@@ -127,10 +127,10 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     const contribRadio = screen.getByRole('radio', { name: /Aportación/ });
     expect(contribRadio).toBeDisabled();
     expect(screen.getByText('Precio pendiente')).toBeInTheDocument();
-    expect(screen.getByText(/Sin valor de mercado/)).toBeInTheDocument();
+    expect(screen.getByText(/Aportación no disponible/)).toBeInTheDocument();
     // Comprar sin sugerido: input vacío con helper de captura manual.
-    expect((screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)') as HTMLInputElement).value).toBe('');
-    expect(screen.getByText('Sin sugerido — captura el precio pagado.')).toBeInTheDocument();
+    expect((screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)') as HTMLInputElement).value).toBe('');
+    expect(screen.getByText('Escribe lo que pagaste por la carta.')).toBeInTheDocument();
   });
 
   it('SELLADO-M1(A): «Comprar» + precio VACÍO + sin mercado ⇒ el CTA está deshabilitado y DICE por qué (no silencio)', async () => {
@@ -154,7 +154,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     const cta = screen.getByRole('button', { name: 'Dar de alta al inventario' });
     expect(cta).toBeDisabled();
     // El motivo del bloqueo es VISIBLE (no un botón muerto sin explicación).
-    expect(screen.getByText('Captura un precio mayor a cero.')).toBeInTheDocument();
+    expect(screen.getByText('Falta escribir lo que pagaste.')).toBeInTheDocument();
 
     // Y aunque se fuerce el clic, no se dispara ningún POST.
     fireEvent.click(cta);
@@ -181,7 +181,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(
-      'No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.',
+      'No se registró la aportación: la carta no tiene precio de mercado. Fija el precio y vuelve a intentar.',
     );
   });
 });

@@ -312,7 +312,8 @@ export function IdsCaptureFields({
               </>
             ) : (
               <p className="mt-1 text-sm text-muted">
-                {reasonText(combo.unavailableReason)} — {t('noPrice')}
+                {/* Sin precio de mercado: si el alta SÍ se puede (inglés sin liga) se dice cómo; si no, que todavía no. */}
+                {model.canCreate ? t('noPriceCanCreate') : t('noPrice')}
               </p>
             )}
           </div>

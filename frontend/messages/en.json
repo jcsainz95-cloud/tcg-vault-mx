@@ -2127,7 +2127,8 @@
         "breakdownEnNoBase": "Base: {version} in English · TCGplayer market",
         "breakdownEs": "Base: {version} in English · {base} × {pct} % (Spanish)",
         "breakdownEsNoBase": "Base: {version} in English · × {pct} % (Spanish)",
-        "noPrice": "No price: this version can't be added today (it comes back on its own when there's a market).",
+        "noPrice": "No market price: this version can't be added yet.",
+        "noPriceCanCreate": "No market price. You can still add it: enter below what you paid. It goes on sale once it has a price.",
         "loadingVersions": "Loading versions…",
         "reason": {
           "no_english_market": "No English market",
@@ -7257,23 +7258,23 @@
       "acqLabel": "Acquisition",
       "buy": {
         "label": "Buy",
-        "sublabel": "We pay per piece:",
-        "priceLabel": "TOTAL invoice cost, VAT included (MXN)",
-        "priceRequired": "Enter a price greater than zero.",
+        "priceLabel": "What we paid per piece (MXN, VAT included)",
+        "priceMissing": "Enter what you paid.",
+        "priceRequired": "Enter an amount greater than zero.",
         "helper": {
           "rule": "Suggested by rule",
           "manual": "Manual price active",
           "bounty": "Bounty price active",
-          "none": "No suggestion — enter the price paid."
+          "none": "Enter what you paid for the card."
         }
       },
       "contrib": {
         "label": "Contribution",
         "sublabel": "Recorded at market value:",
         "pendingPill": "Price pending",
-        "pendingBlocked": "No market value — set this variant's price first.",
-        "pendingBlockedAdmin": "No market value — set it in the Prices section and try again.",
-        "pendingBlockedInline": "No market value — enter the manual price above to enable it."
+        "pendingBlocked": "Contribution not available: the card has no market price.",
+        "pendingBlockedAdmin": "Contribution not available: set the price in the Prices section and try again.",
+        "pendingBlockedInline": "Contribution not available: enter the manual price above to enable it."
       },
       "cta": "Add to inventory",
       "loading": "Adding…",
@@ -7281,7 +7282,7 @@
       "successSummary": "{count} pieces added · {first} to {last}.",
       "successOneVersion": "Piece added · {version} · {folio}.",
       "successSummaryVersion": "{count} pieces added · {version} · {first} to {last}.",
-      "pricePendingError": "The contribution was not recorded: this variant has no market value. Set the price and try again.",
+      "pricePendingError": "The contribution was not recorded: the card has no market price. Set the price and try again.",
       "versionRefreshed": "This version was updated while you were adding it. Check the selected version and add it again.",
       "partialSummary": "{created} created · {failed} rejected.",
       "replay": "Idempotent retry (nothing duplicated).",
