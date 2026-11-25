@@ -36,10 +36,12 @@ const BY_GROUP = new Map(Object.values(FIX).map((f) => [f.groupId, f]));
 /** Medido con los JSON reales (2026-11-07): cartas CON precio / PENDIENTES por set. */
 const EXPECTED: Record<string, { cards: number; priced: number; pending: number }> = {
   svp: { cards: 200, priced: 188, pending: 12 },
-  swshp: { cards: 304, priced: 293, pending: 11 },
+  // §PRECIO-SIN-ENLACE (a2a8926e): `(Delta Species|Prime|Top|Bottom|Supporter)` ya son parte del nombre, no `unknown_stamp`:
+  // swshp +2 con precio (293→295) y bwp +1 (88→89) = exactamente los productos de esas fixtures con esos paréntesis.
+  swshp: { cards: 304, priced: 295, pending: 9 },
   smp: { cards: 251, priced: 243, pending: 8 },
   xyp: { cards: 216, priced: 182, pending: 34 },
-  bwp: { cards: 101, priced: 88, pending: 13 },
+  bwp: { cards: 101, priced: 89, pending: 12 },
   dpp: { cards: 56, priced: 50, pending: 6 },
 };
 
