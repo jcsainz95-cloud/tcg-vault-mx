@@ -20,6 +20,8 @@ import { closeInboundShipment, InboundCloseResult, needsGuideCancelTask } from '
 import { afterAutoCloseVia } from '../modules/shipments/label-auto-close';
 import { INBOUND_ONLY } from '../modules/shipments/label-subject';
 import { openGuideTaskIfCancelUnconfirmed } from '../modules/buylist/inbound-cancel-task';
+import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
+import { sweepHoldReason } from '../modules/shipments/inbound-carrier';
 import {
   GUIDE_DAY_MS,
   GuideClockDials,
@@ -224,12 +226,37 @@ export class BuylistSweepJobService {
       sellerShippedDeclaredAt: null,
       shipmentConfirmedAt: null,
     };
+    // §BUYLIST-RASTREO: sondeo ACOTADO de las vencidas ANTES de decidir (el escaneo de la paquetería las mueve a `en_transito`).
+    // Best-effort: un proveedor caído nunca lanza ni cierra nada (la regla 2 pospone, abajo).
+    const pre = await this.moduleRef?.get(ShipmentTrackingPollJob, { strict: false })?.pollOverdueInbound(now);
+    // Con el proveedor apagado/sin configurar NO hay «proveedor caído»: no se pospone por falta de sondeo (el movimiento sí cuenta).
+    const providerLive = pre != null && pre.skipped !== 'provider_off' && pre.skipped !== 'not_configured';
     const rows = await this.prisma.sellRequest.findMany({
       where,
-      include: { user: { select: { name: true, email: true, locale: true } } },
+      include: {
+        user: { select: { name: true, email: true, locale: true } },
+        inboundShipment: {
+          select: {
+            labelSource: true,
+            providerShipmentId: true,
+            providerCanceledAt: true,
+            carrierStatus: true,
+            carrierStatusAt: true,
+            carrierPolledAt: true,
+            requestedAt: true,
+          },
+        },
+      },
     });
     let n = 0;
     for (const req of rows) {
+      // Cinturón (§BUYLIST-RASTREO regla 4): paquete en movimiento según la paquetería, o proveedor sin responder > 24 h
+      // (pospone hasta 48 h tras el plazo). Nuestra falla de rastreo no cancela la venta del vendedor.
+      const hold = req.shipDeadlineAt ? sweepHoldReason(req.inboundShipment, req.shipDeadlineAt, now, providerLive) : null;
+      if (hold) {
+        this.logger.warn(`buylist-sweep: regla 2 pospuesta para ${req.id} (${hold})`);
+        continue;
+      }
       const moved = await this.closeWithGuideTask(req.id, now, where, {
         status: 'expirada',
         expiredReason: SellRequestExpiryReason.not_shipped,

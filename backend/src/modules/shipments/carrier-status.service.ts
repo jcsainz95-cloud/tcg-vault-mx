@@ -29,9 +29,13 @@ import { safeErrorTag } from './guest-mail-link';
 import { LABEL_SUBJECT_SELECT, LabelSubject, labelSubjectOf, lockSubjectRows } from './label-subject';
 import { INBOUND_SELL_REQUEST_GUARD_SELECT, inboundGuideBlock, sellerCarrierLabelOf } from './label-inbound';
 import { writeSellRequestGuide } from '../buylist/sell-request-guide';
+import { moveInboundRequestByCarrier, reopenByCarrier } from '../buylist/inbound-carrier-move';
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { buylistPortalUrl, sellRequestReopenedTemplate } from '../buylist/buylist-mail.templates';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { InboundGuideNoticeService } from './inbound-guide-notice.service';
+import { INBOUND_MOVEMENT_STATUSES } from './inbound-carrier';
 
 type Tx = Prisma.TransactionClient;
 const TX = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -64,6 +68,8 @@ export interface ApplyResult {
   notices: CarrierNotice[];
   /** ⭐ rev BSD-1: qué aviso sale si `labeled` (salida AV-4; guía de entrada AV-7 con la etiqueta, §BSD.3). */
   labelNotice?: 'AV-4' | 'AV-7';
+  /** §BUYLIST-RASTREO: la solicitud que ESTE evento reabrió (el correo de rectificación sale SOLO del ganador del CAS). */
+  reopenedSellRequestId?: string;
 }
 
 /** §19.29.6 AG-11 (🔴, con correo al dueño, `HECHOS.md:62`) y AG-12 (🟡). */
@@ -172,6 +178,7 @@ export class ShipmentCarrierService {
     // vendedor) y manda AV-7 con la etiqueta. `@Optional()` por los tests unitarios legacy que construyen el servicio a mano.
     @Optional() private readonly settings?: SettingsService,
     @Optional() private readonly inboundNotice?: InboundGuideNoticeService,
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
 
   // ================================================================ applyCarrierStatus (§19.3)
@@ -251,6 +258,24 @@ export class ShipmentCarrierService {
       // ⭐ rev BSD-1 (I-BSD-6, P-BSD-5): la guía de ENTRADA no sigue el rastreo — solo el `created` que trae el número de una
       // guía «en proceso»; ⛔ ni `enviado`/`entregado` (CHECK `shipment_inbound_status`) ni AV-17/18/19.
       if (!subject.inTrackingPoll && event.status !== 'created') {
+        // §BUYLIST-RASTREO: un ESCANEO real (recolectado/en tránsito/…/entregado) mueve la SOLICITUD `aceptada → en_transito` por
+        // sistema (CAS + bitácora); ⛔ ninguna otra consecuencia (ni dinero, ni `recibida`, ni correos, ni la fila de entrada).
+        if (subject.inboundCarrierMove && subject.sellRequestId && INBOUND_MOVEMENT_STATUSES.has(event.status)) {
+          const moved = await moveInboundRequestByCarrier(tx, subject.sellRequestId, shipmentId, event, now);
+          // Reapertura (dueño: B): si no estaba `aceptada`, quizá la cerró el barrido con el paquete ya en camino.
+          if (!moved && this.settings) {
+            const settings = this.settings;
+            const r = await reopenByCarrier(tx, subject.sellRequestId, shipmentId, event, now, {
+              capPerMonthCents: async (userId) =>
+                (await tx.kycProfile.findUnique({ where: { userId }, select: { capPerMonthCentsOverride: true } }))?.capPerMonthCentsOverride ??
+                (await settings.getNumber(SettingKey.BUYLIST_CAP_PER_MONTH_CENTS, tx)),
+            });
+            if (r.reopened) out.reopenedSellRequestId = subject.sellRequestId;
+            else if (r.reason !== 'not_candidate' && r.reason !== 'race') {
+              this.logger.warn(`buylist_reopen_skipped sellRequestId=${subject.sellRequestId} reason=${r.reason}`);
+            }
+          }
+        }
         await tx.shipmentRequest.updateMany({ where: { id: shipmentId }, data: { carrierPolledAt: now } });
         return out;
       }
@@ -355,6 +380,7 @@ export class ShipmentCarrierService {
     if (res.labeled && res.labelNotice === 'AV-7') await this.inboundNotice?.notifyLabeled(shipmentId);
     else if (res.labeled) await this.shipments.notifyLabelCaptured(shipmentId);
     if (res.shipped) await this.shipments.notifyShipped(shipmentId); // AV-5 al ganador del CAS
+    if (res.reopenedSellRequestId) await this.sendReopenNotice(res.reopenedSellRequestId);
     for (const notice of res.notices) {
       try {
         await this.notices.notify(shipmentId, notice, {
@@ -370,6 +396,23 @@ export class ShipmentCarrierService {
       }
     }
     return res;
+  }
+
+  /**
+   * Correo de rectificación de la reapertura: UNA vez (solo el ganador del CAS `expirada → en_transito` llega aquí), best-effort
+   * post-commit; un fallo se registra y NO revierte nada ni se reintenta (⛔ nunca `e.message`: lleva el correo del vendedor).
+   */
+  private async sendReopenNotice(sellRequestId: string): Promise<void> {
+    try {
+      const sr = await this.prisma.sellRequest.findUnique({ where: { id: sellRequestId }, select: { id: true, user: { select: { name: true, email: true, locale: true } } } });
+      if (!this.mail || !sr?.user?.email) return;
+      await this.mail.send({
+        ...sellRequestReopenedTemplate({ folio: sr.id, portalUrl: buylistPortalUrl(sr.id, sr.user.locale) }, sr.user.name ?? '', sr.user.locale),
+        to: sr.user.email,
+      });
+    } catch (e) {
+      this.logger.error(`buylist_reopen_notice_failed sellRequestId=${sellRequestId} (${safeErrorTag(e)})`);
+    }
   }
 
   /**

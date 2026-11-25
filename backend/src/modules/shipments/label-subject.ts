@@ -65,7 +65,8 @@ export function isBuylistInbound(row: Pick<LabelSubjectRow, 'kind'>): boolean {
  * | `locksSellRequestFirst` — I-BSD-4 | no | **sí**: `SellRequest FOR UPDATE` y luego `ShipmentRequest FOR UPDATE` |
  * | `labelNotice` — post-commit tras guía con número | `AV-4` (`notifyLabelCaptured`) | `AV-7` (`guideNoticeSentAt`) |
  * | `alertsAfterAddressFix` — AG-1 | sí | ⛔ no (el destino es fijo) |
- * | `inTrackingPoll` — sondeo de rastreo y AV-17/18/19 | sí | ⛔ no (P-BSD-5, ARCHITECTURE §4.BSD (j)) |
+ * | `inTrackingPoll` — efectos de SALIDA del rastreo (`enviado`/`entregado`, AV-17/18/19) | sí | ⛔ no (P-BSD-5, ARCHITECTURE §4.BSD (j)) |
+ * | `inboundCarrierMove` — el sondeo mueve la SOLICITUD `aceptada → en_transito` (§BUYLIST-RASTREO) | no | **sí** (solo la solicitud; nunca dinero) |
  * | `labelNotShippedWatch` — AG-10 | sí | ⛔ no (I-BSD-6) |
  * | `requiresPreparation` — `preparedAt`, `prep.assertCanAdvance(…,'guia')`, casos abiertos | sí | ⛔ no (la guarda es la de la solicitud, `label-inbound.ts`) |
  * | `recommendation` — `pickRecommendedRateId` | `shipping_preferred_carriers` y luego la más barata a domicilio | la más barata con `deliveryKind ≠ 'branch'` (P-BSD-4); ⛔ sin puntos de entrega |
@@ -82,6 +83,8 @@ export interface LabelSubject {
   readonly labelNotice: 'AV-4' | 'AV-7';
   readonly alertsAfterAddressFix: boolean;
   readonly inTrackingPoll: boolean;
+  /** §BUYLIST-RASTREO: el escaneo de la paquetería mueve la solicitud a `en_transito` (por sistema); ⛔ ni `enviado`/`entregado` de la fila, ni AV-17/18/19. */
+  readonly inboundCarrierMove: boolean;
   readonly labelNotShippedWatch: boolean;
   /** Lo que NO es estado en la guarda «abierta sin guía» (BSD-1.3 punto 5): `preparedAt`, `assertCanAdvance`, casos abiertos. */
   readonly requiresPreparation: boolean;
@@ -145,6 +148,7 @@ const OUTBOUND_SUBJECT: Omit<LabelSubject, 'sellRequestId'> = {
   labelNotice: 'AV-4',
   alertsAfterAddressFix: true,
   inTrackingPoll: true,
+  inboundCarrierMove: false,
   labelNotShippedWatch: true,
   requiresPreparation: true,
   recommendation: 'preferred_then_cheapest_home',
@@ -160,6 +164,7 @@ const INBOUND_SUBJECT: Omit<LabelSubject, 'sellRequestId'> = {
   labelNotice: 'AV-7',
   alertsAfterAddressFix: false,
   inTrackingPoll: false,
+  inboundCarrierMove: true,
   labelNotShippedWatch: false,
   requiresPreparation: false,
   recommendation: 'cheapest_home',

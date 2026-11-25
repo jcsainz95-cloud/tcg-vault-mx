@@ -160,6 +160,7 @@ import { GuideClockDials, guideDueFieldsOf } from './guide-clock';
 import { openGuideTaskIfCancelUnconfirmed } from './inbound-cancel-task';
 import { resyncInboundAddress } from './inbound-address-sync';
 import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
+import { inboundCarrierOf } from '../shipments/inbound-carrier';
 import { ShipmentLabelService } from '../shipments/label-purchase.service';
 import type { LabelOptionsDTO } from '../shipments/label-view';
 import { computePayoutNetCents, hasLivePendingRevision, payoutDTOOf, projectPayoutNetCents, statusClockOf } from './buylist-payout';
@@ -2363,6 +2364,8 @@ export class BuylistService implements OnModuleInit {
       ...toCustomerSellRequestDTO(req),
       // 💰 rev BSD-1.1 C-1: el MISMO valor que la lista (`labelPdfAvailableOf`).
       labelPdfAvailable: labelPdfAvailableOf(req, req.inboundShipment),
+      // §BUYLIST-RASTREO: «Tu paquete va en camino» (misma forma que admin; sin actor ni costo).
+      inboundCarrier: inboundCarrierOf(req.inboundShipment, new Date()),
       sellRequestId: req.id,
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, y se le muestra DESDE EL PRINCIPIO**, no
       // desde la aceptación, por dos razones: **(1) es SU dato** —lo capturó él— y **(2) es lo que
@@ -3023,6 +3026,8 @@ export class BuylistService implements OnModuleInit {
     );
     return {
       inboundShipment: toAdminInboundShipmentDTO(inbound, now, bsd.actorRole ?? null, { orphanSince: bsd.orphanSince ?? null }),
+      // §BUYLIST-RASTREO: lo que dice la paquetería (derivado de la fila de entrada; `null` = sin guía viva de Skydropx).
+      inboundCarrier: inboundCarrierOf(inbound, now),
       guideDueAt: due.guideDueAt,
       guideDueSoon: due.guideDueSoon,
       guideDueInDays: due.guideDueInDays,

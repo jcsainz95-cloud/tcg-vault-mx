@@ -86,7 +86,11 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   'src/modules/shipments/departure.service.ts board#count#1': [O, 'salida de hoy: guías manuales pendientes'],
   'src/modules/shipments/departure.service.ts departed#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/tracking-poll.job.ts run#findMany#1': [O, 'sondeo de rastreo (I-BSD-6, P-BSD-5)'],
+  'src/modules/shipments/tracking-poll.job.ts run#findMany#2': [I, '§BUYLIST-RASTREO: sondeo de la guía de ENTRADA de una solicitud viva'],
+  'src/modules/shipments/tracking-poll.job.ts run#findMany#3': [I, '§BUYLIST-RASTREO: reapertura — guía de entrada de una solicitud expirada ≤30 d'],
+  'src/modules/shipments/tracking-poll.job.ts pollOverdueInbound#findMany#1': [I, '§BUYLIST-RASTREO: sondeo previo al barrido (vencidas)'],
   'src/modules/shipments/tracking-poll.job.ts pollRows#updateMany#1': [K, 'por id'],
+  'src/modules/buylist/inbound-carrier-move.ts reopenByCarrier#updateMany#1': [K, 'por id (la fila de entrada de la solicitud que se reabre)'],
   // ---------------------------------------------------------------- shipments: el motor de la guía
   'src/modules/shipments/inbound-close.ts closeInboundShipment#sql#1': [K, 'sellRequestId (@unique): LA fila de entrada de la solicitud'],
   'src/modules/shipments/inbound-close.ts closeInboundShipment#updateMany#1': [K, 'CAS por id'],

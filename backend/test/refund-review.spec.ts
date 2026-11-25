@@ -121,6 +121,8 @@ describe('SRF-13 — por ausencia (criterio 253)', () => {
       // 💰 rev BSD-1 (§BSD.8.1): BSD-M1 «no continuamos» al vendedor. No es aviso de reembolso (AV-3 intacto).
       'sellRequestNotContinuedTemplate',
       'sellRequestNotPursuedTemplate',
+      // §BUYLIST-RASTREO: rectificación de la reapertura automática (no es aviso de reembolso).
+      'sellRequestReopenedTemplate',
       // ⭐ D2e (§19.12): AV-18, AV-17 y AV-19 (los del transportista).
       'shipmentAtBranchTemplate',
       'shipmentCancelledTemplate',

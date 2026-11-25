@@ -217,7 +217,7 @@ const CICLO: Record<string, Renderizador> = {
 // 💰 rev BSD-1 (§BSD.8.1): BSD-M1 (`sellRequestNotContinuedTemplate`) cierra una `aceptada` sin culpa — no es uno de los
 // cinco del ciclo de oferta. Su lista de prohibidos (más estricta: ni guía, ni plazo, ni días) la fija BSD-B21
 // (`bsd.b3-mails.spec.ts`).
-const FUERA_DEL_CICLO = ['sellItemRejectedTemplate', 'sellItemsRejectedTemplate', 'sellRequestNotContinuedTemplate'];
+const FUERA_DEL_CICLO = ['sellItemRejectedTemplate', 'sellItemsRejectedTemplate', 'sellRequestNotContinuedTemplate', 'sellRequestReopenedTemplate'];
 
 // =============================================================================================
 describe('⚠️ (1) el conteo es CINCO, y la lista se cierra sola', () => {
