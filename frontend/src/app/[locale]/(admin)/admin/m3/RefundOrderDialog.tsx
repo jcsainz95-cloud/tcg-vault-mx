@@ -26,6 +26,7 @@ import type {
   VaultPieceInPackedWithdrawalDetails,
 } from '@/types/contract';
 import { VaultPiecesList } from './VaultPiecesList';
+import { piecesExceptUnassigned } from '@/lib/api/vault-unassigned';
 import { ShippedReasonFieldset } from './ShippedReasonFieldset';
 
 export const ADMIN_ORDER_KEY = ['admin-order'] as const;
@@ -237,10 +238,10 @@ export function RefundOrderDialog({
           <>
             <p className="tabular text-sm text-text">{tv('remaining', { amount: formatMoneyCents(remaining, locale) })}</p>
             <p className="text-sm text-text">{shipped ? ts(shippedRefundKey('body', contents)) : isVault ? tv('body') : tv('directBody')}</p>
-            {isVault && detail.data?.vaultPieces && detail.data.vaultPieces.length > 0 && (
+            {isVault && piecesExceptUnassigned(detail.data?.vaultPieces ?? [], detail.data?.items).length > 0 && (
               <div className="flex flex-col gap-1">
                 <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">{tv('piecesTitle')}</p>
-                <VaultPiecesList pieces={detail.data.vaultPieces} highlightIds={pieceItems.map((i) => i.inventoryItemId)} compact />
+                <VaultPiecesList pieces={piecesExceptUnassigned(detail.data?.vaultPieces ?? [], detail.data?.items)} highlightIds={pieceItems.map((i) => i.inventoryItemId)} compact />
               </div>
             )}
           </>

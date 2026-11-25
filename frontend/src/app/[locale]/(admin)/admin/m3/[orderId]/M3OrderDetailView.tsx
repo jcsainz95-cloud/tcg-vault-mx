@@ -24,7 +24,7 @@ import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO,
 import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail, shippedRefundKey } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
-import { lineFulfillment } from '@/lib/api/vault-unassigned';
+import { lineFulfillment, piecesExceptUnassigned } from '@/lib/api/vault-unassigned';
 import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
 import { RefundAccessoryLineDialog, type AccessoryRefundTarget } from '../RefundAccessoryLineDialog';
 import { energyBreakdown } from '@/lib/accessories';
@@ -464,11 +464,11 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                 )}
 
                 {/* §37.10b — solo órdenes `vault`. */}
-                {isVault && o.vaultPieces && o.vaultPieces.length > 0 && (
+                {isVault && piecesExceptUnassigned(o.vaultPieces ?? [], o.items).length > 0 && (
                   <section className="flex flex-col gap-3" data-testid="m3-vault-pieces">
                     <h2 className="text-h2 font-semibold">{tv('piecesTitle')}</h2>
                     <VaultPiecesList
-                      pieces={o.vaultPieces}
+                      pieces={piecesExceptUnassigned(o.vaultPieces ?? [], o.items)}
                       actions={(p) =>
                         p.state === 'in_packed_withdrawal' && isSuperAdmin ? (
                           <Button size="sm" variant="secondary" className="self-start" onClick={() => openReclaim([p])}>

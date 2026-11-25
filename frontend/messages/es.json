@@ -2213,7 +2213,7 @@
         "replaced": "Se repuso por otra copia igual ({from} → {to})",
         "replacedNoFolio": "Se repuso por otra copia igual",
         "attention": "Requiere atención: {reason}",
-        "attentionHelp": "Para cerrar este pedido: consigue la carta y dala de alta en el inventario (se asigna sola al día siguiente), o reembolsa solo esa carta.",
+        "attentionHelp": "Para cerrar este pedido: consigue la carta y dala de alta en el inventario (se asigna sola al día siguiente), o reembolsa el pedido desde el botón Reembolsar.",
         "reason": {
           "no_equivalent_copy": "no hay otra copia igual disponible",
           "double_charge": "el cliente pagó dos veces este pedido: revisa cuál reembolsar",
@@ -5974,9 +5974,40 @@
       },
       "audit": {
         "was": {
+          "in_stock": "en almacén, sin publicar",
           "listed": "a la venta",
           "reserved": "apartada por otro pedido",
-          "in_custody": "en bóveda de un cliente"
+          "in_custody": "en bóveda de un cliente",
+          "picking": "en preparación de un envío",
+          "shipped": "enviada",
+          "delivered": "entregada",
+          "lost": "extraviada",
+          "damaged": "dañada",
+          "withdrawn": "retirada"
+        },
+        "outcome": {
+          "recovered": "se asignó",
+          "replaced": "se repuso",
+          "attention": "requiere atención",
+          "needs_attention": "requiere atención"
+        },
+        "source": {
+          "settle": "al cobrar",
+          "repair": "reparación automática"
+        },
+        "keys": {
+          "anomalies": "Anomalías",
+          "inventoryItemId": "Pieza",
+          "folio": "Folio",
+          "was": "Estaba",
+          "outcome": "Resultado",
+          "source": "Origen",
+          "orderId": "Pedido",
+          "orderNumber": "Pedido",
+          "status": "Estado",
+          "reason": "Motivo",
+          "replacedBy": "Repuesta por",
+          "count": "Cantidad"
         },
         "title": "Bitácora de auditoría",
         "subtitle": "Quién hizo qué y cuándo. Toda acción de back-office queda registrada.",

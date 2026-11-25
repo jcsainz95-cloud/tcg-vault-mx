@@ -127,6 +127,8 @@ const MAX_DEPTH = 4;
 
 /** Traduce el valor de ciertas claves del detalle (p. ej. `was`); `null` ⇒ se muestra tal cual. */
 export type AuditValueLabel = (key: string, value: string) => string | null;
+/** Traduce la CLAVE (`was` ⇒ «Estaba»); `null` ⇒ se muestra tal cual. */
+export type AuditKeyLabel = (key: string) => string | null;
 
 function flatten(
   value: unknown,
@@ -136,12 +138,17 @@ function flatten(
   yes: string,
   no: string,
   label?: AuditValueLabel,
+  keyLabel?: AuditKeyLabel,
 ): void {
   if (value === null || typeof value !== 'object') return;
   const entries: [string, unknown][] = Array.isArray(value)
     ? value.map((v, i) => [String(i + 1), v])
     : Object.entries(value as Record<string, unknown>);
-  for (const [key, v] of entries) {
+  const hasFolio = !Array.isArray(value) && typeof (value as Record<string, unknown>).folio === 'string';
+  for (const [rawKey, v] of entries) {
+    // Con folio, el id interno sobra; sin folio, el id se muestra abreviado (nunca el UUID entero).
+    if (hasFolio && rawKey === 'inventoryItemId') continue;
+    const key = keyLabel?.(rawKey) ?? rawKey;
     if (v !== null && typeof v === 'object') {
       if (depth >= MAX_DEPTH) {
         out.push({ depth, key, value: JSON.stringify(v) });
@@ -149,14 +156,15 @@ function flatten(
         out.push({ depth, key, value: '—' });
       } else {
         out.push({ depth, key, value: null });
-        flatten(v, depth + 1, out, locale, yes, no, label);
+        flatten(v, depth + 1, out, locale, yes, no, label, keyLabel);
       }
       continue;
     }
     let text: string;
     if (v === null || v === undefined) text = '—';
     else if (typeof v === 'boolean') text = v ? yes : no;
-    else if (typeof v === 'string' && label?.(key, v)) text = label(key, v)!;
+    else if (typeof v === 'string' && label?.(rawKey, v)) text = label(rawKey, v)!;
+    else if (typeof v === 'string' && rawKey === 'inventoryItemId') text = v.length > 12 ? `${v.slice(0, 8)}…` : v;
     else if (typeof v === 'string' && ISO_DATETIME.test(v)) text = formatDateTimeShortMx(v, locale) || v;
     else text = String(v);
     out.push({ depth, key, value: text });
@@ -173,15 +181,32 @@ export function auditDetail(
   yes: string,
   no: string,
   label?: AuditValueLabel,
+  keyLabel?: AuditKeyLabel,
 ): AuditDetailSection[] | null {
   const sections: AuditDetailSection[] = [];
   for (const side of ['before', 'after'] as const) {
     const raw = a[side];
     if (raw === undefined || raw === null) continue;
     const rows: AuditDetailRow[] = [];
-    if (typeof raw === 'object') flatten(raw, 0, rows, locale, yes, no, label);
+    if (typeof raw === 'object') flatten(raw, 0, rows, locale, yes, no, label, keyLabel);
     else rows.push({ depth: 0, key: 'value', value: String(raw) });
     if (rows.length > 0) sections.push({ side, rows });
   }
   return sections.length > 0 ? sections : null;
+}
+
+/**
+ * Piezas de `vaultPieces` SIN las líneas cuyo estado no es «asignada» (requiere atención / sin asignar): el estado de la
+ * línea ya lo dice y la lista de piezas no puede contradecirlo con «En su bóveda» (qa I-5).
+ */
+export function piecesExceptUnassigned<P extends { inventoryItemId: string }>(
+  pieces: P[],
+  items: { inventoryItemId: string; fulfillmentState?: FulfillmentState | null }[] | undefined,
+): P[] {
+  const bad = new Set(
+    (items ?? [])
+      .filter((i) => i.fulfillmentState === 'needs_attention' || i.fulfillmentState === 'unassigned')
+      .map((i) => i.inventoryItemId),
+  );
+  return bad.size === 0 ? pieces : pieces.filter((p) => !bad.has(p.inventoryItemId));
 }

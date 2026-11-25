@@ -9,6 +9,7 @@ import {
   auditDetail,
   lineFulfillment,
   orderUnassignedCount,
+  piecesExceptUnassigned,
   reasonKey,
   unassignedOrdersCount,
   vaultMissingPieces,
@@ -110,6 +111,33 @@ describe('alineado con el backend a3f81be5', () => {
     expect(rows.find((r) => r.key === 'outcome')!.value).toBe('recovered');
     expect(rows.find((r) => r.key === 'anomalies')).toEqual({ depth: 0, key: 'anomalies', value: null });
     expect(rows.find((r) => r.key === 'inventoryItemId')!.depth).toBe(2);
+  });
+  it('I-2 · bitácora: etiquetas llanas en es/en, folio en vez del id y el id abreviado', () => {
+    const s = auditDetail(
+      { after: { source: 'settle', anomalies: [{ inventoryItemId: 'aaaaaaaa-bbbb-cccc', folio: 'INV-000123', was: 'in_stock', outcome: 'recovered' }, { inventoryItemId: 'aaaaaaaa-bbbb-cccc-dddd', was: 'shipped', outcome: 'replaced' }] } },
+      'es', 'Sí', 'No',
+      (k, v) => ({ was: es.admin.m10.audit.was, outcome: es.admin.m10.audit.outcome, source: es.admin.m10.audit.source } as Record<string, Record<string, string>>)[k]?.[v] ?? null,
+      (k) => (es.admin.m10.audit.keys as Record<string, string>)[k] ?? null,
+    )!;
+    const rows = s[0]!.rows;
+    expect(rows.map((r) => r.key)).toContain('Estaba');
+    expect(rows.map((r) => r.key)).not.toContain('was');
+    expect(rows.find((r) => r.key === 'Origen')!.value).toBe('al cobrar');
+    expect(rows.filter((r) => r.key === 'Estaba').map((r) => r.value)).toEqual(['en almacén, sin publicar', 'enviada']);
+    expect(rows.filter((r) => r.key === 'Resultado').map((r) => r.value)).toEqual(['se asignó', 'se repuso']);
+    expect(rows.find((r) => r.key === 'Folio')!.value).toBe('INV-000123');
+    const pieces = rows.filter((r) => r.key === 'Pieza');
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]!.value).toBe('aaaaaaaa…');
+    expect(en.admin.m10.audit.was.in_stock).toBe('in stock, not listed');
+  });
+  it('I-5 · la ayuda no promete un botón que no existe; piezas de líneas sin asignar salen de la lista', () => {
+    expect(es.admin.m3.fulfillment.attentionHelp).toContain('desde el botón Reembolsar');
+    expect(es.admin.m3.fulfillment.attentionHelp).not.toContain('solo esa carta');
+    const pieces = [{ inventoryItemId: 'a' }, { inventoryItemId: 'b' }, { inventoryItemId: 'c' }];
+    const items = [{ inventoryItemId: 'a', fulfillmentState: 'assigned' as const }, { inventoryItemId: 'b', fulfillmentState: 'needs_attention' as const }, { inventoryItemId: 'c', fulfillmentState: 'unassigned' as const }];
+    expect(piecesExceptUnassigned(pieces, items)).toEqual([{ inventoryItemId: 'a' }]);
+    expect(piecesExceptUnassigned(pieces, undefined)).toBe(pieces);
   });
   it('409 ORDER_SUPERSEDED tiene mensaje llano es/en', () => {
     expect(es.error.ORDER_SUPERSEDED).toBe('Tu carrito cambió; revisa tu pedido y vuelve a intentar');
@@ -215,7 +243,7 @@ describe('3 · Detalle del pedido', () => {
     const att = screen.getByTestId('m3-item-fulfillment-i3');
     expect(att).toHaveTextContent('Requiere atención: no hay otra copia igual disponible');
     expect(att.textContent).not.toMatch(/no_equivalent_copy/);
-    expect(screen.getByTestId('m3-attention-help')).toHaveTextContent(/consigue la carta.*al día siguiente.*reembolsa solo esa carta/);
+    expect(screen.getByTestId('m3-attention-help')).toHaveTextContent(/consigue la carta.*al día siguiente.*reembolsa el pedido desde el botón Reembolsar/);
   });
   it('motivo desconocido ⇒ frase genérica, nunca el código', async () => {
     await detail([line('i3', { fulfillmentFailedAt: '2026-11-25T05:54:00Z', fulfillmentFailedReason: 'ZZ_TOP_9' })]);

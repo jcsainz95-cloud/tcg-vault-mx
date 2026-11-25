@@ -316,7 +316,8 @@ export function M10View() {
   function auditExpanded(a: AuditLogDTO): React.ReactNode {
     if (!isSuperAdmin || openAuditId !== a.id) return null;
     const sections = auditDetail(a, locale, t('audit.yes'), t('audit.no'), (k, v) =>
-      k === 'was' && t.has(`audit.was.${v}`) ? t(`audit.was.${v}`) : null,
+      ['was', 'outcome', 'source'].includes(k) && t.has(`audit.${k}.${v}`) ? t(`audit.${k}.${v}`) : null,
+    (k) => (t.has(`audit.keys.${k}`) ? t(`audit.keys.${k}`) : null),
     );
     return (
       <div className="flex flex-col gap-3 border-l-2 border-l-border-strong pl-4" data-testid={`audit-detail-${a.id}`}>
