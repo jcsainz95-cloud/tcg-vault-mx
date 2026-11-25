@@ -713,6 +713,20 @@ export interface RegisterEmailOnlyRequest {
   /** §CELULAR: opcional (el del domicilio del checkout); ausente/inválido ⇒ cuenta con `phoneRequired:true`. */
   phone?: string;
 }
+/**
+ * §CELULAR-ALTA (`API_CONTRACT_CELULAR.md` §6.2): `POST /auth/google` con correo SIN cuenta ⇒ 200 con esto, sin sesión ni
+ * cookie. `signupToken` (JWT de 15 min, un solo propósito) lo canjea `POST /auth/google/complete { signupToken, phone }`.
+ * ⛔ El token no va a la URL, a medición ni a logs.
+ */
+export interface GooglePendingSignup {
+  pendingSignup: { signupToken: string; email: string; name: string };
+}
+export type GoogleAuthResult = AuthResponse | GooglePendingSignup;
+/** POST /auth/google/complete — `public`. `401 SIGNUP_EXPIRED` (vencido/inválido), `422 PHONE_INVALID`. */
+export interface GoogleCompleteRequest {
+  signupToken: string;
+  phone: string;
+}
 /** POST /auth/account-setup — `public`. `200` sin sesión; `422 ACCOUNT_SETUP_TOKEN_INVALID` (no distingue el motivo). */
 export interface AccountSetupRequest {
   token: string;
@@ -8160,6 +8174,8 @@ export interface ClaimableOrderDTO {
 
 /** POST /orders/claim — parcial-tolerante: HTTP 200 con fallos por pedido. */
 export interface ClaimOrdersResponse {
+  /** §CELULAR-ALTA §6.5 (aditivo): la cuenta ya tiene celular válido tras el reclamo. */
+  phoneRequired?: false;
   claimed: string[];
   failed: {
     orderId: string;

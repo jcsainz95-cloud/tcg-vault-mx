@@ -25,6 +25,21 @@ export function isValidMxPhone(raw: unknown): boolean {
   return normalizeMxPhone(raw) !== null;
 }
 
+/**
+ * Normaliza lo tecleado/pegado en un campo de celular ANTES de topar a 10 dígitos (`+52 55 1234 5678`, `52 …`,
+ * `+52 1 55 …`, guiones, espacios): si ya es un celular válido, queda en sus 10 dígitos; mientras la lada de país va
+ * incompleta se conserva para poder teclearla; letras y símbolos se descartan. El servidor es el juez.
+ */
+export function normalizePhoneInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  const plus = raw.trimStart().startsWith('+');
+  const n = normalizeMxPhone((plus ? '+' : '') + digits);
+  if (n) return n;
+  if (plus) return '+' + digits.slice(0, 13);
+  if (digits.length > 10 && /^52/.test(digits)) return digits.slice(0, 13);
+  return digits.slice(0, 10);
+}
+
 /** `5548214739` → `+52 55 4821 4739` (solo para mostrar; el valor guardado son los 10 dígitos). */
 export function formatMxPhone(raw: string | null | undefined): string {
   const n = normalizeMxPhone(raw ?? '');
