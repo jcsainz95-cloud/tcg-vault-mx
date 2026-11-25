@@ -4407,6 +4407,18 @@
           "retry": " · retry {attempt} of {max}",
           "none": "No catalog update on record yet."
         },
+        "unlinkedPrice": {
+          "title": "{count, plural, one {# card without a linked price} other {# cards without a linked price}}",
+          "lead": "These cards are not linked to their market price, which is why they show «No market». Retrying the link does not change prices already loaded.",
+          "row": "{unlinked} of {total} not linked",
+          "collisions": "{n} doubtful matches",
+          "omitted": "{n} skipped",
+          "retry": "Retry link",
+          "retrying": "Linking…",
+          "aria": "Retry link for {name}",
+          "ok": "Link retried for {name}. Counter refreshed.",
+          "err": "Could not retry the link for {name}."
+        },
         "degradedTitle": "The list is incomplete",
         "degradedBody": "The list is incomplete because pokemontcg.io did not respond: only the sets already in your catalog are shown. It retries by itself; you can retry now if you want to see it right away.",
         "degradedRetry": "Retry",

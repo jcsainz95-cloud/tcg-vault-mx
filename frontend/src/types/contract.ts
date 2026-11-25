@@ -6398,6 +6398,22 @@ export interface CatalogSyncStatusResponse {
   lastTrigger?: 'job' | 'admin' | null;
   /** §AUTO: intento del job (1..6, backoff exponencial); >1 = reintento. */
   attempt?: number | null;
+  /** §PRECIO-SIN-ENLACE (aditivo): cartas sin enlace a su producto de precio. Ausente = 0 cartas. */
+  unlinkedPrice?: UnlinkedPriceReport;
+}
+
+/** §PRECIO-SIN-ENLACE: solo sets con `unlinked > 0`, orden desc, máx. 100. `null` = no medido. */
+export interface UnlinkedPriceSet {
+  setId: string;
+  name: string;
+  unlinked: number;
+  total: number;
+  collisions: number | null;
+  omittedProducts: number | null;
+}
+export interface UnlinkedPriceReport {
+  totalCards: number;
+  sets: UnlinkedPriceSet[];
 }
 
 /**

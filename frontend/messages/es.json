@@ -4407,6 +4407,18 @@
           "retry": " · reintento {attempt} de {max}",
           "none": "Sin registro de una actualización del catálogo todavía."
         },
+        "unlinkedPrice": {
+          "title": "{count, plural, one {# carta sin precio ligado} other {# cartas sin precio ligado}}",
+          "lead": "Estas cartas no están enlazadas a su precio de mercado, por eso salen «Sin mercado». Reintentar el enlace no cambia precios ya cargados.",
+          "row": "{unlinked} de {total} sin ligar",
+          "collisions": "{n} coincidencias dudosas",
+          "omitted": "{n} omitidos",
+          "retry": "Reintentar enlace",
+          "retrying": "Enlazando…",
+          "aria": "Reintentar enlace de {name}",
+          "ok": "Enlace reintentado en {name}. Contador actualizado.",
+          "err": "No se pudo reintentar el enlace de {name}."
+        },
         "degradedTitle": "La lista está incompleta",
         "degradedBody": "La lista está incompleta porque pokemontcg.io no respondió: solo se muestran los sets que ya están en tu catálogo. Se vuelve a intentar sola; puedes reintentar ahora si quieres verla ya.",
         "degradedRetry": "Reintentar",
