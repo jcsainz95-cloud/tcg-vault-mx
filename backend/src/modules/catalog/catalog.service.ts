@@ -1699,7 +1699,10 @@ export class CatalogService {
    * honesto — ⛔ no se inventa un lastmod. Declarado en BACKEND_NOTES.
    */
   async sitemapCardEntries(): Promise<SitemapItem[]> {
-    const rows = await this.fetchSellable(this.singlesPublishedWhere({}));
+    return this.sitemapFromRows(await this.fetchSellable(this.singlesPublishedWhere({})));
+  }
+
+  private sitemapFromRows(rows: SellableRow[]): SitemapItem[] {
     const lastmodByCard = new Map<string, number>();
     for (const r of rows) {
       const ts = r.item.updatedAt.getTime();
@@ -1714,6 +1717,15 @@ export class CatalogService {
   }
 
   /**
+   * §GSHOP.B / paridad feed = sitemap = vendible: UNA lectura de «a la venta» (`fetchSellable`) de la que salen, juntos, las
+   * entradas del sitemap y las filas del feed de Merchant de SINGLES (misma foto, mismo instante, mismo precio).
+   */
+  async publicCardSnapshot(): Promise<{ sitemap: SitemapItem[]; feedRows: MerchantFeedRaw[] }> {
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({}));
+    return { sitemap: this.sitemapFromRows(rows), feedRows: this.feedRowsFromRows(rows) };
+  }
+
+  /**
    * §GSHOP.B — insumos del feed de Google Merchant Center para SINGLES: **una fila por CARTA a la venta**, con la MISMA
    * consulta y regla de «vendible» que el sitemap (`fetchSellable(singlesPublishedWhere)`). Precio = el de la oferta
    * destacada de la ficha (`cheapestListing`: la publicación agrupada más barata ⇒ `displayPriceCents` del `ListingDTO`,
@@ -1722,7 +1734,10 @@ export class CatalogService {
    * dueños ni inventario de clientes sale de aquí.
    */
   async merchantFeedCardRows(): Promise<MerchantFeedRaw[]> {
-    const rows = await this.fetchSellable(this.singlesPublishedWhere({}));
+    return this.feedRowsFromRows(await this.fetchSellable(this.singlesPublishedWhere({})));
+  }
+
+  private feedRowsFromRows(rows: SellableRow[]): MerchantFeedRaw[] {
     const best = new Map<string, SellableRow>();
     for (const r of rows) {
       if (this.lookupKeysOf(r.item) == null) continue;

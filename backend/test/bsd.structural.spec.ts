@@ -51,6 +51,8 @@ const WRITERS: Record<string, readonly [Clase, string]> = {
   'src/modules/buylist/buylist.service.ts adminOfferCancel#updateMany#1': [N, 'where status ∈ cotizada|ofertada'],
   'src/modules/buylist/buylist.service.ts offerResponse#updateMany#1': [N, "where status='ofertada' (ENTRA a aceptada, no sale)"],
   'src/modules/buylist/buylist.service.ts adminConfirmShipment#updateMany#1': [L, "aceptada ⇒ en_transito (closeInboundShipment 'shipped')"],
+  'src/modules/buylist/inbound-carrier-move.ts moveInboundRequestByCarrier#updateMany#1': [L, "§BUYLIST-RASTREO: aceptada ⇒ en_transito por la paquetería (closeInboundShipment 'shipped', igual que adminConfirmShipment)"],
+  'src/modules/buylist/inbound-carrier-move.ts reopenByCarrier#updateMany#1': [N, "§BUYLIST-RASTREO: where status='expirada' (no sale de aceptada): reabre a en_transito y la fila de entrada vuelve a guia en la misma tx"],
   'src/modules/buylist/buylist.service.ts adminDecline#updateMany#1': [N, "where status='cotizada'"],
   'src/modules/buylist/buylist.service.ts adminDeclineAccepted#updateMany#1': [L, "aceptada ⇒ expirada/not_continued (decline-accepted, §BSD.6)"],
   'src/modules/buylist/buylist.service.ts receive#updateMany#1': [N, 'stepWhere(receive) = en_transito|recibida'],

@@ -5,6 +5,7 @@
  * `startsWith('tcgcsv:')` suelto en el código: todo pasa por `isTcgcsvOrigin`.
  */
 import { StampType } from '@prisma/client';
+import { normalizeMatchText } from '../../common/card-version';
 
 export const TCGCSV_ORIGIN_PREFIX = 'tcgcsv:';
 
@@ -34,6 +35,33 @@ export const TCGCSV_MAX_STAMP_LABEL = 64;
 
 /** ÚNICO paréntesis que se conserva en `Card.name` (comparación sin mayúsculas). */
 export const KEEP_PARENS: readonly string[] = ['30th celebration'];
+
+/**
+ * §PRECIO-SIN-ENLACE (fase 1) — paréntesis que son PARTE DEL NOMBRE de la carta, no un sello/versión aparte:
+ * «Metagross (Delta Species)», «Gengar (Prime)», LEGEND de dos mitades «(Top)»/«(Bottom)», «N (Supporter)».
+ * Se conservan en `Card.name` (las dos mitades siguen siendo cartas distintas). Lista de PALABRAS DEL NOMBRE,
+ * no de sets. Todo paréntesis fuera de esta lista, de `KEEP_PARENS` y de los sellos (HECHOS 257) sigue
+ * omitido y reportado (`unknown_stamp`). Comparación sobre texto normalizado (NFKD, minúsculas).
+ */
+export const NAME_PARENS: readonly string[] = ['delta species', 'prime', 'top', 'bottom', 'supporter'];
+
+const normParen = (label: string): string =>
+  label.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** true si el paréntesis es parte del nombre (`NAME_PARENS` o `KEEP_PARENS`). */
+export function isNameParen(label: string): boolean {
+  const n = normParen(label);
+  return NAME_PARENS.includes(n) || KEEP_PARENS.includes(n);
+}
+
+/**
+ * Llave de nombre para ENLAZAR carta local ↔ producto TCGCSV (§PRECIO-SIN-ENLACE regla b): el nombre sin los
+ * paréntesis de `NAME_PARENS`/`KEEP_PARENS`, normalizado. «Metagross (Delta Species)» y «Metagross» ⇒ `metagross`.
+ */
+export function linkNameKey(raw: string | null | undefined): string {
+  const s = (raw ?? '').replace(/\(([^()]*)\)/g, (m, l: string) => (isNameParen(l) ? ' ' : m));
+  return normalizeMatchText(s);
+}
 
 /** true si algún campo escribible excede su tope. */
 export function exceedsFieldLimits(f: { name: string; number: string; rarity?: string | null; stampLabel?: string | null }): boolean {
@@ -128,7 +156,7 @@ export function parseTcgcsvCardName(
   // Paréntesis: solo `(30th Celebration)` se queda en el nombre; Prerelease/Winner/Campeonato son sello; el resto, desconocido.
   for (const m of [...s.matchAll(PAREN)]) {
     const label = m[1].trim();
-    if (KEEP_PARENS.includes(label.toLowerCase())) continue;
+    if (isNameParen(label)) continue;
     const type = parenStampTypeFromLabel(label);
     if (type == null) return { ok: false, reason: 'unknown_stamp' };
     stamps.push({ type, label });

@@ -160,6 +160,7 @@ import { GuideClockDials, guideDueFieldsOf } from './guide-clock';
 import { openGuideTaskIfCancelUnconfirmed } from './inbound-cancel-task';
 import { resyncInboundAddress } from './inbound-address-sync';
 import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
+import { inboundCarrierOf, isLiveSkydropxInbound, InboundCarrierCtx } from '../shipments/inbound-carrier';
 import { ShipmentLabelService } from '../shipments/label-purchase.service';
 import type { LabelOptionsDTO } from '../shipments/label-view';
 import { computePayoutNetCents, hasLivePendingRevision, payoutDTOOf, projectPayoutNetCents, statusClockOf } from './buylist-payout';
@@ -260,6 +261,7 @@ type SellRequestCycleRow = Partial<{
   shipmentTrackingNumber: string | null;
   sellerShippedDeclaredAt: Date | null;
   shipmentConfirmedAt: Date | null;
+  shipmentConfirmedBy: string | null;
   guideCancellationPendingAt: Date | null;
   guideCancellationDoneAt: Date | null;
   guideActualCostCents: number | null;
@@ -297,7 +299,7 @@ const VERDICT_ITEM_SELECT = {
 } as const;
 
 /** Los diales que la proyección admin necesita, izados UNA vez por request (BL-29) — + los dos del cierre sin guía (BSD-1). */
-type AdminCycleDials = { offerIssueDays: number; reissueAlertCount: number; guide: GuideClockDials };
+type AdminCycleDials = { offerIssueDays: number; reissueAlertCount: number; guide: GuideClockDials; carrier: Omit<InboundCarrierCtx, 'requestStatus'> };
 
 /**
  * 💰 rev BSD-1 (§BSD.5) — lo que TODA relectura que alimenta `adminSellRequestDTO` incluye: sus líneas (§M5-V.5) y su fila de
@@ -2363,6 +2365,16 @@ export class BuylistService implements OnModuleInit {
       ...toCustomerSellRequestDTO(req),
       // 💰 rev BSD-1.1 C-1: el MISMO valor que la lista (`labelPdfAvailableOf`).
       labelPdfAvailable: labelPdfAvailableOf(req, req.inboundShipment),
+      // §BUYLIST-RASTREO: «Tu paquete va en camino» (misma forma que admin; sin actor ni costo).
+      // G4-1: `stalledDays` es una alerta del OPERADOR; no viaja al vendedor.
+      inboundCarrier: await (async () => {
+        if (!req.inboundShipment || !isLiveSkydropxInbound(req.inboundShipment)) return null;
+        const c = inboundCarrierOf(req.inboundShipment, new Date(), { ...(await this.carrierDials()), requestStatus: req.status });
+        if (!c) return null;
+        const { stalledDays: _omit, ...sellerView } = c;
+        void _omit;
+        return sellerView;
+      })(),
       sellRequestId: req.id,
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, y se le muestra DESDE EL PRINCIPIO**, no
       // desde la aceptación, por dos razones: **(1) es SU dato** —lo capturó él— y **(2) es lo que
@@ -2773,7 +2785,22 @@ export class BuylistService implements OnModuleInit {
       this.settings.getNumber(SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS),
       this.settings.getNumber(SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE),
     ]);
-    return { offerIssueDays, reissueAlertCount, guide: { closeDays, warnDays } };
+    return { offerIssueDays, reissueAlertCount, guide: { closeDays, warnDays }, carrier: await this.carrierDials() };
+  }
+
+  /** §BUYLIST-RASTREO — los diales de `inboundCarrier` (una lectura por request). `providerOn` = `shipping_provider='skydropx'`. */
+  private async carrierDials(): Promise<Omit<InboundCarrierCtx, 'requestStatus'>> {
+    try {
+      const [provider, pollMinutes, stalledDays] = await Promise.all([
+        this.settings.get<string>(SettingKey.SHIPPING_PROVIDER),
+        this.settings.getNumber(SettingKey.BUYLIST_INBOUND_TRACKING_POLL_MINUTES),
+        this.settings.getNumber(SettingKey.BUYLIST_INBOUND_STALLED_DAYS),
+      ]);
+      return { providerOn: provider === 'skydropx', pollMinutes, stalledDays };
+    } catch {
+      // Fail-quiet: sin los diales no se afirma ninguna alerta de rastreo (`providerOn=false` ⇒ `pollError`/`stalledDays` apagados).
+      return { providerOn: false, pollMinutes: 60, stalledDays: 10 };
+    }
   }
 
   /**
@@ -3023,6 +3050,10 @@ export class BuylistService implements OnModuleInit {
     );
     return {
       inboundShipment: toAdminInboundShipmentDTO(inbound, now, bsd.actorRole ?? null, { orphanSince: bsd.orphanSince ?? null }),
+      // §BUYLIST-RASTREO: lo que dice la paquetería (derivado de la fila de entrada; `null` = sin guía viva de Skydropx).
+      inboundCarrier: inboundCarrierOf(inbound, now, { ...dials.carrier, requestStatus: r.status }),
+      // I-1: quién movió a `en_transito` (`system:carrier` ⇒ el rótulo «Automático»). SOLO admin: el vendedor no lo ve.
+      shipmentConfirmedBy: r.shipmentConfirmedBy ?? null,
       guideDueAt: due.guideDueAt,
       guideDueSoon: due.guideDueSoon,
       guideDueInDays: due.guideDueInDays,

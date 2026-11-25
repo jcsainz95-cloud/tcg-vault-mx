@@ -1133,6 +1133,47 @@ export function sellRequestExpiredTemplate(
 }
 
 /**
+ * **CORREO DE RECTIFICACIÓN** (§BUYLIST-RASTREO, reapertura automática): la solicitud se cerró por «no envió» pero la paquetería
+ * muestra el paquete en camino. Una sola vez. ⛔ Sin cifras, sin nombre de paquetería, sin número de guía.
+ */
+export function sellRequestReopenedTemplate(
+  params: { folio: string; portalUrl?: string },
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const title = en ? 'Correction: your sell request is active again' : 'Corrección: tu solicitud de venta sigue activa';
+  const body1 = en
+    ? `Correction: the carrier registered your package on time. We reactivated your request ${params.folio}; as soon as we receive it at the store we will review it.`
+    : `Corrección: la paquetería registró tu paquete a tiempo. Reactivamos tu solicitud ${params.folio}; en cuanto lo recibamos en la tienda lo revisamos.`;
+  const body2 = en ? 'Please ignore the previous notice.' : 'Ignora el aviso anterior.';
+  const ctaLabel = en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD';
+  const eyebrow = en ? 'REQUEST REACTIVATED' : 'SOLICITUD REACTIVADA';
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
+    spacerRow(16),
+    proseRow(body1),
+    spacerRow(16),
+    proseRow(body2),
+    spacerRow(32),
+    ...(params.portalUrl ? [ctaRows(params.portalUrl, ctaLabel, 'ink')] : []),
+  ];
+  return {
+    to: '',
+    subject: title,
+    html: mailShell({ locale: l, title, preheader: body1, blocks, footerWhy: sellRequestFooterWhy(en) }),
+    text:
+      `${en ? 'Hi' : 'Hola'} ${name}:\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n` +
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
+      `\n${BRAND}`,
+  };
+}
+
+/**
  * **CORREO 4 — «NO PROCEDEREMOS»** (D33/D39). **DOS productores, UN solo correo:** el barrido (regla
  * 7) y `POST …/decline`. **Misma plantilla, mismo texto** — al vendedor no le corresponde saber si le
  * contestamos rápido o dejamos correr el reloj: *un correo por hecho, no un correo por camino.*

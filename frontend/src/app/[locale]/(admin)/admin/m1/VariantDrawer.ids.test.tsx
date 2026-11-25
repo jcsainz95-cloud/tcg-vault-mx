@@ -209,7 +209,7 @@ describe('A2 (e) · piezas del cajón: segunda lectura `stamped=true` filtrada a
     await screen.findByText(/INV-000801/);
     fireEvent.click(screen.getByRole('button', { name: 'Alta rápida' }));
     const panel = await screen.findByRole('region', { name: 'Alta rápida' });
-    fireEvent.change(within(panel).getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.change(within(panel).getByLabelText('Lo que pagamos por pieza (MXN, con IVA)'), { target: { value: '100' } });
     const cta = within(panel).getByRole('button', { name: 'Dar de alta al inventario' });
     await waitFor(() => expect(cta).toBeEnabled());
     fireEvent.click(cta);

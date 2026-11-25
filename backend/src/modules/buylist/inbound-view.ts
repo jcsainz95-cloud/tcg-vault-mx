@@ -35,7 +35,10 @@ export const INBOUND_SHIPMENT_SELECT = {
   providerShipmentId: true,
   providerCanceledAt: true,
   providerCancelConfirmedAt: true,
+  carrierStatus: true,
   carrierStatusAt: true,
+  carrierPolledAt: true,
+  requestedAt: true,
   labelPurchasedAt: true,
   rateChosenAt: true,
 } as const satisfies Prisma.ShipmentRequestSelect;

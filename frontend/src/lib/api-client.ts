@@ -117,6 +117,8 @@ interface RequestOptions {
    * portada). Se pasan tal cual a `fetch` (`next.revalidate`, `next.tags`); en el navegador `fetch` las ignora.
    */
   next?: { revalidate?: number; tags?: string[] };
+  /** `no-store` = sin caché de datos de Next (feeds que deben salir frescos). */
+  cache?: RequestCache;
   /** TL-MKT2-1: señal para abortar la lectura (los topes de SSR de `lib/ssr-budget.ts`). Se pasa tal cual a `fetch`. */
   signal?: AbortSignal;
   /**
@@ -380,6 +382,7 @@ async function fetchWithSession(
     // pone el `multipart/form-data; boundary=…`. Solo lo usa `apiRequestMultipart` (json=false).
     body: jsonBody ?? (opts.body instanceof FormData ? opts.body : undefined),
     ...(opts.next ? { next: opts.next } : {}),
+    ...(opts.cache ? { cache: opts.cache } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),
   });
 

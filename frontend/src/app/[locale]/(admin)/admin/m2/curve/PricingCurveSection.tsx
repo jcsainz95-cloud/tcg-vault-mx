@@ -469,7 +469,7 @@ export function PricingCurveSection() {
             )}
 
             <div className="grid gap-8 xl:grid-cols-[2fr_1fr]">
-              <div className="flex flex-col gap-8">
+              <div className="flex min-w-0 flex-col gap-8">
                 {/* ---- CONSTANTES ---- */}
                 <section role="group" aria-labelledby="curve-constants" className="border-t border-border pt-4">
                   <h3 id="curve-constants" className="eyebrow">

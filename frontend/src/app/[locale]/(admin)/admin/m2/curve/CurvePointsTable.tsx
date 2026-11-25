@@ -88,7 +88,7 @@ export function CurvePointsTable({
 
   return (
     <div className="mt-3 flex flex-col gap-3">
-      <table className="w-full border-collapse text-left">
+      <div className="min-w-0 overflow-x-auto"><table className="w-full border-collapse text-left">
         <caption className="sr-only">
           {axis === 'sale' ? t('sale.tableCaption') : t('buy.tableCaption')}
         </caption>
@@ -277,7 +277,7 @@ export function CurvePointsTable({
             );
           })}
         </tbody>
-      </table>
+      </table></div>
 
       {/* Agregar un punto es NEUTRO por construcción: al confirmar el mercado se prerrellena con
           el valor interpolado de la curva actual, así que no cambia ningún precio (§21.2b). */}

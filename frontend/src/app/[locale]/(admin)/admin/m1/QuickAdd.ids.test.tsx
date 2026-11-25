@@ -84,7 +84,7 @@ function render(versions: CardVersionsResponse, onToast = vi.fn()) {
 
 const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 /** A2 (d): con español o liga «Pagamos por pieza» abre vacío; se teclea lo pagado (MX$100 ⇒ 10 000 centavos). */
-const typePrice = (v = '100', label = 'Costo TOTAL de la factura, IVA incluido (MXN)') =>
+const typePrice = (v = '100', label = 'Lo que pagamos por pieza (MXN, con IVA)') =>
   fireEvent.change(screen.getByLabelText(label), { target: { value: v } });
 /** Relectura de `GET …/versions` como la dispara el navegador al volver a la pestaña (react-query `refetchOnWindowFocus`). */
 function refocus() {
@@ -116,6 +116,26 @@ describe('UX-ALTA-LIGA · alta rápida con Idioma y Versión (opción A)', () =>
       expect(r.className).toContain('min-h-11');
       expect(r).toHaveAttribute('aria-checked');
     }
+  });
+
+  it('textos de alta sin mercado: inglés sin liga SIN precio se puede crear (dice cómo); versión de liga sin precio NO (bloqueo)', async () => {
+    const NO_MARKET = (c: ReturnType<typeof combo>) => ({ ...c, previewPriceCents: null, baseReferenceMxnCents: null, unavailableReason: 'no_english_market' as const });
+    render({ combos: [NO_MARKET(combo({}))], candidates: [] });
+    await waitFor(() => expect(screen.getByTestId('ids-price')).toHaveTextContent('Puedes darla de alta: escribe abajo lo que pagaste'));
+    expect(screen.getByTestId('ids-price')).not.toHaveTextContent('todavía no se puede dar de alta');
+    expect(screen.getByTestId('ids-price')).not.toHaveTextContent('Sin mercado —');
+  });
+
+  it('campo de costo: vacío ⇒ «Falta escribir lo que pagaste.»; cero ⇒ «Escribe un importe mayor a cero.»', async () => {
+    render(EN_ONLY_ES_NO_PRICE);
+    await screen.findByTestId('ids-price');
+    const input = screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.getByText('Falta escribir lo que pagaste.')).toBeInTheDocument();
+    expect(screen.queryByText('Escribe un importe mayor a cero.')).toBeNull();
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(screen.getAllByText('Escribe un importe mayor a cero.').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Falta escribir lo que pagaste.')).toBeNull();
   });
 
   it.each([
@@ -237,7 +257,7 @@ describe('UX-ALTA-LIGA · alta rápida con Idioma y Versión (opción A)', () =>
     expect(cta).toBeEnabled();
     vi.mocked(api.getCardVersions).mockResolvedValue(afterReload);
     await act(async () => refocus());
-    await waitFor(() => expect(screen.getByTestId('ids-price')).toHaveTextContent('Sin precio: esta versión no se puede dar de alta hoy'));
+    await waitFor(() => expect(screen.getByTestId('ids-price')).toHaveTextContent('Sin precio de mercado: esta versión todavía no se puede dar de alta'));
     expect(screen.getByRole('radio', { name: 'De liga · Prize Pack' })).toHaveAttribute('aria-disabled', 'true');
     expect(cta).toBeDisabled();
     fireEvent.click(cta);
@@ -292,7 +312,7 @@ describe('UX-ALTA-LIGA · alta rápida con Idioma y Versión (opción A)', () =>
     );
     await screen.findByTestId('ids-price');
     fireEvent.click(screen.getByRole('radio', { name: 'Spanish' }));
-    typePrice('100', 'TOTAL invoice cost, VAT included (MXN)');
+    typePrice('100', 'What we paid per piece (MXN, VAT included)');
     fireEvent.click(screen.getByRole('button', { name: 'Add to inventory' }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect((await screen.findByRole('status')).textContent).toMatch(/^Piece added · Spanish · Regular · INV-000501\. /);
@@ -426,7 +446,7 @@ describe('I-1 · la Aportación se valúa con la referencia de la VERSIÓN elegi
     await act(async () => refocus());
     await waitFor(() => expect(contribRadio()).toBeDisabled());
     expect(within(contribCard()).getByText('Precio pendiente')).toBeInTheDocument();
-    expect(within(contribCard()).getByText('Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar.')).toBeInTheDocument();
+    expect(within(contribCard()).getByText('Aportación no disponible: fija el precio en la sección Precios y vuelve a intentar.')).toBeInTheDocument();
     expect(contribAmount()).toBeNull();
     expect(within(screen.getByText('Comprar').closest('label')!).getByRole('radio')).toBeChecked();
   });
@@ -516,7 +536,7 @@ describe('A2 · acabado del alta desde la casilla (IDS-F11 a/b/c) y compra sin p
     candidates: [],
   };
   const cta = () => screen.getByRole('button', { name: 'Dar de alta al inventario' });
-  const buyInput = () => screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)') as HTMLInputElement;
+  const buyInput = () => screen.getByLabelText('Lo que pagamos por pieza (MXN, con IVA)') as HTMLInputElement;
 
   function renderSlot(versions: CardVersionsResponse, t: { cardId: string; productType: 'raw'; finish: 'normal' | 'holofoil' } = slotNormal) {
     vi.spyOn(api, 'getCardVersions').mockResolvedValue(versions);
@@ -636,7 +656,7 @@ describe('A2 · acabado del alta desde la casilla (IDS-F11 a/b/c) y compra sin p
     renderWithProviders(<QuickAddSection target={slotNormal} buyEffectiveCents={87_500} buySource="market" marketRefCents={125_000} />, 'en');
     const version = await screen.findByRole('radiogroup', { name: 'Version' });
     fireEvent.click(within(version).getByRole('radio', { name: /^League · .*\(Holo\)$/ }));
-    fireEvent.change(screen.getByLabelText('TOTAL invoice cost, VAT included (MXN)'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('What we paid per piece (MXN, VAT included)'), { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add to inventory' }));
     const text = (await screen.findByRole('status')).textContent!;
     expect(text).toMatch(/^Piece added · English · League · .*\(Holo\) · INV-000600\. /);
@@ -790,7 +810,7 @@ describe('A2 · acabado del alta desde la casilla (IDS-F11 a/b/c) y compra sin p
     vi.spyOn(api, 'getCardVersions').mockResolvedValue(LEAGUE_HOLO_ONLY);
     renderWithProviders(<QuickAddSection target={slotNormal} buyEffectiveCents={null} buySource={null} marketRefCents={null} />, 'es');
     await screen.findByTestId('ids-price');
-    expect(screen.getByText('Sin sugerido — captura el precio pagado.')).toBeInTheDocument();
+    expect(screen.getByText('Escribe lo que pagaste por la carta.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: 'Español' }));
     expect(screen.getByText('Sin sugerencia para esta versión: escribe lo que pagaste.')).toBeInTheDocument();
   });
@@ -853,7 +873,7 @@ describe('TL-ALTA-5 · relectura que apaga `hasVersions` con «Español» elegid
     // El panel no desaparece y el motivo está a la vista (burbuja y precio): nunca un CTA apagado en silencio.
     expect(screen.getByTestId('ids-capture')).toBeInTheDocument();
     expect(es).toHaveAccessibleDescription('Sin mercado del inglés');
-    expect(screen.getByTestId('ids-price')).toHaveTextContent('Sin mercado del inglés');
+    expect(screen.getByTestId('ids-price')).toHaveTextContent('Sin precio de mercado: esta versión todavía no se puede dar de alta');
     const cta = screen.getByRole('button', { name: 'Dar de alta al inventario' });
     expect(cta).toBeDisabled();
     fireEvent.click(screen.getByRole('radio', { name: 'Inglés' }));

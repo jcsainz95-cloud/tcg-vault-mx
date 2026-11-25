@@ -177,6 +177,8 @@ const RENDERS: Record<string, Render> = {
   // 💰 rev BSD-1 (§BSD.8.1): BSD-M1 «no continuamos» (vendedor ⇒ `customer`, con el aviso de privacidad).
   sellRequestNotContinuedTemplate: (l) =>
     buylistTpl.sellRequestNotContinuedTemplate({ folio: 'BL-1', portalUrl: PORTAL }, 'Ana', l),
+  // §BUYLIST-RASTREO: correo de rectificación de la reapertura automática (vendedor ⇒ `customer`).
+  sellRequestReopenedTemplate: (l) => buylistTpl.sellRequestReopenedTemplate({ folio: 'BL-1', portalUrl: PORTAL }, 'Ana', l),
   sellGuideTemplate: (l) =>
     buylistNoticeTpl.sellGuideTemplate(
       { folio: 'BL-1', carrier: 'Estafeta', trackingNumber: '123', shipDeadlineAt: AT, portalUrl: PORTAL },

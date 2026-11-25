@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { captureBuylistGuide, confirmBuylistShipment } from '@/lib/api';
@@ -41,6 +41,7 @@ export function BuylistShipmentActions({
   request,
   hideGuideCapture = false,
   providerCostCents = null,
+  confirmTick = 0,
 }: {
   request: AdminBuylistDTO;
   /**
@@ -50,6 +51,8 @@ export function BuylistShipmentActions({
   hideGuideCapture?: boolean;
   /** 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx el costo lo dio el proveedor ⇒ ⛔ campo de costo (`400 provider_cost`). */
   providerCostCents?: number | null;
+  /** Sube cada vez que el aviso de plazo vencido (arriba de la ficha) pide abrir la confirmación. */
+  confirmTick?: number;
 }) {
   const t = useTranslations('admin.m5.shipment');
   const tIn = useTranslations('admin.m5.inbound');
@@ -62,6 +65,9 @@ export function BuylistShipmentActions({
   const [tracking, setTracking] = useState(request.shipmentTrackingNumber ?? '');
   const [actualCost, setActualCost] = useState('');
   const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (confirmTick > 0) setConfirming(true);
+  }, [confirmTick]);
   const [done, setDone] = useState<'guide' | 'shipment' | null>(null);
 
   const invalidate = () => {
@@ -79,11 +85,18 @@ export function BuylistShipmentActions({
   });
 
   const confirm = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const actualCostCents = pesosToCents(actualCost);
-      return confirmBuylistShipment(request.id, {
-        ...(providerCostCents == null && actualCostCents != null ? { guideActualCostCents: actualCostCents } : {}),
-      });
+      try {
+        return await confirmBuylistShipment(request.id, {
+          ...(providerCostCents == null && actualCostCents != null ? { guideActualCostCents: actualCostCents } : {}),
+        });
+      } catch (e) {
+        // §BUYLIST-RASTREO: la paquetería ya la movió a «En tránsito» ⇒ éxito silencioso y se refresca.
+        const err = asApiError(e);
+        if (err?.status === 409 && err.code === 'NOT_ACCEPTED') return null;
+        throw e;
+      }
     },
     onSuccess: () => {
       setConfirming(false);
@@ -144,11 +157,13 @@ export function BuylistShipmentActions({
         )}
         {/* El plazo del vendedor: si no hay guía se DICE que no ha arrancado, en vez de dejar un
             hueco que se lea como «sin plazo» o, peor, como «ya venció». */}
-        <p className="tabular text-xs text-muted">
-          {request.shipDeadlineAt
-            ? t('shipDeadline', { date: formatDateTimeMx(request.shipDeadlineAt, locale) })
-            : t('noShipDeadline')}
-        </p>
+        {!request.shipmentConfirmedAt && (
+          <p className="tabular text-xs text-muted">
+            {request.shipDeadlineAt
+              ? t('shipDeadline', { date: formatDateTimeMx(request.shipDeadlineAt, locale) })
+              : t('noShipDeadline')}
+          </p>
+        )}
         {guide.isError && (
           <Banner variant="danger" role="alert">
             {guideErrorText(guide.error)}
@@ -224,5 +239,34 @@ export function BuylistShipmentActions({
         )}
       </Modal>
     </section>
+  );
+}
+
+/** §BUYLIST-RASTREO: `aceptada`, plazo vencido, sin confirmación ni «ya lo mandé». Solo compara la fecha que mandó el servidor. */
+export function isShipDeadlinePassed(request: AdminBuylistDTO, now: number = Date.now()): boolean {
+  return (
+    request.status === 'aceptada' &&
+    !!request.shipDeadlineAt &&
+    new Date(request.shipDeadlineAt).getTime() <= now &&
+    !request.shipmentConfirmedAt &&
+    !request.sellerShippedDeclaredAt
+  );
+}
+
+export function ShipDeadlineNotice({ onConfirm }: { onConfirm: () => void }) {
+  const t = useTranslations('admin.m5.shipment');
+  const tCarrier = useTranslations('admin.m5.carrier');
+  return (
+    <Banner
+      variant="warning"
+      role="status"
+      action={
+        <Button size="sm" onClick={onConfirm} data-testid="m5-overdue-confirm">
+          {t('confirmCta')}
+        </Button>
+      }
+    >
+      <span data-testid="m5-overdue-notice">{tCarrier('overdue')}</span>
+    </Banner>
   );
 }

@@ -1,10 +1,11 @@
 import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
+import { CardLinkRepairService } from './card-link-repair.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
 class SyncDto {
@@ -16,6 +17,11 @@ class SyncDto {
    * default `false` (comportamiento previo exacto). Uso recomendado: `{ setId, force: true }`.
    */
   @IsOptional() @IsBoolean() force?: boolean;
+}
+
+/** §PRECIO-SIN-ENLACE — body de `POST /admin/catalog/link-repair`: el UUID LOCAL del set (⛔ no el id de pokemontcg.io). */
+class LinkRepairDto {
+  @IsUUID() setId!: string;
 }
 
 /**
@@ -67,6 +73,7 @@ export class AdminCatalogController {
     private readonly sync: CatalogSyncService,
     private readonly audit: AuditService,
     private readonly tcgcsvImport: TcgcsvSetImportService,
+    private readonly linkRepair: CardLinkRepairService,
   ) {}
 
   @Get('remote-sets')
@@ -87,8 +94,9 @@ export class AdminCatalogController {
    * AuditLog) y NO llama a pokemontcg.io (lee estado en memoria; no consume rate-limit).
    */
   @Get('sync-status')
-  syncStatus() {
-    return this.sync.getSyncStatus();
+  async syncStatus() {
+    // §PRECIO-SIN-ENLACE: `unlinkedPrice` aditivo, solo lectura LOCAL (cartas con 0 CardProduct; sin proveedores).
+    return { ...this.sync.getSyncStatus(), unlinkedPrice: await this.linkRepair.unlinkedPrice() };
   }
 
   /**
@@ -116,6 +124,19 @@ export class AdminCatalogController {
         unmappedCount: res.unmapped.length,
       },
     });
+    return res;
+  }
+
+  /**
+   * POST /admin/catalog/link-repair {setId} — §PRECIO-SIN-ENLACE: liga SOLO las cartas sin enlace de UN set (jamás reescribe las
+   * enlazadas; no es `sync` ni usa `force`). super_admin, auditado (`catalog.link_repair`), una corrida por set cada 10 min (429).
+   */
+  @Post('link-repair')
+  @HttpCode(200)
+  async doLinkRepair(@Body() dto: LinkRepairDto, @CurrentUser() user: { id: string; role: Role }) {
+    const { name: _name, error: _error, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
+    void _name;
+    void _error;
     return res;
   }
 

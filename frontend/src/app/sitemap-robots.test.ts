@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({ getSitemap: () => getSitemap(), getDecksMeta: () =
 
 import sitemap from './sitemap';
 import robots from './robots';
+import { resetSnapshotCache } from '@/lib/snapshot-cache';
 
 /** Semántica de robots.txt de Google: prefijo con `*` comodín y `$` fin. */
 function blockedBy(pattern: string, path: string): boolean {
@@ -52,8 +53,9 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(REQUEST_TIME));
+    resetSnapshotCache();
     getSitemap.mockReset();
-    getSitemap.mockRejectedValue(new Error('backend caído'));
+    getSitemap.mockResolvedValue({ generatedAt: '2026-10-18T17:59:00.000Z', items: [] });
     getDecksMeta.mockReset();
     getDecksMeta.mockRejectedValue(new Error('backend caído'));
   });
@@ -100,7 +102,7 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     expectNoEntryAtRequestTime(entries);
   });
 
-  it('C6: sin backend, las fijas salen sin lastmod (salvo privacidad), no con la hora de la petición', async () => {
+  it('C6: sin fuente de fechas, las fijas salen sin lastmod (salvo privacidad), no con la hora de la petición', async () => {
     const entries = await sitemap();
     vi.useRealTimers();
     const fixed = entries.filter((e) => /\/es(\/(catalog|sellado|accesorios|decks-meta|buylist|terminos))?$/.test(e.url));
@@ -129,5 +131,51 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     // El matcher sí muerde: lo privado queda bloqueado.
     expect(disallow.some((d) => blockedBy(d, '/es/account'))).toBe(true);
     expect(r.sitemap).toBe('https://tcghunt.mx/sitemap.xml');
+  });
+});
+
+describe('frescura del sitemap = la del feed de Google', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-25T12:00:00Z'));
+    resetSnapshotCache();
+    getSitemap.mockReset();
+    getDecksMeta.mockReset();
+    getDecksMeta.mockResolvedValue(null);
+  });
+
+  it('es dinámico (revalidate no tiene tope de edad)', async () => {
+    const mod = await import('./sitemap');
+    expect(mod.dynamic).toBe('force-dynamic');
+    expect((mod as { revalidate?: number }).revalidate).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('memoria de 60 s con tope duro: misma copia dentro de 60 s, regenera después', async () => {
+    getSitemap.mockResolvedValue({ generatedAt: 'x', items: [{ type: 'card', id: 'c1', lastmod: '2026-10-10T00:00:00Z' }] });
+    await sitemap();
+    vi.advanceTimersByTime(59_000);
+    await sitemap();
+    expect(getSitemap).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2_000);
+    await sitemap();
+    expect(getSitemap).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('m-17: con el backend caído FALLA (no publica un sitemap recortado) y no memoriza el fallo', async () => {
+    getSitemap.mockResolvedValue({ generatedAt: 'x', items: [{ type: 'card', id: 'c1', lastmod: '2026-10-10T00:00:00Z' }] });
+    await sitemap();
+    vi.advanceTimersByTime(61_000);
+    getSitemap.mockRejectedValue(new Error('backend caído'));
+    await expect(sitemap()).rejects.toThrow();
+    // con copia de <60 s sí se conserva
+    getSitemap.mockResolvedValue({ generatedAt: 'x', items: [{ type: 'card', id: 'c1', lastmod: '2026-10-10T00:00:00Z' }] });
+    const ok = await sitemap();
+    expect(ok.some((e) => e.url.endsWith('/catalog/c1'))).toBe(true);
+    getSitemap.mockRejectedValue(new Error('backend caído'));
+    vi.advanceTimersByTime(30_000);
+    expect((await sitemap()).some((e) => e.url.endsWith('/catalog/c1'))).toBe(true);
+    vi.useRealTimers();
   });
 });

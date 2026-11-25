@@ -1054,6 +1054,13 @@
       }
     }
   },
+  "buylistCarrier": {
+    "pickedUp": "Tu paquete fue recolectado",
+    "onTheWay": "Tu paquete va en camino",
+    "delivered": "La paquetería lo entregó. Lo estamos recibiendo en la tienda.",
+    "incident": "La paquetería reportó un problema con tu paquete. Lo estamos revisando; el avance se verá aquí.",
+    "returning": "Tu paquete va de regreso; revisamos qué pasó."
+  },
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
@@ -2127,7 +2134,8 @@
         "breakdownEnNoBase": "Base: {version} en inglés · mercado de TCGplayer",
         "breakdownEs": "Base: {version} en inglés · {base} × {pct} % (español)",
         "breakdownEsNoBase": "Base: {version} en inglés · × {pct} % (español)",
-        "noPrice": "Sin precio: esta versión no se puede dar de alta hoy (vuelve sola cuando haya mercado).",
+        "noPrice": "Sin precio de mercado: esta versión todavía no se puede dar de alta.",
+        "noPriceCanCreate": "Sin precio de mercado. Puedes darla de alta: escribe abajo lo que pagaste. Saldrá a la venta cuando tenga precio.",
         "loadingVersions": "Cargando versiones…",
         "reason": {
           "no_english_market": "Sin mercado del inglés",
@@ -4021,7 +4029,7 @@
         "confirmNote": "Confirmar es lo único que mueve la solicitud a «en tránsito» y lo único que la hace contar como «en camino» para las demás.",
         "actualCostLabel": "Costo real de la etiqueta (opcional)",
         "actualCostHint": "Solo para reporte. No cambia lo que se le deposita al vendedor: eso es la tarifa que él aceptó.",
-        "confirmCta": "Confirmar que llegó",
+        "confirmCta": "Confirmar envío",
         "confirmDialogTitle": "Confirma que el paquete salió",
         "confirmDialogBody": "La solicitud pasa a «en tránsito» y, desde ese momento, sus cartas cuentan como «en camino» en la mesa de decisión de otras solicitudes.",
         "confirmDialogNoGuide": "No hay guía capturada para esta solicitud. Se confirma igual —negarlo no devuelve el paquete— y queda anotado en la bitácora.",
@@ -4172,6 +4180,23 @@
           "unknown": "No sabemos si se declinó: el servidor no respondió. Revisamos la solicitud…",
           "notDone": "No se declinó: el servidor no respondió. Vuelve a intentarlo."
         }
+      },
+      "carrier": {
+        "stalled": "Lleva {n, plural, one {# día} other {# días}} sin movimiento de la paquetería",
+        "pickedUp": "Recolectado",
+        "onTheWay": "En camino",
+        "delivered": "Entregado",
+        "incident": "Incidencia",
+        "returning": "Devuelto",
+        "updated": "Actualizado {when}",
+        "deliveredWaiting": "La paquetería lo entregó. Falta recibirlo.",
+        "incidentNote": "Incidencia de paquetería. Revisa la guía.",
+        "returningNote": "Va de regreso al vendedor.",
+        "idle": "Aún sin movimiento de la paquetería",
+        "none": "Sin rastreo automático",
+        "autoTransit": "Marcado en tránsito automáticamente por la paquetería",
+        "overdue": "El plazo venció. Si el paquete ya viene en camino, pulsa Confirmar envío; si no, mañana se cierra sola.",
+        "title": "Paquetería"
       },
       "guideDue": {
         "line": "Sin guía: se cierra sola el {datetime} si para entonces no tiene guía.",
@@ -4405,6 +4430,50 @@
           "today": "hoy {time}",
           "retry": " · reintento {attempt} de {max}",
           "none": "Sin registro de una actualización del catálogo todavía."
+        },
+        "unlinkedPrice": {
+          "title": "{cards, plural, one {# carta sin precio ligado} other {# cartas sin precio ligado}} en {sets, plural, one {# set} other {# sets}}",
+          "lead": "Estas cartas no tienen su precio de mercado ligado, por eso salen «Sin mercado». Reintentar solo toca cartas sin ligar; las ya ligadas no cambian.",
+          "row": "{unlinked} de {total} sin ligar",
+          "collisions": "{n} coincidencias dudosas",
+          "omitted": "{n} omitidos",
+          "retry": "Reintentar enlace",
+          "retrying": "Enlazando…",
+          "aria": "Reintentar enlace de {name}",
+          "ok": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}} en {name}.",
+          "none": "No se pudo ligar ninguna carta en {name}: {reason}.",
+          "cardsCount": "{n, plural, one {# carta} other {# cartas}}",
+          "err": "No se pudo reintentar el enlace de {name}.",
+          "notLinkableTitle": "{count, plural, one {# carta no se puede ligar} other {# cartas no se pueden ligar}}",
+          "reason": {
+            "collisions": "hay números repetidos y no se sabe cuál es cuál",
+            "ownerConflict": "el producto ya pertenece a otra carta",
+            "noGroup": "este set no tiene grupo de precios",
+            "tcgcsvSource": "su fuente de precios no permite ligar",
+            "nameMismatch": "el nombre no coincide",
+            "noLocalCard": "el producto no tiene carta en tu catálogo",
+            "alreadyLinked": "la carta ya estaba ligada",
+            "other": "sin coincidencia clara"
+          },
+          "reasonCount": {"ownerConflict": "{n} con dueño distinto", "nameMismatch": "{n} por nombre distinto", "alreadyLinked": "{n} ya estaban ligadas", "collisions": "{n} con número repetido", "noLocalCard": "{n} sin carta en tu catálogo"},
+          "piecesCorrected": "{n, plural, one {Se corrigió el acabado de # pieza} other {Se corrigieron los acabados de # piezas}}.",
+          "piecesExcluded": "No se tocaron: {list}.",
+          "excl": {
+            "customerVault": "{n} en bóveda de clientes",
+            "status": "{n} por su estado",
+            "reserved": "{n} reservadas",
+            "order": "{n} con pedido",
+            "shipment": "{n} con envío",
+            "dispute": "{n} con disputa",
+            "movement": "{n} con movimientos",
+            "ambiguousFinishes": "{n} con acabado ambiguo",
+            "changedConcurrently": "{n} que cambiaron mientras se corregían",
+            "other": "{n} por otro motivo"
+          },
+          "rate": "Espera {minutes, plural, one {# minuto} other {# minutos}} antes de reintentar este set.",
+          "rateGeneric": "Espera unos minutos antes de reintentar este set.",
+          "upstream": "La fuente de precios no respondió, intenta más tarde.",
+          "conflictsCount": "{n} con dueño distinto"
         },
         "degradedTitle": "La lista está incompleta",
         "degradedBody": "La lista está incompleta porque pokemontcg.io no respondió: solo se muestran los sets que ya están en tu catálogo. Se vuelve a intentar sola; puedes reintentar ahora si quieres verla ya.",
@@ -7257,23 +7326,23 @@
       "acqLabel": "Adquisición",
       "buy": {
         "label": "Comprar",
-        "sublabel": "Pagamos por pieza:",
-        "priceLabel": "Costo TOTAL de la factura, IVA incluido (MXN)",
-        "priceRequired": "Captura un precio mayor a cero.",
+        "priceLabel": "Lo que pagamos por pieza (MXN, con IVA)",
+        "priceMissing": "Falta escribir lo que pagaste.",
+        "priceRequired": "Escribe un importe mayor a cero.",
         "helper": {
           "rule": "Sugerido por regla",
           "manual": "Precio manual activo",
           "bounty": "Precio bounty activo",
-          "none": "Sin sugerido — captura el precio pagado."
+          "none": "Escribe lo que pagaste por la carta."
         }
       },
       "contrib": {
         "label": "Aportación",
         "sublabel": "Se registra a valor de mercado:",
         "pendingPill": "Precio pendiente",
-        "pendingBlocked": "Sin valor de mercado — fija primero el precio de esta variante.",
-        "pendingBlockedAdmin": "Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar.",
-        "pendingBlockedInline": "Sin valor de mercado — captura el precio manual de arriba para habilitarla."
+        "pendingBlocked": "Aportación no disponible: la carta no tiene precio de mercado.",
+        "pendingBlockedAdmin": "Aportación no disponible: fija el precio en la sección Precios y vuelve a intentar.",
+        "pendingBlockedInline": "Aportación no disponible: escribe arriba el precio manual para habilitarla."
       },
       "cta": "Dar de alta al inventario",
       "loading": "Dando de alta…",
@@ -7281,7 +7350,7 @@
       "successSummary": "{count} piezas dadas de alta · {first} a {last}.",
       "successOneVersion": "Pieza dada de alta · {version} · {folio}.",
       "successSummaryVersion": "{count} piezas dadas de alta · {version} · {first} a {last}.",
-      "pricePendingError": "No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.",
+      "pricePendingError": "No se registró la aportación: la carta no tiene precio de mercado. Fija el precio y vuelve a intentar.",
       "versionRefreshed": "Esta versión se actualizó mientras la dabas de alta. Revisa la versión elegida y vuelve a dar de alta.",
       "partialSummary": "{created} creadas · {failed} rechazadas.",
       "replay": "Reintento idempotente (no se duplicó).",

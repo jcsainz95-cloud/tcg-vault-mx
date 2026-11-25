@@ -1,6 +1,8 @@
 import { CatalogController } from '../src/modules/catalog/catalog.controller';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
+import { PublicSnapshotService } from '../src/modules/catalog/public-snapshot.service';
+import { PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } from '../src/modules/catalog/merchant-feed';
 import { MerchantFeedService } from '../src/modules/catalog/merchant-feed.service';
 import {
   MERCHANT_CATEGORY,
@@ -177,9 +179,10 @@ function stack(items: Array<Record<string, unknown>>, settings: Record<string, n
       : k === SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS ? (settings.sealed ?? SHIP.sealedFeeCents)
       : (settings.free ?? SHIP.freeFromCents)),
   } as unknown as SettingsService;
-  const feed = new MerchantFeedService(catalog, sealed, settingsSvc);
-  const controller = new CatalogController(catalog, {} as unknown as SetValueService, sealed, undefined, feed);
-  return { catalog, sealed, feed, controller };
+  const snapshot = new PublicSnapshotService(catalog, sealed);
+  const feed = new MerchantFeedService(snapshot, settingsSvc);
+  const controller = new CatalogController(catalog, {} as unknown as SetValueService, sealed, undefined, feed, snapshot);
+  return { catalog, sealed, feed, controller, snapshot };
 }
 
 const res = () => {
@@ -364,28 +367,54 @@ describe('§GSHOP — g:id de sellado estable, caché de servidor, guarda de rut
     expect(r.skipped).toBe(1);
   });
 
-  it('caché de servidor 5 min: una sola consulta por ventana; 0 ítems no se cachea; cabecera 60/300/300', async () => {
+  it('foto compartida de 60 s: UNA consulta por ventana para feed Y sitemap; 0 ítems no se cachea; cabecera 0/60 sin swr; tope por IP acorde a la foto en memoria', async () => {
     const items = [ITEM({ listPriceCents: 10000 })];
     const { feed, catalog, controller } = stack(items);
-    const spy = jest.spyOn(catalog, 'merchantFeedCardRows');
+    const spy = jest.spyOn(catalog, 'publicCardSnapshot');
     await feed.build();
     await feed.build();
-    expect(spy).toHaveBeenCalledTimes(1);
+    await controller.sitemap();
+    expect(spy).toHaveBeenCalledTimes(1); // feed y sitemap leen la MISMA foto
     const r = res();
     await controller.merchantFeedGet(r.r as never);
-    expect(r.headers['Cache-Control']).toBe('public, max-age=60, s-maxage=300, stale-while-revalidate=300');
+    expect(r.headers['Cache-Control']).toBe('public, max-age=0, s-maxage=60'); // m-17: sin stale-while-revalidate
+    // I-11: el backend ve UNA IP (Next); el tope de feed y sitemap es 300/min (sirven la foto en memoria), no 20.
+    const THROTTLE = (name: 'merchantFeedGet' | 'sitemap') => Reflect.getMetadata('THROTTLER:LIMITdefault', (CatalogController.prototype as never)[name]);
+    expect(THROTTLE('merchantFeedGet')).toBe(PUBLIC_SNAPSHOT_THROTTLE_PER_MIN);
+    expect(THROTTLE('sitemap')).toBe(PUBLIC_SNAPSHOT_THROTTLE_PER_MIN);
+    expect(PUBLIC_SNAPSHOT_THROTTLE_PER_MIN).toBeGreaterThanOrEqual(120);
     const empty = stack([]);
-    const spy2 = jest.spyOn(empty.catalog, 'merchantFeedCardRows');
+    const spy2 = jest.spyOn(empty.catalog, 'publicCardSnapshot');
     await empty.feed.build();
     await empty.feed.build();
     expect(spy2).toHaveBeenCalledTimes(2);
   });
 
-  it('caché del sitemap: segunda llamada no vuelve a consultar', async () => {
-    const { controller, catalog } = stack([ITEM({ listPriceCents: 10000 })]);
-    const spy = jest.spyOn(catalog, 'sitemapCardEntries');
-    await controller.sitemap();
-    await controller.sitemap();
-    expect(spy).toHaveBeenCalledTimes(1);
+  it('PARIDAD feed = sitemap = vendible (auditoría 2026-11-25): una carta que se vende entre las dos lecturas sale de LOS DOS a la vez; pasada la ventana, de ambos y con el precio vigente', async () => {
+    const c1 = CARD({ id: 'p1', name: 'Uno', number: '1' });
+    const c2 = CARD({ id: 'p2', name: 'Dos', number: '2' });
+    const items: Array<Record<string, unknown>> = [ITEM({ id: 'p1a', cardId: 'p1', card: c1, listPriceCents: 10000 }), ITEM({ id: 'p2a', cardId: 'p2', card: c2, listPriceCents: 20000 })];
+    const { feed, controller, catalog } = stack(items);
+    const now = jest.spyOn(Date, 'now');
+    const t0 = 1_800_000_000_000;
+    now.mockReturnValue(t0);
+    const ids = async () => ({
+      feed: (await feed.build()).items.filter((i) => i.kind === 'card').map((i) => i.id.replace('card:', '')).sort(),
+      map: ((await controller.sitemap()) as { items: { type: string; id: string }[] }).items.filter((i) => i.type === 'card').map((i) => i.id).sort(),
+    });
+    const first = await ids();
+    expect(first.feed).toEqual(['p1', 'p2']);
+    expect(first.map).toEqual(first.feed);
+    items.splice(1, 1); // p2 se vende
+    (items[0] as { listPriceCents: number }).listPriceCents = 12000; // y p1 cambia de precio
+    const within = await ids();
+    expect(within.map).toEqual(within.feed); // misma foto ⇒ NUNCA divergen, ni dentro de la ventana
+    now.mockReturnValue(t0 + 61_000);
+    const after = await ids();
+    expect(after.feed).toEqual(['p1']);
+    expect(after.map).toEqual(['p1']);
+    expect([...(await catalog.cardIdsWithSellable(['p1', 'p2']))]).toEqual(['p1']); // = vendible
+    expect((await feed.build()).items.find((i) => i.id === 'card:p1')?.priceCents).toBe((await catalog.getCard('p1')).listings[0].displayPriceCents);
+    now.mockRestore();
   });
 });

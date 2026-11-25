@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { CardPhotoLightbox } from './CardPhotoLightbox';
+import { InboundCarrierStatus } from './InboundCarrierStatus';
 
 /** Botón «Copiar» con aviso breve «Copiado». El portapapeles puede fallar (permiso): entonces no afirma nada. */
 export function CopyButton({ text, label, copiedLabel, testId }: { text: string; label: string; copiedLabel: string; testId?: string }) {
@@ -500,9 +501,8 @@ export function RequestRibbon({ req }: { req: AdminBuylistDTO }) {
               </a>
             )}
           </>
-        ) : (
-          <p className="text-sm text-muted">{t('noTracking')}</p>
-        )}
+        ) : null}
+        <InboundCarrierStatus req={req} />
       </div>
       <div>
         <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-muted">{t('waiting')}</p>

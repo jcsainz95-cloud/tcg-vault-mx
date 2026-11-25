@@ -21,7 +21,13 @@ import { ShippingProviderError } from '../shipping-provider/shipping-provider.er
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { ShipmentCarrierService } from './carrier-status.service';
 import { TRACKING_POLL_BATCH } from './label-verify.constants';
-import { OUTBOUND_ONLY } from './label-subject';
+import { INBOUND_ONLY, OUTBOUND_ONLY, isBuylistInbound } from './label-subject';
+import { INBOUND_DELIVERED_STATUSES, INBOUND_MOVEMENT_LIST, SWEEP_PRE_POLL_LIMIT } from './inbound-carrier';
+import { REOPEN_WINDOW_MS } from '../buylist/inbound-carrier-move';
+
+/** m-2: las guías de ENTRADA ocupan como máximo 25 de los 50 lugares del lote (20 vivas + 5 de reapertura): las de salida nunca se quedan sin cupo. */
+const INBOUND_LIVE_SHARE = 20;
+const INBOUND_REOPEN_SHARE = 5;
 
 export interface TrackingPollResult {
   skipped?: 'provider_off' | 'not_configured' | 'running';
@@ -35,6 +41,8 @@ export interface TrackingPollResult {
 export class ShipmentTrackingPollJob {
   private readonly logger = new Logger(ShipmentTrackingPollJob.name);
   private running = false;
+  /** m-2: guías de ENTRADA cuyo sondeo falló, id → instante. Salen del lote durante un ciclo para no taparle el lugar a las de salida. */
+  private readonly inboundBackoff = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,22 +73,116 @@ export class ShipmentTrackingPollJob {
     try {
       const now = this.clock.now();
       const minutes = await this.settings.getNumber(SettingKey.SHIPPING_TRACKING_POLL_MINUTES);
-      const rows = await this.prisma.shipmentRequest.findMany({
+      const due = (m: number) => [{ carrierPolledAt: null }, { carrierPolledAt: { lt: new Date(now.getTime() - m * 60_000) } }];
+      const outbound = await this.prisma.shipmentRequest.findMany({
         where: {
-          // rev BSD-1 (I-BSD-6, censo BSD-B23): la guía de ENTRADA no entra al sondeo (P-BSD-5) ⇒ tampoco a AV-17/18/19.
           ...OUTBOUND_ONLY,
           labelSource: 'skydropx',
           status: { in: ['guia', 'enviado'] },
           providerCanceledAt: null,
           providerShipmentId: { not: null },
-          OR: [{ carrierPolledAt: null }, { carrierPolledAt: { lt: new Date(now.getTime() - minutes * 60_000) } }],
+          OR: due(minutes),
         },
         orderBy: [{ carrierPolledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
         take: TRACKING_POLL_BATCH,
       });
+      // §BUYLIST-RASTREO: la guía de ENTRADA de una solicitud viva (`aceptada`/`en_transito`, sin cerrar) y aún no entregada.
+      const inboundMinutes = await this.settings.getNumber(SettingKey.BUYLIST_INBOUND_TRACKING_POLL_MINUTES);
+      // m-2: un fallo del proveedor en una guía de entrada la saca del lote durante un ciclo (no sella `carrierPolledAt`).
+      for (const [id, at] of this.inboundBackoff) if (now.getTime() - at >= inboundMinutes * 60_000) this.inboundBackoff.delete(id);
+      const backedOff = [...this.inboundBackoff.keys()];
+      const inbound = await this.prisma.shipmentRequest.findMany({
+        where: {
+          ...INBOUND_ONLY,
+          ...this.inboundLiveWhere(),
+          id: { notIn: backedOff },
+          AND: [{ OR: due(inboundMinutes) }],
+        },
+        orderBy: [{ carrierPolledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+        take: INBOUND_LIVE_SHARE,
+      });
+      // Reapertura (dueño: B): `expirada/not_shipped` de ≤ 30 d con la guía VIVA (nunca cancelada ante el proveedor) y aún sin
+      // lectura de movimiento: si la paquetería la muestra en camino, `applyCarrierStatus` la reabre (o la deja listada).
+      const reopenable = await this.prisma.shipmentRequest.findMany({
+        where: {
+          ...INBOUND_ONLY,
+          labelSource: 'skydropx',
+          status: 'cancelado',
+          providerCanceledAt: null,
+          providerShipmentId: { not: null },
+          id: { notIn: backedOff },
+          sellRequest: {
+            is: {
+              status: 'expirada',
+              expiredReason: 'not_shipped',
+              closedAt: { gte: new Date(now.getTime() - REOPEN_WINDOW_MS) },
+              paidAt: null,
+              payoutNetCents: null,
+            },
+          },
+          AND: [{ OR: due(inboundMinutes) }, { OR: [{ carrierStatus: null }, { carrierStatus: { notIn: INBOUND_MOVEMENT_LIST } }] }],
+        },
+        orderBy: [{ carrierPolledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+        take: INBOUND_REOPEN_SHARE,
+      });
+      // Misma cola y mismo tope (50) para entradas y salidas: orden `carrierPolledAt asc nulls first`.
+      const rows = [...outbound, ...inbound, ...reopenable]
+        .sort((a, b) => (a.carrierPolledAt?.getTime() ?? -1) - (b.carrierPolledAt?.getTime() ?? -1) || (a.id < b.id ? -1 : 1))
+        .slice(0, TRACKING_POLL_BATCH);
       return await this.pollRows(rows);
     } finally {
       this.running = false;
+    }
+  }
+
+  /** La guía de entrada VIVA de una solicitud que aún puede moverse: Skydropx, en `guia`, sin cancelar, solicitud abierta, no entregada. */
+  private inboundLiveWhere() {
+    return {
+      labelSource: 'skydropx' as const,
+      status: 'guia' as const,
+      providerCanceledAt: null,
+      providerShipmentId: { not: null },
+      sellRequest: { is: { status: { in: ['aceptada', 'en_transito'] as ('aceptada' | 'en_transito')[] }, closedAt: null } },
+      OR: [{ carrierStatus: null }, { carrierStatus: { notIn: [...INBOUND_DELIVERED_STATUSES] } }],
+    };
+  }
+
+  /**
+   * §BUYLIST-RASTREO — el sondeo ACOTADO que corre al inicio del barrido de las 08:00: SOLO las `aceptada` con plazo vencido y sin
+   * señal (las que la regla 2 miraría), hasta `SWEEP_PRE_POLL_LIMIT` llamadas. Nunca lanza (un proveedor caído ⇒ la regla 2 pospone).
+   */
+  async pollOverdueInbound(now: Date): Promise<TrackingPollResult> {
+    const empty = { polled: 0, events: 0, applied: 0, errors: 0 };
+    try {
+      const g = await this.gate();
+      if (g !== 'ok') return { skipped: g, ...empty };
+      if (this.running) return { skipped: 'running', ...empty };
+      this.running = true;
+      try {
+        const rows = await this.prisma.shipmentRequest.findMany({
+          where: {
+            ...INBOUND_ONLY,
+            ...this.inboundLiveWhere(),
+            sellRequest: {
+              is: {
+                status: 'aceptada',
+                closedAt: null,
+                shipDeadlineAt: { not: null, lte: now },
+                sellerShippedDeclaredAt: null,
+                shipmentConfirmedAt: null,
+              },
+            },
+          },
+          orderBy: [{ carrierPolledAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+          take: SWEEP_PRE_POLL_LIMIT,
+        });
+        return await this.pollRows(rows);
+      } finally {
+        this.running = false;
+      }
+    } catch (e) {
+      this.logger.warn(`buylist_pre_poll_failed: ${e instanceof Error ? e.message : String(e)}`);
+      return { ...empty, errors: 1 };
     }
   }
 
@@ -99,7 +201,10 @@ export class ShipmentTrackingPollJob {
         out.errors += 1;
         this.logger.warn(`tracking_poll_failed shipmentId=${row.id}: ${e instanceof ShippingProviderError ? e.code : e instanceof Error ? e.message : String(e)}`);
         // El intento cuenta como sondeo: un envío que falla siempre no tapa a los demás del lote (orden por `carrierPolledAt`).
-        await this.prisma.shipmentRequest.updateMany({ where: { id: row.id }, data: { carrierPolledAt: this.clock.now() } });
+        // ⛔ Excepto la guía de ENTRADA: ahí `carrierPolledAt` = último sondeo EXITOSO (la regla 2 del barrido y `pollError` lo leen);
+        // un fallo del proveedor no lo sella ni mueve nada, y reintenta en el siguiente ciclo.
+        if (isBuylistInbound(row)) this.inboundBackoff.set(row.id, this.clock.now().getTime());
+        else await this.prisma.shipmentRequest.updateMany({ where: { id: row.id }, data: { carrierPolledAt: this.clock.now() } });
       }
     }
     return out;
@@ -112,6 +217,8 @@ export class ShipmentTrackingPollJob {
   pollable(row: ShipmentRequest): boolean {
     if (row.labelSource !== 'skydropx' || !row.providerShipmentId || row.providerCanceledAt !== null) return false;
     if (row.status === 'guia' || row.status === 'enviado') return true;
+    // §BUYLIST-RASTREO (reapertura): la guía de entrada de una solicitud cerrada por «no envió», aún viva ante el proveedor.
+    if (isBuylistInbound(row) && row.status === 'cancelado') return true;
     return row.status === 'picking' && row.labelProcessingSince !== null && row.trackingNumber === null;
   }
 

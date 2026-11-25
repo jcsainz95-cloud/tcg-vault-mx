@@ -234,6 +234,9 @@ function sealedIdentityFieldsOf(item: ItemWithCardOnly) {
  * (override > mercado×spread > PRICE_PENDING) reusando `computeSealedSalePrice`. Sin N+1: 1 query de
  * piezas + 1 lote de referencias + agrupación en memoria (patrón `set-value.service`).
  */
+/** «A la venta» del sellado: publicado de plataforma (la MISMA lectura del sitemap y del feed). */
+const SEALED_PUBLIC_WHERE = { productType: 'sealed', status: 'listed', ownerType: 'platform' } as const;
+
 @Injectable()
 export class SealedCatalogService {
   private readonly logger = new Logger('SealedCatalogService');
@@ -497,10 +500,10 @@ export class SealedCatalogService {
    */
   async sitemapSealedEntries(): Promise<SitemapItem[]> {
     const dials = await this.settings.getIvaDials();
-    const priced = await this.loadPricedSealed(
-      { productType: 'sealed', status: 'listed', ownerType: 'platform' },
-      dials,
-    );
+    return this.sitemapFromGroups(this.sealedGroups(await this.loadPricedSealed(SEALED_PUBLIC_WHERE, dials)), dials);
+  }
+
+  private sealedGroups(priced: PricedSealed[]): Map<string, PricedSealed[]> {
     const groups = new Map<string, PricedSealed[]>();
     for (const p of priced) {
       const k = this.groupKey(p.item);
@@ -508,6 +511,10 @@ export class SealedCatalogService {
       if (arr) arr.push(p);
       else groups.set(k, [p]);
     }
+    return groups;
+  }
+
+  private sitemapFromGroups(groups: Map<string, PricedSealed[]>, dials: Awaited<ReturnType<SettingsService['getIvaDials']>>): SitemapItem[] {
     return [...groups.values()].map((members) => {
       // Representante = la pieza más barata (mismo criterio que `toGroupDTO`), la que abre la ficha.
       const rep = [...members].sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials))[0];
@@ -523,14 +530,17 @@ export class SealedCatalogService {
    */
   async merchantFeedSealedRows(): Promise<MerchantFeedRaw[]> {
     const dials = await this.settings.getIvaDials();
-    const priced = await this.loadPricedSealed({ productType: 'sealed', status: 'listed', ownerType: 'platform' }, dials);
-    const groups = new Map<string, PricedSealed[]>();
-    for (const p of priced) {
-      const k = this.groupKey(p.item);
-      const arr = groups.get(k);
-      if (arr) arr.push(p);
-      else groups.set(k, [p]);
-    }
+    return this.feedFromGroups(this.sealedGroups(await this.loadPricedSealed(SEALED_PUBLIC_WHERE, dials)), dials);
+  }
+
+  /** Paridad feed = sitemap: UNA lectura de sellado a la venta de la que salen las dos proyecciones. */
+  async publicSealedSnapshot(): Promise<{ sitemap: SitemapItem[]; feedRows: MerchantFeedRaw[] }> {
+    const dials = await this.settings.getIvaDials();
+    const groups = this.sealedGroups(await this.loadPricedSealed(SEALED_PUBLIC_WHERE, dials));
+    return { sitemap: this.sitemapFromGroups(groups, dials), feedRows: this.feedFromGroups(groups, dials) };
+  }
+
+  private feedFromGroups(groups: Map<string, PricedSealed[]>, dials: Awaited<ReturnType<SettingsService['getIvaDials']>>): MerchantFeedRaw[] {
     return [...groups.entries()].map(([gk, members]) => {
       const g = this.toGroupDTO(members, dials);
       const setName = g.card.setName ?? '';

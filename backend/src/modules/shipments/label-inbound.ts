@@ -256,6 +256,11 @@ export const INBOUND_LABEL_SELECT = {
   providerShipmentId: true,
   providerCanceledAt: true,
   trackingNumber: true,
+  // §BUYLIST-RASTREO: `inboundCarrier` del vendedor (mismo `select`, ⛔ N+1).
+  carrierStatus: true,
+  carrierStatusAt: true,
+  carrierPolledAt: true,
+  requestedAt: true,
 } as const;
 
 /**

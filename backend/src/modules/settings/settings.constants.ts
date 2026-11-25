@@ -372,6 +372,10 @@ export const SettingKey = {
   SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS: 'shipping_package_rule_box_min_cards',
   SKYDROPX_LOW_BALANCE_CENTS: 'skydropx_low_balance_cents',
   SHIPPING_TRACKING_POLL_MINUTES: 'shipping_tracking_poll_minutes',
+  // §BUYLIST-RASTREO — cada cuántos minutos se sondea la guía de ENTRADA de una solicitud aceptada.
+  BUYLIST_INBOUND_TRACKING_POLL_MINUTES: 'buylist_inbound_tracking_poll_minutes',
+  // §BUYLIST-RASTREO G3-3 — días sin escaneo nuevo de una `en_transito` antes de la alerta «Sin movimiento de la paquetería».
+  BUYLIST_INBOUND_STALLED_DAYS: 'buylist_inbound_stalled_days',
   // §19.19.5 — escalones de seguro (regla `HECHOS.md:48`: «siempre se asegura, el escalón que cubra»).
   SHIPPING_INSURANCE_TIERS: 'shipping_insurance_tiers',
   SHIPPING_LABEL_FORMAT: 'shipping_label_format',
@@ -666,6 +670,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS]: 60,
   [SettingKey.SKYDROPX_LOW_BALANCE_CENTS]: 100000, // MX$1,000 — HECHOS.md:62 (v1.80.12.9, §19.29.2; antes 50000)
   [SettingKey.SHIPPING_TRACKING_POLL_MINUTES]: 60,
+  [SettingKey.BUYLIST_INBOUND_TRACKING_POLL_MINUTES]: 60,
+  [SettingKey.BUYLIST_INBOUND_STALLED_DAYS]: 10,
   [SettingKey.SHIPPING_INSURANCE_TIERS]: DEFAULT_SHIPPING_INSURANCE_TIERS, // HECHOS.md:48 — $2,500 ⇒ $25; $10,000 ⇒ $170
   [SettingKey.SHIPPING_LABEL_FORMAT]: 'standard',
   // 💰 v1.80.12.9 (§19.29.8; seeds = HECHOS.md:62 / PROJECT §Z.3 aceptado entero por el dueño)
@@ -1385,6 +1391,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS]: validateIntRange(1, 500),
   [SettingKey.SKYDROPX_LOW_BALANCE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.SHIPPING_TRACKING_POLL_MINUTES]: validateIntRange(5, 1440),
+  [SettingKey.BUYLIST_INBOUND_TRACKING_POLL_MINUTES]: validateIntRange(15, 1440),
+  [SettingKey.BUYLIST_INBOUND_STALLED_DAYS]: validateIntRange(2, 90),
   [SettingKey.SHIPPING_INSURANCE_TIERS]: validateInsuranceTiers,
   [SettingKey.SHIPPING_LABEL_FORMAT]: validateShippingLabelFormat,
   // 💰 v1.80.12.9 (§19.29.8). ⛔ El tope en 0 NO es legal (criterio 319: para cerrar compras está el interruptor).

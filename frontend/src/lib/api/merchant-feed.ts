@@ -37,12 +37,13 @@ export interface MerchantFeedResponse {
 
 export interface ServerFeedOptions {
   next?: { revalidate?: number; tags?: string[] };
+  cache?: RequestCache;
   signal?: AbortSignal;
 }
 
 export async function getMerchantFeed(server?: ServerFeedOptions): Promise<MerchantFeedResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<MerchantFeedResponse>('/catalog/merchant-feed', { next: server?.next, signal: server?.signal });
+    return apiRequest<MerchantFeedResponse>('/catalog/merchant-feed', { next: server?.next, cache: server?.cache, signal: server?.signal });
   }
   return {
     generatedAt: '2026-11-11T12:00:00.000Z',

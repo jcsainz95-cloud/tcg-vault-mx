@@ -11,6 +11,7 @@
 import {
   exceedsFieldLimits,
   isTcgcsvOrigin,
+  linkNameKey,
   parseTcgcsvCardName,
   stampTypeFromLabel,
   tcgcsvCardExternalId,
@@ -158,5 +159,30 @@ describe('P-PROMOS — marca de origen', () => {
     expect(isTcgcsvOrigin('svp-1')).toBe(false);
     expect(isTcgcsvOrigin(null)).toBe(false);
     expect(isTcgcsvOrigin(undefined)).toBe(false);
+  });
+});
+
+describe('§PRECIO-SIN-ENLACE CA-6 — paréntesis de NOMBRE vs sello', () => {
+  it.each([
+    ['Metagross (Delta Species)', '11/113', 'Metagross (Delta Species)'],
+    ['Gengar (Prime)', '94/102', 'Gengar (Prime)'],
+    ['Darkrai & Cresselia Legend (Top)', '99/102', 'Darkrai & Cresselia Legend (Top)'],
+    ['Darkrai & Cresselia Legend (Bottom)', '100/102', 'Darkrai & Cresselia Legend (Bottom)'],
+    ['N (Supporter)', '101/101', 'N (Supporter)'],
+  ])('«%s» ⇒ carta con el paréntesis en el nombre, sin sello', (raw, num, name) => {
+    const r = parseTcgcsvCardName(raw, num);
+    expect(r).toMatchObject({ ok: true, name, stamp: null });
+  });
+
+  it('los sellos de HECHOS 257 siguen siendo versión aparte y un paréntesis desconocido sigue omitido', () => {
+    expect(parseTcgcsvCardName('Miraidon (Pitch Black Stamped)', '79')).toMatchObject({ ok: true, stamp: { type: 'event_promo' } });
+    expect(parseTcgcsvCardName('Pikachu (Pokemon Center Exclusive)', '25')).toMatchObject({ ok: true, stamp: { type: 'event_promo' } });
+    expect(parseTcgcsvCardName('Metagross (Cosa Nunca Vista)', '11')).toEqual({ ok: false, reason: 'unknown_stamp' });
+  });
+
+  it('linkNameKey quita SOLO los paréntesis de nombre', () => {
+    expect(linkNameKey('Metagross (Delta Species)')).toBe('metagross');
+    expect(linkNameKey('Pikachu ex (30th Celebration)')).toBe('pikachu ex');
+    expect(linkNameKey('Genesect EX (Team Plasma)')).toBe('genesect ex team plasma');
   });
 });

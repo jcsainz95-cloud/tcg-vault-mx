@@ -4,6 +4,7 @@ const getMerchantFeed = vi.fn();
 vi.mock('@/lib/api/merchant-feed', () => ({ getMerchantFeed: (...a: unknown[]) => getMerchantFeed(...a) }));
 
 import { GET } from './route';
+import { resetSnapshotCache } from '@/lib/snapshot-cache';
 import type { MerchantFeedItem } from '@/lib/api/merchant-feed';
 import { buildMerchantFeedXml, escapeXml, stripXmlInvalid } from '@/lib/merchant-feed-xml';
 
@@ -13,6 +14,8 @@ const item = (o: Partial<MerchantFeedItem> = {}): MerchantFeedItem => ({
 });
 
 beforeEach(() => {
+  resetSnapshotCache();
+  vi.useRealTimers();
   getMerchantFeed.mockReset();
 });
 
@@ -22,7 +25,10 @@ describe('§GSHOP ruta /feeds/google-merchant.xml', () => {
     const res = await GET();
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
-    expect(res.headers.get('Cache-Control')).toContain('s-maxage=900');
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('Cache-Control')).not.toContain('stale-while-revalidate');
+    // Sin caché de datos de Next hacia el backend (con `revalidate: 900` la copia llegó a 55 min).
+    expect(getMerchantFeed).toHaveBeenCalledWith({ cache: 'no-store' });
     expect(res.headers.get('X-Feed-Items')).toBe('1');
     expect(res.headers.get('X-Feed-Skipped')).toBe('1');
     const xml = await res.text();
@@ -53,6 +59,25 @@ describe('§GSHOP ruta /feeds/google-merchant.xml', () => {
   it('sin shippingCents se omite <g:shipping> (no se inventa importe)', async () => {
     getMerchantFeed.mockResolvedValue({ items: [item({ shippingCents: undefined })], generatedAt: 'x' });
     expect(await (await GET()).text()).not.toContain('<g:shipping>');
+  });
+});
+
+describe('§GSHOP memoria de 60 s del feed', () => {
+  it('dentro de 60 s no vuelve a pegarle al backend; pasado el tope, regenera; con backend caído ⇒ 503', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-25T12:00:00Z'));
+    getMerchantFeed.mockResolvedValue({ items: [item()], generatedAt: 'x' });
+    expect((await GET()).status).toBe(200);
+    vi.advanceTimersByTime(59_000);
+    expect((await GET()).status).toBe(200);
+    expect(getMerchantFeed).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2_000);
+    getMerchantFeed.mockRejectedValue(new Error('x'));
+    const res = await GET();
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(getMerchantFeed).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });
 

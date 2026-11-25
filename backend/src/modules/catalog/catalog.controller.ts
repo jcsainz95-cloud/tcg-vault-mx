@@ -11,7 +11,8 @@ import { SealedCatalogService } from './sealed-catalog.service';
 import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
 import { FeaturedService } from './featured.service';
 import { MerchantFeedService } from './merchant-feed.service';
-import { MERCHANT_FEED_CACHE_CONTROL, MERCHANT_SERVER_CACHE_MS } from './merchant-feed';
+import { PublicSnapshotService } from './public-snapshot.service';
+import { MERCHANT_FEED_CACHE_CONTROL, PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } from './merchant-feed';
 
 /**
  * v1.23-sealed-sales (§2-S): «avísame cuando vuelva». ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f)): el cliente
@@ -30,8 +31,6 @@ export const CATALOG_LIST_CACHE_CONTROL = 'public, max-age=30, stale-while-reval
 
 @Controller('catalog')
 export class CatalogController {
-  private sitemapCache: { at: number; value: { items: Array<{ type: 'card' | 'sealed'; id: string; lastmod: string }>; generatedAt: string } } | null = null;
-
   constructor(
     private readonly catalog: CatalogService,
     private readonly setValue: SetValueService,
@@ -40,6 +39,8 @@ export class CatalogController {
     @Optional() private readonly featuredSvc?: FeaturedService,
     // §GSHOP.B: feed de Merchant (`@Optional` solo por los dobles posicionales; en la app siempre se inyecta).
     @Optional() private readonly merchantFeed?: MerchantFeedService,
+    // Paridad feed = sitemap: la foto compartida (`@Optional` solo por los dobles posicionales).
+    @Optional() private readonly snapshot?: PublicSnapshotService,
   ) {}
 
   /**
@@ -115,19 +116,17 @@ export class CatalogController {
   // (1 h): no es dato personal. ⛔ Ruta ESTÁTICA (`sitemap`), no colisiona con `cards/:cardId` ni
   // `sealed/:inventoryItemId` (prefijos distintos). Las rutas estáticas del sitio las añade el frontend.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } })
   @Header('Cache-Control', MERCHANT_FEED_CACHE_CONTROL)
   @Get('sitemap')
   async sitemap() {
-    const c = this.sitemapCache;
-    if (c && Date.now() - c.at < MERCHANT_SERVER_CACHE_MS) return c.value;
-    const [cards, sealed] = await Promise.all([
-      this.catalog.sitemapCardEntries(),
-      this.sealed.sitemapSealedEntries(),
-    ]);
-    const value = { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
-    // GS-2: caché de servidor de 5 min (misma ventana que el feed); 0 ítems no se cachea.
-    if (value.items.length > 0) this.sitemapCache = { at: Date.now(), value };
-    return value;
+    // Paridad con el feed de Merchant: UNA foto de «a la venta» (`PublicSnapshotService`, TTL 60 s) para las dos superficies.
+    if (this.snapshot) {
+      const snap = await this.snapshot.get();
+      return { items: snap.sitemap, generatedAt: snap.generatedAt };
+    }
+    const [cards, sealed] = await Promise.all([this.catalog.sitemapCardEntries(), this.sealed.sitemapSealedEntries()]);
+    return { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
   }
 
   // §GSHOP.B (docs/specs/GOOGLE_SHOPPING_E_INDEXACION.md) — feed para Google Merchant Center: público, SOLO LECTURA, una fila por
@@ -135,7 +134,10 @@ export class CatalogController {
   // Cabeceras `X-Feed-Items`/`X-Feed-Skipped`. Sin ítems ⇒ `503` (nunca un 200 vacío: Merchant conservaría lo anterior), sin
   // caché. Ruta estática, no colisiona con `cards/:cardId`. 20/min por IP (Merchant lo baja 1 vez al día).
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  // I-11: el backend ve UNA sola IP (el servidor de Next que arma el XML) ⇒ un tope por IP bajo lo tumba cualquiera. La respuesta sale de
+  // la foto en memoria de 60 s (`PublicSnapshotService`: sin consulta por petición), así que 300/min por IP (5/s) es holgado para el
+  // propio Next/Merchant y sigue acotando un abuso directo. Mismo tope en `sitemap`.
+  @Throttle({ default: { ttl: 60_000, limit: PUBLIC_SNAPSHOT_THROTTLE_PER_MIN } })
   @Get('merchant-feed')
   async merchantFeedGet(@Res({ passthrough: true }) res: Response) {
     const feed = await this.merchantFeed!.build();

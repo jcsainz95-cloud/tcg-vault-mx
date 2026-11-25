@@ -32,6 +32,7 @@ import {
   type WriteFigure,
 } from '@/lib/verdict';
 import { SyncProgress } from './shared';
+import { UnlinkedPriceNotice } from './UnlinkedPriceNotice';
 import type { CatalogSync, RepairSetResult } from './useCatalogSync';
 
 /**
@@ -894,6 +895,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
 
       {/* ── La tabla, y su acción de reparación por fila ── */}
       <AutoStatusLine status={syncStatus.data} />
+      <UnlinkedPriceNotice report={syncStatus.data?.unlinkedPrice} />
       <p className="text-sm text-muted">{t('section.repairLead')}</p>
       {/* pokemontcg.io caído ⇒ el servidor responde SOLO los sets locales con `degraded:true`. Una lista
           incompleta presentada como completa miente: se avisa, y «Reintentar» es solo un atajo (se

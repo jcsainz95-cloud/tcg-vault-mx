@@ -8,6 +8,7 @@ import { FeaturedService } from './featured.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
 import { MerchantFeedService } from './merchant-feed.service';
+import { PublicSnapshotService } from './public-snapshot.service';
 import { SealedRestockNotifyService } from './sealed-restock-notify.service';
 import { CatalogController } from './catalog.controller';
 import { AdminCatalogController } from './admin-catalog.controller';
@@ -22,6 +23,7 @@ import { FinishReconcilerModule } from './finish-reconciler.module';
 // v1.29 (§4.27d): resolver de «1 carta ↔ N productos» desde TCGCSV + su cliente HTTP (hermano del
 // provider sellado). Vive en el módulo catalog porque el paso corre dentro de `importSet`.
 import { CardProductResolverService } from './card-product-resolver.service';
+import { CardLinkRepairService } from './card-link-repair.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
 import { CatalogAutoStateService } from './catalog-auto-state.service';
@@ -50,6 +52,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     PokemonTcgIoClient,
     // v1.29 (§4.27d): TCGCSV card-product resolver + su cliente HTTP (stateless).
     CardProductResolverService,
+    CardLinkRepairService,
     TcgcsvCatalogClient,
     // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV que pokemontcg.io no tiene.
     TcgcsvSetImportService,
@@ -65,6 +68,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     SealedCatalogService,
     // §GSHOP.B: feed de Google Merchant Center.
     MerchantFeedService,
+    PublicSnapshotService,
     SealedRestockNotifyService,
     SetPriceSyncJobService,
     SetValueSnapshotJobService,
