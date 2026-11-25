@@ -3160,6 +3160,12 @@ export interface AdminOrderDetailDTO {
     orderItemId?: string | null;
     /** v1.82 (§PNL.2): ver `DeliveredRefundDTO`. Ausente ⇒ servidor anterior ⇒ nada que ofrecer. */
     deliveredRefund?: DeliveredRefundDTO | null;
+    /** §BOVEDA-COBRADA-SIN-PIEZAS (por confirmar; se leen por `lineFulfillment`). */
+    fulfillmentFailedAt?: string | null;
+    fulfillmentFailedReason?: string | null;
+    replacedInventoryItemId?: string | null;
+    folio?: string | null;
+    replacedFolio?: string | null;
   })[];
   shipments?: {
     id: string;
@@ -3611,7 +3617,11 @@ export interface DashboardDTO {
     buylistGuideDueSoon?: number;
     /** 💰 rev BSD-1 (BSD-1.3 punto 4): solicitudes cuya guía de entrada tiene `labelAlert ≠ null`. */
     buylistInboundLabelAlert?: number;
+    /** §BOVEDA-COBRADA-SIN-PIEZAS (forma por confirmar con backend): pedidos pagados con cartas sin asignar. Se lee por `unassignedOrdersCount`. */
+    vaultOrdersWithUnassignedItems?: number;
   };
+  /** §BOVEDA-COBRADA-SIN-PIEZAS: variante en la raíz (por confirmar); mismo lector. */
+  vaultOrdersWithUnassignedItems?: number;
   inventoryValueCents?: number;
   custodyValueCents?: number;
   buylistPeriod: { count: number; amountCents: number | null };
@@ -4640,6 +4650,8 @@ export interface AdminVaultSummaryDTO {
   pieceCount: number;
   totalValueMxnCents: number;
   pendingPriceCount: number;
+  /** §BOVEDA-COBRADA-SIN-PIEZAS (por confirmar): pedidos pagados con piezas sin asignar. Se lee por `vaultMissingPieces`. */
+  unassignedPaidOrders?: { orderId: string; orderNumber?: string | null; missingCount: number }[];
 }
 
 export type AdminVaultSort = 'value_desc' | 'pieces_desc' | 'name_asc';
@@ -5508,6 +5520,9 @@ export interface AdminOrderDTO extends OrderSummaryDTO {
   chargebackNeedsManual?: boolean;
   /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar» (predicado del servidor). */
   refundReviewPending?: boolean;
+  /** §BOVEDA-COBRADA-SIN-PIEZAS (por confirmar): cartas pagadas sin asignar al cliente. Se lee por `orderUnassignedCount`. */
+  unassignedItemCount?: number;
+  mismatch?: boolean;
 }
 
 // POST /admin/orders/:id/refund (contrato §M3, super_admin, money-out).
@@ -7416,6 +7431,9 @@ export interface AuditLogDTO {
   entityType: string;
   entityId: string;
   createdAt: string;
+  /** §BOVEDA-COBRADA-SIN-PIEZAS (por confirmar): lo que el backend exponga; solo súper-admin. Ausente ⇒ «Sin detalle». */
+  before?: unknown;
+  after?: unknown;
 }
 
 // ---- M7: Finanzas (contrato §M7) ----

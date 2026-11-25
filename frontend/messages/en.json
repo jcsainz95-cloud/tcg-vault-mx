@@ -1796,6 +1796,10 @@
       "withdrawals": "Withdrawals no dispute",
       "buylistPaid": "Seller purchases paid",
       "buylistQueue": "Seller purchases",
+      "unassigned": {
+        "title": "Unassigned cards",
+        "detail": "Paid orders with unassigned cards: {n}"
+      },
       "toPrepare": {
         "title": "Orders to prepare",
         "detail": "{ship} shipping · {vault} vault · {toReplace} to replace",
@@ -2192,6 +2196,33 @@
       "searchLabel": "Search order",
       "searchPlaceholder": "Order # or buyer…",
       "empty": "No orders match these filters.",
+      "modeFilter": {
+        "label": "Order type",
+        "all": "All",
+        "vault": "Vault purchase",
+        "direct_ship": "Home delivery"
+      },
+      "unassigned": {
+        "filter": "With unassigned cards",
+        "chip": "{n, plural, one {# card unassigned} other {# cards unassigned}}",
+        "emptyTitle": "No orders with unassigned cards.",
+        "emptyBody": "Every paid order has its cards in the buyer's vault."
+      },
+      "fulfillment": {
+        "inVault": "In their vault",
+        "replaced": "Replaced with an identical copy ({from} → {to})",
+        "replacedNoFolio": "Replaced with an identical copy",
+        "attention": "Needs attention: {reason}",
+        "attentionHelp": "To close this order: get the card and add it to inventory (it is assigned automatically the next day), or refund just that card.",
+        "reason": {
+          "no_equivalent_copy": "no identical copy is available",
+          "sold_to_other": "the card was already sold to someone else",
+          "reserved_other": "the card is held for another purchase",
+          "withdrawn": "the card was removed from inventory",
+          "not_found": "the card was not found in inventory",
+          "unknown": "the card could not be assigned"
+        }
+      },
       "filters": {
         "dateFrom": "From",
         "dateTo": "To",
@@ -5950,6 +5981,13 @@
         "action": "Action",
         "entity": "Entity",
         "filterAction": "Filter by action",
+        "showDetail": "Show details",
+        "hideDetail": "Hide details",
+        "noDetail": "No details",
+        "before": "Before",
+        "after": "After",
+        "yes": "Yes",
+        "no": "No",
         "pageInfo": "Page {page} of {totalPages} · {total} records",
         "prev": "Previous",
         "next": "Next"
@@ -7139,6 +7177,7 @@
       "colPieces": "In their name",
       "colValue": "Estimated value",
       "colPending": "No price",
+      "missingPieces": "{orders, plural, one {Paid order} other {# paid orders}}: {pieces, plural, one {# card missing} other {# cards missing}}",
       "pieces": "{count, plural, other {# in their name}}",
       "open": "View vault",
       "back": "Customers",

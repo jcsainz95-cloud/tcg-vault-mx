@@ -3288,6 +3288,19 @@ export function mockAdminVaults(params: {
       pendingPriceCount,
     };
   });
+  // §BOVEDA-COBRADA-SIN-PIEZAS: clienta SIN piezas a su nombre con un pedido pagado al que le faltan 3 cartas.
+  const orphan = mockAdminUsers.find((u) => u.id === 'u-779');
+  if (orphan && !(orphan.id in mockVaultHoldingsByUser)) {
+    rows.push({
+      userId: orphan.id,
+      name: mockCustomerDisplayName(orphan.id, orphan.name),
+      email: orphan.email ?? '',
+      pieceCount: 0,
+      totalValueMxnCents: 0,
+      pendingPriceCount: 0,
+      unassignedPaidOrders: [{ orderId: MOCK_UNASSIGNED_ORDER_ID, orderNumber: 'TCG-9005', missingCount: 3 }],
+    });
+  }
 
   if (params.q) {
     const q = params.q.toLowerCase();
@@ -4018,6 +4031,9 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
   },
 ];
 
+/** §BOVEDA-COBRADA-SIN-PIEZAS: pedido de ejemplo del mock con cartas sin asignar. */
+export const MOCK_UNASSIGNED_ORDER_ID = 'ord-9005';
+
 export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9001', userId: 'u-777', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z', cfdiStatus: 'registrado' },
   { id: 'ord-9002', userId: 'u-778', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
@@ -4028,6 +4044,8 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   // §M4-SHIP.18.12 (E2E `precios-s5.spec.ts`): directos de INVITADO — `ord-5006` enviado y liquidado (reembolso total
   // CON motivo), `ord-5008` con guía sin salir (SIN motivo) y `ord-5007` reembolsado desde Stripe tras el envío sin
   // motivo («Reembolso por revisar»). Estado vivo en `lib/mock/m4-ship`.
+  // §BOVEDA-COBRADA-SIN-PIEZAS: compra a BÓVEDA pagada con 2 de 3 cartas sin asignar (una repuesta, una requiere atención).
+  { id: MOCK_UNASSIGNED_ORDER_ID, orderNumber: 'TCG-9005', userId: 'u-777', status: 'settled', totalCents: 84600, createdAt: '2026-11-24T23:53:00Z', settledAt: '2026-11-24T23:54:00Z', cfdiStatus: 'registrado', fulfillmentMode: 'vault', customer: { userId: 'u-777', fullName: 'Ana Torres', email: 'ana@example.com' }, unassignedItemCount: 1 },
   { id: 'ord-5006', status: 'settled', totalCents: 83886, createdAt: '2026-09-25T10:00:00Z', settledAt: '2026-09-25T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado2@example.com', fulfillmentMode: 'direct_ship' },
   { id: 'ord-5008', status: 'settled', totalCents: 83886, createdAt: '2026-09-26T10:00:00Z', settledAt: '2026-09-26T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado4@example.com', fulfillmentMode: 'direct_ship' },
   { id: 'ord-5007', status: 'refunded', totalCents: 83886, createdAt: '2026-09-24T10:00:00Z', settledAt: '2026-09-24T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado3@example.com', fulfillmentMode: 'direct_ship' },
@@ -5213,6 +5231,8 @@ export const mockAuditLog: AuditLogDTO[] = [
   { id: 'al-4', actorUserId: 'u-op1', actorRole: 'vault_operator', action: 'inventory.mark_damaged', entityType: 'InventoryItem', entityId: 'inv-1050', createdAt: '2026-08-12T15:45:00Z' },
   { id: 'al-5', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'catalog.sync', entityType: 'CardSet', entityId: 'sv05', createdAt: '2026-08-12T09:00:00Z' },
   { id: 'al-6', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'buylist.reveal_clabe', entityType: 'SellRequest', entityId: 'sr-2990', createdAt: '2026-08-11T16:20:00Z' },
+  // §BOVEDA-COBRADA-SIN-PIEZAS: con detalle (antes/después, fechas y anidado) y sin detalle (al-1 .. al-6).
+  { id: 'al-7', actorUserId: null, actorRole: null, action: 'order.settle_item_replaced', entityType: 'Order', entityId: 'ord-9005', createdAt: '2026-11-25T05:54:30Z', before: { inventoryItemId: 'inv-1002', folio: 'INV-001002', status: 'listed' }, after: { inventoryItemId: 'inv-1012', folio: 'INV-001012', status: 'in_custody', ownerUserId: 'u-777', movement: { reason: 'settle', at: '2026-11-25T05:54:30Z', note: 'repuesta por copia equivalente' }, notified: false } },
 ];
 
 // ---- M7: Finanzas ----

@@ -11,6 +11,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
+import { unassignedOrdersCount, UNASSIGNED_ORDERS_HREF } from '@/lib/api/vault-unassigned';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -282,6 +283,19 @@ export function AdminDashboard() {
             {/* v1.80.12.16 (§43.22.1): los DOS roles; `shipping` ausente o `null` (servidor anterior) ⇒ la tarjeta NO existe. */}
             {query.data.workQueue.shipping && (
               <ShippingAlertsCard data={query.data.workQueue.shipping} isSuperAdmin={isSuperAdmin} />
+            )}
+            {/* §BOVEDA-COBRADA-SIN-PIEZAS: cifra del servidor; 0 o ausente (servidor anterior) ⇒ la tarjeta NO existe. */}
+            {unassignedOrdersCount(query.data) > 0 && (
+              <StatCard
+                label={t('unassigned.title')}
+                className="[&_span.tabular]:text-accent"
+                value={<span data-testid="dashboard-unassigned-value">{unassignedOrdersCount(query.data)}</span>}
+                sub={
+                  <Link href={UNASSIGNED_ORDERS_HREF} className={LINK_CLASS} data-testid="dashboard-unassigned">
+                    {t('unassigned.detail', { n: unassignedOrdersCount(query.data) })}
+                  </Link>
+                }
+              />
             )}
             {/* v1.80.2 (§37.11b): solo súper-admin; `null` (operador) ⇒ la tarjeta NO existe (S6). */}
             {isSuperAdmin && query.data.workQueue.manualRefunds && (

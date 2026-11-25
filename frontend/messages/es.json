@@ -1796,6 +1796,10 @@
       "withdrawals": "Retiros sin disputa",
       "buylistPaid": "Compras a vendedores pagadas",
       "buylistQueue": "Compras a vendedores",
+      "unassigned": {
+        "title": "Cartas sin asignar",
+        "detail": "Pedidos pagados con cartas sin asignar: {n}"
+      },
       "toPrepare": {
         "title": "Pedidos por preparar",
         "detail": "{ship} envíos · {vault} bóveda · {toReplace} por reponer",
@@ -2192,6 +2196,33 @@
       "searchLabel": "Buscar orden",
       "searchPlaceholder": "Folio o comprador…",
       "empty": "No hay órdenes con estos filtros.",
+      "modeFilter": {
+        "label": "Tipo de pedido",
+        "all": "Todos",
+        "vault": "Compra a bóveda",
+        "direct_ship": "Envío a domicilio"
+      },
+      "unassigned": {
+        "filter": "Con cartas sin asignar",
+        "chip": "{n, plural, one {# carta sin asignar} other {# cartas sin asignar}}",
+        "emptyTitle": "Ningún pedido con cartas sin asignar.",
+        "emptyBody": "Todos los pedidos pagados tienen sus cartas en la bóveda de quien compró."
+      },
+      "fulfillment": {
+        "inVault": "En su bóveda",
+        "replaced": "Se repuso por otra copia igual ({from} → {to})",
+        "replacedNoFolio": "Se repuso por otra copia igual",
+        "attention": "Requiere atención: {reason}",
+        "attentionHelp": "Para cerrar este pedido: consigue la carta y dala de alta en el inventario (se asigna sola al día siguiente), o reembolsa solo esa carta.",
+        "reason": {
+          "no_equivalent_copy": "no hay otra copia igual disponible",
+          "sold_to_other": "la carta ya se vendió a otra persona",
+          "reserved_other": "la carta está apartada para otra compra",
+          "withdrawn": "la carta se retiró del inventario",
+          "not_found": "no se encontró la carta en el inventario",
+          "unknown": "no se pudo asignar la carta"
+        }
+      },
       "filters": {
         "dateFrom": "Desde",
         "dateTo": "Hasta",
@@ -5950,6 +5981,13 @@
         "action": "Acción",
         "entity": "Entidad",
         "filterAction": "Filtrar por acción",
+        "showDetail": "Ver detalle",
+        "hideDetail": "Ocultar detalle",
+        "noDetail": "Sin detalle",
+        "before": "Antes",
+        "after": "Después",
+        "yes": "Sí",
+        "no": "No",
         "pageInfo": "Página {page} de {totalPages} · {total} registros",
         "prev": "Anterior",
         "next": "Siguiente"
@@ -7139,6 +7177,7 @@
       "colPieces": "A su nombre",
       "colValue": "Valor estimado",
       "colPending": "Sin precio",
+      "missingPieces": "{orders, plural, one {Pedido pagado} other {# pedidos pagados}}: {pieces, plural, one {falta # pieza} other {faltan # piezas}}",
       "pieces": "{count, plural, other {# a su nombre}}",
       "open": "Ver bóveda",
       "back": "Clientes",
