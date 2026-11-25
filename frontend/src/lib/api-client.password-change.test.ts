@@ -18,7 +18,7 @@ import type { UserDTO } from '@/types/contract';
  * contraseña del rol reenviando la ruta actual. ⛔ NO es un 401: la sesión se conserva.
  */
 function makeRes(status: number, body: unknown) {
-  return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
 }
 
 const customer: UserDTO = { id: 'u1', email: 'c@example.com', name: 'C', role: 'customer', locale: 'es' };

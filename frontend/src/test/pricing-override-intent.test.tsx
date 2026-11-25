@@ -69,7 +69,7 @@ let overrideResponse: () => { status: number; body: unknown } = () => ({
 });
 
 function res(status: number, body: unknown): Response {
-  return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
 }
 
 const originalUseMocks = config.useMocks;

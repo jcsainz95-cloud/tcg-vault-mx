@@ -25,8 +25,10 @@ export function resolveCorsOrigins(): string[] {
  * `Content-Disposition`: lleva el nombre del archivo de toda descarga con `requestBlob`
  * (Excel/CSV del Panel de Marketing §MKT.E/§MKT.G.7, inventario, guías, reportes, Card Show).
  * Sin exponerla, el navegador la oculta y el front cae a su nombre por defecto.
+ * `Retry-After` (§BUYLIST-429): el 429 la lleva y el front (otro origen) la lee para reintentar tras la espera
+ * correcta; sin exponerla el navegador la oculta y el reintento sería a ciegas.
  */
-export const CORS_EXPOSED_HEADERS = ['Content-Disposition'];
+export const CORS_EXPOSED_HEADERS = ['Content-Disposition', 'Retry-After'];
 
 /** §DYN.6.5 — segundos que el navegador puede reutilizar un preflight. */
 export const CORS_PREFLIGHT_MAX_AGE_S = 600;

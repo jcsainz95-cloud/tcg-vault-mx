@@ -874,6 +874,7 @@
     "quoterSearchCardPlaceholder": "Name or number",
     "quoterAdd": "Add",
     "quoterAddAria": "Add {name} ({finish}) to the sale · {price}",
+    "quoterRateLimitWait": "Pricing… resuming in {seconds} s",
     "quoterPending": "Price pending",
     "quoterUnavailable": "Not available",
     "quoterAddAriaMarket": "Add {name} ({finish}) to the sale · Market value {market} · We pay you {price}",

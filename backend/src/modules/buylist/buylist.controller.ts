@@ -62,11 +62,12 @@ export class BuylistController {
   // v1.15 (§4.16b): batch quote — cotiza N cartas en 1 request (mata el fan-out FE-12). Público y
   // READ-ONLY como el quote por-carta (anónimo, no se bloquea por emailVerified). Errores por-ítem:
   // HTTP global 200; el cap 50 / vacío lo impone el DTO (400 VALIDATION_ERROR).
-  // Rate-limit MÁS restrictivo (12/min) que el quote por-carta: cada request amplifica hasta 50×
-  // el trabajo, así que 12 req/min ≈ el mismo techo de cotizaciones/min que 60/min por-carta.
-  // Cierra la amplificación DoS anónima — B-C1 (seguridad).
+  // Rate-limit por IP de 30/min (§BUYLIST-429; antes 12): cada request amplifica hasta 50× el trabajo, así que el
+  // techo es 30 × 50 = 1 500 ítems/min (2,5× el de B-C1, que eran 600). B-C1 (amplificación DoS anónima) sigue
+  // cerrado por el tope de 50 ítems/lote (`BUYLIST_QUOTE_BATCH_MAX`, >50 ⇒ 400) y por este límite por IP.
+  // Un set de ~380 ítems son ~8 lotes: a 12/min dos sets seguidos daban 429 en la pantalla pública de venta.
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 12 } })
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post('quote/batch')
   @HttpCode(200)
   quoteBatch(@Body() dto: BatchQuoteDto) {

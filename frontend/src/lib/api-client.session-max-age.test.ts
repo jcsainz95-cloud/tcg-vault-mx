@@ -22,7 +22,7 @@ import type { UserDTO } from '@/types/contract';
 const user: UserDTO = { id: 'u1', email: 'c@example.com', name: 'C', role: 'customer', locale: 'es' };
 
 function res(status: number, body: unknown) {
-  return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  return { status, ok: status >= 200 && status < 300, headers: new Headers(), json: async () => body } as unknown as Response;
 }
 const UNAUTH = { error: { code: 'UNAUTHENTICATED', message: 'Access token expired' } };
 
@@ -98,7 +98,7 @@ describe('LIVE-2 · 401 del refresh con reason=session_max_age (DS §81 F-3)', (
   it('cuerpo ilegible o error de red en el refresh ⇒ sin marca', async () => {
     fetchMock
       .mockResolvedValueOnce(res(401, UNAUTH))
-      .mockResolvedValueOnce({ status: 401, ok: false, json: async () => { throw new Error('no json'); } } as unknown as Response);
+      .mockResolvedValueOnce({ status: 401, ok: false, headers: new Headers(), json: async () => { throw new Error('no json'); } } as unknown as Response);
     await callAndFail();
     expect(consumeSessionMaxAgeLogout()).toBe(false);
 
