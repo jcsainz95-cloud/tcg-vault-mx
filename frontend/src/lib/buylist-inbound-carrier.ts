@@ -64,3 +64,18 @@ export function formatShortDayMx(iso: string, locale: string): string {
     .replace(' de ', ' ')
     .replace('.', '');
 }
+
+/** «24 nov, 10:00 a.m.» (zona de México): corto, cabe en la cinta a 390 px. */
+export function formatUpdatedMx(iso: string, locale: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'es-MX', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'America/Mexico_City',
+  })
+    .format(d)
+    .replace(' de ', ' ');
+}

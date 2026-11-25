@@ -112,9 +112,9 @@ describe('Guía y confirmación — dos actos, y la separación ES el diseño', 
       screen.getByText(/Confirmar es lo único que mueve la solicitud a «en tránsito»/),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar que llegó' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar envío' }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar que llegó' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar envío' }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-1', {}));
     expect(await screen.findByText(/Envío confirmado/)).toBeInTheDocument();
   });
@@ -139,9 +139,9 @@ describe('Guía y confirmación — dos actos, y la separación ES el diseño', 
     fireEvent.change(screen.getByLabelText('Costo real de la etiqueta (opcional)'), {
       target: { value: '215' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar que llegó' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar envío' }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar que llegó' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar envío' }));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith('sr-1', { guideActualCostCents: 21500 }),
     );
@@ -157,16 +157,16 @@ describe('Guía y confirmación — dos actos, y la separación ES el diseño', 
       guideActualCostCents: null,
     });
     renderWithProviders(<BuylistShipmentActions request={request()} />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar que llegó' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar envío' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('No hay guía capturada para esta solicitud.');
-    expect(within(dialog).getByRole('button', { name: 'Confirmar que llegó' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Confirmar envío' })).toBeEnabled();
   });
 
   it('EN: existe entera en inglés (paridad)', () => {
     renderWithProviders(<BuylistShipmentActions request={request()} />, 'en');
     expect(screen.getByRole('button', { name: 'Save the label' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Confirm it shipped' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm shipment' })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/admin\.m5\.shipment/);
   });
 });

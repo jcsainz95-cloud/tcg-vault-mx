@@ -20,7 +20,6 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { CardPhotoLightbox } from './CardPhotoLightbox';
 import { InboundCarrierStatus } from './InboundCarrierStatus';
-import { movedBySystem, readInboundCarrier } from '@/lib/buylist-inbound-carrier';
 
 /** Botón «Copiar» con aviso breve «Copiado». El portapapeles puede fallar (permiso): entonces no afirma nada. */
 export function CopyButton({ text, label, copiedLabel, testId }: { text: string; label: string; copiedLabel: string; testId?: string }) {
@@ -502,10 +501,8 @@ export function RequestRibbon({ req }: { req: AdminBuylistDTO }) {
               </a>
             )}
           </>
-        ) : readInboundCarrier(req) || movedBySystem(req) ? null : (
-          <p className="text-sm text-muted">{t('noTracking')}</p>
-        )}
-        <InboundCarrierStatus req={req} compact />
+        ) : null}
+        <InboundCarrierStatus req={req} />
       </div>
       <div>
         <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-muted">{t('waiting')}</p>

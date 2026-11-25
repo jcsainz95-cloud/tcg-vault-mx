@@ -1,6 +1,5 @@
 'use client';
 
-import { InboundCarrierStatus } from './InboundCarrierStatus';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -36,10 +35,13 @@ import { SellerGuideBlock } from './SellerGuideBlock';
 export function AcceptedRequestPanel({
   req,
   onNotice,
+  confirmTick = 0,
 }: {
   req: AdminBuylistDTO;
   /** Aviso a nivel de página (éxito) o sobre la ficha (`warning` tras un `409` de «Declinar»). */
   onNotice: (n: { variant: 'success' | 'warning'; text: string; requestId: string }) => void;
+  /** Sube cuando el aviso de plazo vencido (en M5View, bajo el encabezado) pide abrir «Confirmar envío». */
+  confirmTick?: number;
 }) {
   const t = useTranslations('admin.m5.inbound');
   const tm5 = useTranslations('admin.m5');
@@ -125,7 +127,6 @@ export function AcceptedRequestPanel({
   return (
     <section className="flex flex-col gap-3" data-testid={`m5-accepted-panel-${r.id}`}>
       <GuideDueBlock req={r} />
-      <InboundCarrierStatus req={r} />
 
       {/* M-4 (gate QA): sin el DETALLE no sabemos `inboundLabelOptions` y «Generar guía» no puede ofrecerse. ⛔ Que desaparezca
           mudo: se dice con el error de siempre (`QueryState`: el texto del código o `common.errorGeneric`) y «Reintentar». */}
@@ -212,7 +213,7 @@ export function AcceptedRequestPanel({
 
       {/* Captura a mano (§BSD-UX.6a): secundaria del botón de Skydropx, o único camino sin él. Con guía de Skydropx viva o
           compra en curso NO se pinta. «Confirmar envío» sigue; con guía de Skydropx sin campo de costo (lo dio Skydropx). */}
-      <BuylistShipmentActions request={r} hideGuideCapture={!!sdx || processing} providerCostCents={sdx ? sdx.costCents : null} />
+      <BuylistShipmentActions request={r} confirmTick={confirmTick} hideGuideCapture={!!sdx || processing} providerCostCents={sdx ? sdx.costCents : null} />
 
       <CaptureLabelDialog target={target} onClose={() => setTarget(null)} onSaved={onSaved} />
       <DeclineAcceptedDialog req={r} open={declineOpen} onClose={() => setDeclineOpen(false)} onOutcome={onDeclined} />

@@ -6431,6 +6431,11 @@ export interface UnlinkedPriceSet {
 export interface UnlinkedPriceReport {
   totalCards: number;
   sets: UnlinkedPriceSet[];
+  /** Sets que no se pueden ligar (sin grupo de precios o fuente distinta): se muestran aparte, sin botón. */
+  notLinkable?: {
+    totalCards: number;
+    sets: Array<{ setId: string; name: string; unlinked: number; reason: 'no_group' | 'tcgcsv_source' | string }>;
+  } | null;
 }
 
 /**

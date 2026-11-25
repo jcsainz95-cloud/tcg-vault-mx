@@ -29,6 +29,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { AcceptedRequestPanel } from './AcceptedRequestPanel';
+import { InboundCarrierStatus } from './InboundCarrierStatus';
+import { ShipDeadlineNotice, isShipDeadlinePassed } from './BuylistShipmentActions';
 import { GuideDueTag } from './GuideDueMark';
 import { SellerContact } from './SellerContact';
 import { SellerGuideBlock, hasSellerGuide, sellerGuideOf } from './SellerGuideBlock';
@@ -553,6 +555,7 @@ export function M5View() {
   const [closeError, setCloseError] = useState<string | null>(null);
   /** Aviso a nivel de página: tras declinar, la solicitud SALE de su pestaña y su ficha ya no está para anclarlo. */
   const [pageNotice, setPageNotice] = useState<string | null>(null);
+  const [confirmTicks, setConfirmTicks] = useState<Record<string, number>>({});
   const closeReasonTooLong = closeReason.trim().length > REJECT_REASON_MAX;
   const closeMutation = useMutation({
     mutationFn: (vars: { kind: 'decline' | 'cancelOffer'; requestId: string; reason: string }) =>
@@ -1275,10 +1278,16 @@ export function M5View() {
                 </div>
               </div>
 
+              {/* §BUYLIST-RASTREO: plazo vencido sin confirmar ⇒ aviso y «Confirmar envío» justo bajo el encabezado (visible sin desplazarse). */}
+              {isShipDeadlinePassed(req) && (
+                <ShipDeadlineNotice onConfirm={() => setConfirmTicks((m) => ({ ...m, [req.id]: (m[req.id] ?? 0) + 1 }))} />
+              )}
+
               <PipelineStepper steps={steps} current={req.status} />
 
               {/* §BUYLIST-FLUJO F1c: cinta de estado (ofertado neto · vence · rastreo · lleva N días), todo del servidor. */}
               <RequestRibbon req={req} />
+              {(req.status === 'aceptada' || req.status === 'en_transito') && <InboundCarrierStatus req={req} mode="notes" />}
               {/* §BUYLIST-FLUJO F1b: comprobante de envío una vez recibida; de pago, en `pagada`. */}
               {/* «Guía del vendedor»: desde que hay guía (comprada o a mano) y en todos los estados siguientes. En `aceptada`
                   con guía viva de Skydropx la pinta `AcceptedRequestPanel` (misma pieza, sin duplicar). */}
@@ -1382,6 +1391,7 @@ export function M5View() {
               {req.status === 'aceptada' && (
                 <AcceptedRequestPanel
                   req={req}
+                  confirmTick={confirmTicks[req.id] ?? 0}
                   onNotice={(n) => {
                     // `409` de «Declinar» ⇒ `warning` sobre la ficha releída; éxito ⇒ aviso de página (tras declinar, la
                     // solicitud SALE de su pestaña y su ficha ya no está para anclarlo).

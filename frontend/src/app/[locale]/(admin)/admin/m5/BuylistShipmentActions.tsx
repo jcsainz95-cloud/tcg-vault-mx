@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { captureBuylistGuide, confirmBuylistShipment } from '@/lib/api';
@@ -41,6 +41,7 @@ export function BuylistShipmentActions({
   request,
   hideGuideCapture = false,
   providerCostCents = null,
+  confirmTick = 0,
 }: {
   request: AdminBuylistDTO;
   /**
@@ -50,6 +51,8 @@ export function BuylistShipmentActions({
   hideGuideCapture?: boolean;
   /** 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx el costo lo dio el proveedor ⇒ ⛔ campo de costo (`400 provider_cost`). */
   providerCostCents?: number | null;
+  /** Sube cada vez que el aviso de plazo vencido (arriba de la ficha) pide abrir la confirmación. */
+  confirmTick?: number;
 }) {
   const t = useTranslations('admin.m5.shipment');
   const tIn = useTranslations('admin.m5.inbound');
@@ -62,6 +65,9 @@ export function BuylistShipmentActions({
   const [tracking, setTracking] = useState(request.shipmentTrackingNumber ?? '');
   const [actualCost, setActualCost] = useState('');
   const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (confirmTick > 0) setConfirming(true);
+  }, [confirmTick]);
   const [done, setDone] = useState<'guide' | 'shipment' | null>(null);
 
   const invalidate = () => {
@@ -107,13 +113,6 @@ export function BuylistShipmentActions({
     if (err?.status === 409 && err.code === 'LABEL_IN_PROGRESS') return tIn('inProgress');
     return getErrorMessage(e);
   };
-  const tCarrier = useTranslations('admin.m5.carrier');
-  const deadlinePassed =
-    request.status === 'aceptada' &&
-    !!request.shipDeadlineAt &&
-    new Date(request.shipDeadlineAt).getTime() <= Date.now() &&
-    !request.shipmentConfirmedAt &&
-    !request.sellerShippedDeclaredAt;
   const canCapture = carrier.trim().length > 0 && tracking.trim().length > 0;
 
   return (
@@ -122,22 +121,6 @@ export function BuylistShipmentActions({
 
       {done === 'guide' && <Banner variant="info" role="status">{t('captured', { carrier, tracking })}</Banner>}
       {done === 'shipment' && <Banner variant="info" role="status">{t('confirmed')}</Banner>}
-
-      {/* §BUYLIST-RASTREO: plazo vencido y sin confirmar ⇒ aviso corto con el botón a la vista (arriba, sin desplazarse).
-          «Vencido» lo dice el servidor al cerrar; aquí solo se compara la fecha que él mandó. */}
-      {deadlinePassed && (
-        <Banner
-          variant="warning"
-          role="status"
-          action={
-            <Button size="sm" onClick={() => setConfirming(true)} data-testid="m5-overdue-confirm">
-              {tCarrier('confirmShipment')}
-            </Button>
-          }
-        >
-          <span data-testid="m5-overdue-notice">{tCarrier('overdue')}</span>
-        </Banner>
-      )}
 
       {/* --- 1. La guía. NO mueve el estado, y el copy lo dice antes de que se pulse nada. --- */}
       <div className="flex flex-col gap-2">
@@ -256,5 +239,34 @@ export function BuylistShipmentActions({
         )}
       </Modal>
     </section>
+  );
+}
+
+/** §BUYLIST-RASTREO: `aceptada`, plazo vencido, sin confirmación ni «ya lo mandé». Solo compara la fecha que mandó el servidor. */
+export function isShipDeadlinePassed(request: AdminBuylistDTO, now: number = Date.now()): boolean {
+  return (
+    request.status === 'aceptada' &&
+    !!request.shipDeadlineAt &&
+    new Date(request.shipDeadlineAt).getTime() <= now &&
+    !request.shipmentConfirmedAt &&
+    !request.sellerShippedDeclaredAt
+  );
+}
+
+export function ShipDeadlineNotice({ onConfirm }: { onConfirm: () => void }) {
+  const t = useTranslations('admin.m5.shipment');
+  const tCarrier = useTranslations('admin.m5.carrier');
+  return (
+    <Banner
+      variant="warning"
+      role="status"
+      action={
+        <Button size="sm" onClick={onConfirm} data-testid="m5-overdue-confirm">
+          {t('confirmCta')}
+        </Button>
+      }
+    >
+      <span data-testid="m5-overdue-notice">{tCarrier('overdue')}</span>
+    </Banner>
   );
 }
