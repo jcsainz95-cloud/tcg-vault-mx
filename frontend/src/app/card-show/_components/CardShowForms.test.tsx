@@ -7,10 +7,10 @@
  *  - `TorneoForm`       → POST /players (Pokémon FORMAL pide playerId; resto LIGERA ⛔ sin playerId)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CardShowApiError } from '@/lib/card-show-api';
-import { CARD_SHOW } from '@/content/card-show';
+import { CARD_SHOW, cardShowGameDays } from '@/content/card-show';
 import { LeadVisitorForm } from './LeadVisitorForm';
 import { MerchantSponsorForm } from './MerchantSponsorForm';
 import { TorneoForm } from './TorneoForm';
@@ -196,6 +196,91 @@ describe('MerchantSponsorForm · vendedor/patrocinador (type=merchant|sponsor)',
   });
 });
 
+describe('TorneoForm · el día sale del programa (dueño 2026-11-26)', () => {
+  const fill = async (u: ReturnType<typeof userEvent.setup>, pid?: string) => {
+    await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
+    if (pid) await u.type(screen.getByLabelText('Player ID'), pid);
+    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+    await u.click(screen.getByLabelText(/He leído el/));
+    await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
+  };
+  const CASES: [string, 'sat' | 'sun', RegExp][] = [
+    ['magic', 'sat', /sábado 5 de diciembre/],
+    ['shardbugs', 'sat', /sábado 5 de diciembre/],
+    ['lorcana', 'sun', /domingo 6 de diciembre/],
+    ['riftbound', 'sun', /domingo 6 de diciembre/],
+  ];
+  for (const [game, day, text] of CASES) {
+    it(`${game}: un solo día fijo, sin radios ni «Los dos días», y el POST manda ese día`, async () => {
+      submitPlayer.mockReset();
+      submitPlayer.mockResolvedValue(undefined);
+      const u = userEvent.setup();
+      render(<TorneoForm />);
+      await u.selectOptions(screen.getByLabelText('Juego'), game);
+      expect(screen.getByTestId('cs-day-fixed')).toHaveTextContent(text);
+      expect(screen.queryAllByRole('radio')).toHaveLength(0);
+      expect(screen.queryByText('Los dos días')).toBeNull();
+      await fill(u);
+      expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+      expect(submitPlayer.mock.calls.map((c) => c[0].day)).toEqual([day]);
+    });
+  }
+  it('Pokémon ofrece sábado, domingo y los dos; sin elegir ⇒ error de día', async () => {
+    submitPlayer.mockReset();
+    const u = userEvent.setup();
+    render(<TorneoForm />);
+    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon');
+    expect(screen.getAllByRole('radio').map((r) => (r as HTMLInputElement).value)).toEqual(['sat', 'sun', 'both']);
+    await fill(u, '12345');
+    expect(await screen.findByText(FORM_MESSAGES.needDay)).toBeInTheDocument();
+    expect(submitPlayer).not.toHaveBeenCalled();
+  });
+  it('cambio de juego reajusta el día: Pokémon «los dos» → Magic ⇒ sábado; Magic → Pokémon ⇒ sin día elegido; → Lorcana ⇒ domingo', async () => {
+    submitPlayer.mockReset();
+    submitPlayer.mockResolvedValue(undefined);
+    const u = userEvent.setup();
+    render(<TorneoForm />);
+    const sel = screen.getByLabelText('Juego');
+    await u.selectOptions(sel, 'pokemon');
+    await u.click(screen.getByRole('radio', { name: 'Los dos días' }));
+    await u.selectOptions(sel, 'magic');
+    expect(screen.getByTestId('cs-day-fixed')).toHaveTextContent(/sábado/);
+    await u.selectOptions(sel, 'pokemon');
+    for (const r of screen.getAllByRole('radio')) expect(r).not.toBeChecked();
+    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+    await u.selectOptions(sel, 'lorcana');
+    expect(screen.getByTestId('cs-day-fixed')).toHaveTextContent(/domingo/);
+    await fill(u);
+    expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+    expect(submitPlayer.mock.calls.map((c) => c[0].day)).toEqual(['sun']); // nunca el sábado de la selección anterior
+  });
+  it('Pokémon «los dos días» sigue mandando 2 altas (sat + sun)', async () => {
+    submitPlayer.mockReset();
+    submitPlayer.mockResolvedValue(undefined);
+    const u = userEvent.setup();
+    render(<TorneoForm />);
+    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon');
+    await u.click(screen.getByRole('radio', { name: 'Los dos días' }));
+    await fill(u, '12345');
+    expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+    expect(submitPlayer.mock.calls.map((c) => c[0].day).sort()).toEqual(['sat', 'sun']);
+  });
+  it('los días salen del programa (derivados, no a mano) y `?juego=` preselecciona respetando el día fijo', async () => {
+    expect(cardShowGameDays('magic')).toEqual(['sat']);
+    expect(cardShowGameDays('riftbound')).toEqual(['sun']);
+    expect(cardShowGameDays('pokemon')).toEqual(['sat', 'sun']);
+    window.history.replaceState(null, '', '/card-show?juego=lorcana');
+    render(<TorneoForm />);
+    expect(await screen.findByTestId('cs-day-fixed')).toHaveTextContent(/domingo/);
+    expect((screen.getByLabelText('Juego') as HTMLSelectElement).value).toBe('lorcana');
+    window.history.replaceState(null, '', '/card-show?juego=falso');
+    cleanup();
+    render(<TorneoForm />);
+    expect((screen.getByLabelText('Juego') as HTMLSelectElement).value).toBe('');
+    window.history.replaceState(null, '', '/');
+  });
+});
+
 describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
   it('Pokémon = FORMAL: pide Player ID; vacío/no numérico ⇒ error y limpia a dígitos', async () => {
     const u = userEvent.setup();
@@ -220,13 +305,14 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
     render(<TorneoForm />);
     await u.selectOptions(screen.getByLabelText('Juego'), 'riftbound');
     expect(screen.queryByLabelText('Player ID')).toBeNull();
-    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+    expect(screen.getByTestId('cs-day-fixed')).toHaveTextContent('Tu torneo es el domingo 6 de diciembre.');
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByLabelText(/He leído el/));
     await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
     const body = submitPlayer.mock.calls[0][0];
+    expect(body.day).toBe('sun');
     expect(body.game).toBe('riftbound');
     expect(body.playerId).toBeUndefined();
   });
@@ -238,13 +324,14 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
     expect(screen.getByRole('option', { name: 'Magic: The Gathering' })).toHaveValue('magic');
     await u.selectOptions(screen.getByLabelText('Juego'), 'magic');
     expect(screen.queryByLabelText('Player ID')).toBeNull();
-    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+    expect(screen.getByTestId('cs-day-fixed')).toHaveTextContent('Tu torneo es el sábado 5 de diciembre.');
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByLabelText(/He leído el/));
     await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
     const body = submitPlayer.mock.calls[0][0];
+    expect(body.day).toBe('sat');
     expect(body.game).toBe('magic');
     expect(body.playerId).toBeUndefined();
   });
@@ -252,7 +339,8 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
   it('sin juego ⇒ error de campo', async () => {
     const u = userEvent.setup();
     render(<TorneoForm />);
-    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    expect(screen.getByTestId('cs-day-pick-game')).toHaveTextContent('Elige primero el juego.');
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByLabelText(/He leído el/));
@@ -317,8 +405,7 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
       submitPlayer.mockResolvedValue(undefined);
       const u = userEvent.setup();
       render(<TorneoForm />);
-      await u.selectOptions(screen.getByLabelText('Juego'), 'shardbugs');
-      await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+      await u.selectOptions(screen.getByLabelText('Juego'), 'shardbugs'); // un solo día (sábado) ⇒ fijo, sin radios
       await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
       await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
       await u.click(screen.getByLabelText(/He leído el/));

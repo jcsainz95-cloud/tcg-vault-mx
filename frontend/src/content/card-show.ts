@@ -37,6 +37,19 @@ export function cardShowGameLabel(id: string): string {
   return CARD_SHOW_GAMES.find((g) => g.id === id)?.label ?? id;
 }
 
+/**
+ * Días en los que HAY torneo de un juego, DERIVADOS del programa (`CARD_SHOW.torneos.programa`; fuente única, ⛔ no se
+ * escriben a mano). Magic/Shard Bugs ⇒ ['sat']; Lorcana/Riftbound ⇒ ['sun']; Pokémon ⇒ ['sat','sun'].
+ */
+export function cardShowGameDays(game: string): CardShowDayId[] {
+  return CARD_SHOW.torneos.programa.filter((d) => d.torneos.some((t) => t.id === game)).map((d) => d.id);
+}
+
+/** Título del día del programa («Sábado 5 de diciembre»). */
+export function cardShowDayTitle(day: CardShowDayId): string {
+  return CARD_SHOW.torneos.programa.find((d) => d.id === day)?.titulo ?? day;
+}
+
 /** Un torneo del programa por día (datos del dueño JC, chat 2026-10-21). */
 export interface TorneoProgramado {
   id: CardShowGame;

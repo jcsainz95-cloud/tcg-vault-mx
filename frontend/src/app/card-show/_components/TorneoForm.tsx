@@ -1,11 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CircleAlert } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
-import { CARD_SHOW, CARD_SHOW_GAMES, type CardShowDayId, type CardShowGame } from '@/content/card-show';
+import { CARD_SHOW, CARD_SHOW_GAMES, cardShowDayTitle, cardShowGameDays, type CardShowDayId, type CardShowGame } from '@/content/card-show';
 import { submitPlayer } from '@/lib/card-show-api';
 import { PrivacyMini } from './PrivacyMini';
 import {
@@ -59,6 +59,27 @@ export function TorneoForm() {
   }>({});
 
   const isPokemon = game === 'pokemon';
+  // Días ofrecidos = los del programa para ESE juego (un solo día ⇒ fijo; Pokémon ⇒ sábado, domingo o ambos).
+  const gameDays = game === '' ? [] : cardShowGameDays(game);
+  const fixedDay = gameDays.length === 1 ? gameDays[0]! : null;
+
+  // Al cambiar de juego el día se reajusta: un solo día ⇒ ese; si no, el elegido solo sigue si el juego lo permite.
+  function pickGame(next: CardShowGame | '') {
+    setGame(next);
+    const days = next === '' ? [] : cardShowGameDays(next);
+    // Un día que venía FIJADO por el juego anterior no cuenta como elección de la persona: se vuelve a preguntar.
+    const wasFixed = fixedDay !== null;
+    setDay((cur) => (days.length === 1 ? days[0]! : wasFixed ? '' : cur === 'both' ? (days.length === 2 ? 'both' : '') : days.includes(cur as CardShowDayId) ? cur : ''));
+    clearFieldError('game');
+    clearFieldError('day');
+  }
+
+  // Juego preseleccionado por enlace (`?juego=magic`): se respeta si es un valor del enum.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('juego');
+    if (q && CARD_SHOW_GAMES.some((g) => g.id === q)) pickGame(q as CardShowGame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const formRef = useRef<HTMLFormElement>(null);
 
   // §CS-UX.3 (comportamiento 3): retira el error de un campo/grupo en su primer `change`.
@@ -69,7 +90,7 @@ export function TorneoForm() {
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
     if (game === '') errs.game = FORM_MESSAGES.needGame;
-    if (day === '') errs.day = FORM_MESSAGES.needDay;
+    if (game !== '' && day === '') errs.day = FORM_MESSAGES.needDay;
     if (playerName.trim() === '') errs.playerName = FORM_MESSAGES.needPlayerName;
     // Player ID SÓLO es obligatorio (y sólo se valida) para Pokémon (FORMAL).
     if (isPokemon && !isPlayerId(playerId)) errs.playerId = FORM_MESSAGES.needPlayerId;
@@ -87,7 +108,10 @@ export function TorneoForm() {
     setErrorText(null);
     if (cerrado || !validate()) return;
     setStatus('pending');
-    const days: CardShowDayId[] = day === 'both' ? ['sat', 'sun'] : [day as CardShowDayId];
+    // Solo se envían días que el programa permite para ese juego (nunca uno que no corresponde).
+    const wanted: CardShowDayId[] = day === 'both' ? ['sat', 'sun'] : [day as CardShowDayId];
+    const days = wanted.filter((d) => cardShowGameDays(game).includes(d));
+    if (days.length === 0) return setStatus('idle');
     // ⛔ readUtm, NO readAttribution: `/players` rechaza `referrerHost` (400, hotfix 2026-11-04).
     const attribution = readUtm();
     try {
@@ -143,51 +167,60 @@ export function TorneoForm() {
         placeholder="Elige una opción"
         required
         value={game}
-        onChange={(e) => {
-          setGame(e.target.value as CardShowGame | '');
-          clearFieldError('game');
-        }}
+        onChange={(e) => pickGame(e.target.value as CardShowGame | '')}
         options={CARD_SHOW_GAMES.map((g) => ({ value: g.id, label: g.label }))}
         error={fieldErrors.game}
       />
 
       <fieldset aria-describedby={dayDescribedBy}>
         <legend className="eyebrow">Día del torneo (obligatorio)</legend>
-        <div className="mt-3 flex flex-col gap-2">
-          {CARD_SHOW.torneos.dias.map((d) => (
-            <label key={d.id} className="flex items-center gap-3 text-[13px] text-text">
-              <input
-                type="radio"
-                name="cs-day"
-                value={d.id}
-                checked={day === d.id}
-                onChange={() => {
-                  setDay(d.id);
-                  clearFieldError('day');
-                }}
-                className="h-5 w-5 accent-[color:var(--color-accent)]"
-                aria-invalid={dayError ? true : undefined}
-                aria-describedby={dayDescribedBy}
-              />
-              {d.label}
-            </label>
-          ))}
-          <label className="flex items-center gap-3 text-[13px] text-text">
-            <input
-              type="radio"
-              name="cs-day"
-              value="both"
-              checked={day === 'both'}
-              onChange={() => {
-                setDay('both');
-                clearFieldError('day');
-              }}
-              className="h-5 w-5 accent-[color:var(--color-accent)]"
-              aria-invalid={dayError ? true : undefined}
-              aria-describedby={dayDescribedBy}
-            />
-            Los dos días
-          </label>
+        <div className="mt-3 flex flex-col gap-2" aria-live="polite">
+          {game === '' ? (
+            <p className="text-[13px] text-muted" data-testid="cs-day-pick-game">
+              Elige primero el juego.
+            </p>
+          ) : fixedDay ? (
+            <p className="text-[13px] text-text" data-testid="cs-day-fixed">
+              Tu torneo es el {cardShowDayTitle(fixedDay).toLowerCase()}.
+            </p>
+          ) : (
+            <>
+              {gameDays.map((id) => (
+                <label key={id} className="flex items-center gap-3 text-[13px] text-text">
+                  <input
+                    type="radio"
+                    name="cs-day"
+                    value={id}
+                    checked={day === id}
+                    onChange={() => {
+                      setDay(id);
+                      clearFieldError('day');
+                    }}
+                    className="h-5 w-5 accent-[color:var(--color-accent)]"
+                    aria-invalid={dayError ? true : undefined}
+                    aria-describedby={dayDescribedBy}
+                  />
+                  {cardShowDayTitle(id)}
+                </label>
+              ))}
+              <label className="flex items-center gap-3 text-[13px] text-text">
+                <input
+                  type="radio"
+                  name="cs-day"
+                  value="both"
+                  checked={day === 'both'}
+                  onChange={() => {
+                    setDay('both');
+                    clearFieldError('day');
+                  }}
+                  className="h-5 w-5 accent-[color:var(--color-accent)]"
+                  aria-invalid={dayError ? true : undefined}
+                  aria-describedby={dayDescribedBy}
+                />
+                Los dos días
+              </label>
+            </>
+          )}
         </div>
         {dayError && (
           <p id="cs-day-error" className="mt-2 flex items-center gap-1.5 font-mono text-xs text-accent">
