@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Optional } from '@nestjs/common';
 import { CatalogSyncService } from '../modules/catalog/catalog-sync.service';
 import { AuditService } from '../modules/audit/audit.service';
+import { SetSearchKeyService } from '../modules/catalog/set-search-key.service';
 
 /** AUTO-A: intentos del job diario y backoff exponencial base (10, 20, 40, 80, 160 min = ventana ~5 h). */
 export const CATALOG_METADATA_ATTEMPTS = 6;
@@ -31,6 +32,7 @@ export class CatalogPriceSyncJobService {
   constructor(
     private readonly catalogSync: CatalogSyncService,
     @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly searchKeys?: SetSearchKeyService,
   ) {}
 
   /**
@@ -77,6 +79,9 @@ export class CatalogPriceSyncJobService {
           .catch(() => undefined);
       }
       throw e;
+    } finally {
+      // §BUSCADOR-CARTAS §3: rellena claves de set (TCGCSV) y mide cobertura; idempotente, nunca lanza.
+      await this.searchKeys?.fillMissing().catch(() => undefined);
     }
   }
 }

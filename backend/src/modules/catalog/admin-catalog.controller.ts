@@ -6,6 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
 import { CardLinkRepairService } from './card-link-repair.service';
+import { SetSearchKeyService } from './set-search-key.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
 class SyncDto {
@@ -74,6 +75,7 @@ export class AdminCatalogController {
     private readonly audit: AuditService,
     private readonly tcgcsvImport: TcgcsvSetImportService,
     private readonly linkRepair: CardLinkRepairService,
+    private readonly searchKeys: SetSearchKeyService,
   ) {}
 
   @Get('remote-sets')
@@ -96,7 +98,12 @@ export class AdminCatalogController {
   @Get('sync-status')
   async syncStatus() {
     // §PRECIO-SIN-ENLACE: `unlinkedPrice` aditivo, solo lectura LOCAL (cartas con 0 CardProduct; sin proveedores).
-    return { ...this.sync.getSyncStatus(), unlinkedPrice: await this.linkRepair.unlinkedPrice() };
+    return {
+      ...this.sync.getSyncStatus(),
+      unlinkedPrice: await this.linkRepair.unlinkedPrice(),
+      // §BUSCADOR-CARTAS §3: cobertura de claves impresas de set («k de N sets sin clave»), aditivo.
+      searchKeys: await this.searchKeys.coverage(),
+    };
   }
 
   /**

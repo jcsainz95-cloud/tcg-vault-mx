@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { buildCardSearchWhere } from '../../common/card-search';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, MONEY_REF_WHERE, toPublicPriceInfo } from '../pricing/pricing.service';
@@ -457,7 +458,10 @@ export class SealedCatalogService {
     if (condition) where.sealedCondition = condition;
     const cardWhere: Prisma.CardWhereInput = {};
     if (q.setId) cardWhere.setId = q.setId;
-    if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
+    if (q.q) {
+      const qWhere = await buildCardSearchWhere(this.prisma, q.q);
+      if (qWhere) cardWhere.AND = [qWhere];
+    }
     if (Object.keys(cardWhere).length) where.card = cardWhere;
 
     // ⭐ Los diales, UNA lectura por petición (BE-25 + §4.44.b) — antes de preciar (v1.83.1: el precio del dueño

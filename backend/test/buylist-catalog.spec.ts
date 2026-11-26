@@ -86,6 +86,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     let capturedWhere: any;
     let capturedArgs: any;
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       card: {
         findMany: jest.fn(async (args: any) => {
           capturedArgs = args;
@@ -138,6 +139,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
   it('q busca por nombre O número (case-insensitive)', async () => {
     let capturedWhere: any;
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       card: {
         findMany: jest.fn(async (args: any) => {
           capturedWhere = args.where;
@@ -149,15 +151,19 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     await svc.searchAllCards({ q: 'pika', page: 1, pageSize: 20 });
 
-    expect(capturedWhere.OR).toEqual([
-      { name: { contains: 'pika', mode: 'insensitive' } },
-      { number: { contains: 'pika', mode: 'insensitive' } },
-    ]);
+    // §BUSCADOR-CARTAS: una sola palabra = nombre OR número contiene (conducta de siempre), vía la función compartida.
+    expect(capturedWhere.AND[1].OR).toEqual(
+      expect.arrayContaining([
+        { number: { contains: 'pika', mode: 'insensitive' } },
+        { OR: [{ name: { contains: 'pika', mode: 'insensitive' } }] },
+      ]),
+    );
   });
 
   it('sin setId → orden GLOBAL normativo (name, set.releaseDate desc nulls-last, numberPrefix, numberSort, id)', async () => {
     let capturedArgs: any;
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       card: {
         findMany: jest.fn(async (args: any) => {
           capturedArgs = args;
@@ -191,6 +197,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
       cardRow({ id: 'trop-mid', name: 'Tropius', number: '3', numberPrefix: '', numberSort: 3, setId: 'swsh1', set: { id: 'swsh1', name: 'Sword & Shield', releaseDate: '2020/02/07' } }),
     ];
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       card: {
         findMany: jest.fn(async (args: any) => applyOrderBy(rows, args.orderBy)),
         count: jest.fn(async () => rows.length),
@@ -209,6 +216,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
       cardRow({ id: 'trop-old', name: 'Tropius', number: '5', numberPrefix: '', numberSort: 5, setId: 'ex-old', set: { id: 'ex-old', name: 'EmeraldOld', releaseDate: '2005/05/09' } }),
     ];
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       card: {
         findMany: jest.fn(async (args: any) => applyOrderBy(rows, args.orderBy)),
         count: jest.fn(async () => rows.length),
@@ -223,6 +231,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
   it('sin filtros → where vacío (todo el catálogo), skip 0', async () => {
     let capturedArgs: any;
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       card: {
         findMany: jest.fn(async (args: any) => {
           capturedArgs = args;

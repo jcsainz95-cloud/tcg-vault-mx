@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { buildCardSearchWhere } from '../../common/card-search';
 import { Finish, Prisma, SupplyRequestStatus } from '@prisma/client';
 import { FINISH_VALUES } from '../../common/enum-values';
 import { parseEnumFilter } from '../../common/enum-filter';
@@ -144,7 +145,7 @@ export class SupplyRequestService {
     const where: Prisma.SupplyRequestWhereInput = {};
     const status = parseEnumFilter('status', q.status, ['open', 'filled', 'closed', 'expired'] as const);
     if (status) where.status = status;
-    if (q.q?.trim()) where.card = { name: { contains: q.q.trim(), mode: 'insensitive' } };
+    if (q.q?.trim()) where.card = (await buildCardSearchWhere(this.prisma, q.q)) ?? undefined;
     const [rows, total] = await Promise.all([
       this.prisma.supplyRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize, include: WITH_CARD }),
       this.prisma.supplyRequest.count({ where }),
@@ -165,7 +166,7 @@ export class SupplyRequestService {
   async listForSupplier(supplierId: string, q: { q?: string; page?: string; pageSize?: string }) {
     const { page, pageSize, skip } = pageOf(q);
     const where: Prisma.SupplyRequestWhereInput = { status: 'open', expiresAt: { gt: new Date() } };
-    if (q.q?.trim()) where.card = { name: { contains: q.q.trim(), mode: 'insensitive' } };
+    if (q.q?.trim()) where.card = (await buildCardSearchWhere(this.prisma, q.q)) ?? undefined;
     const rows = await this.prisma.supplyRequest.findMany({ where, orderBy: { createdAt: 'desc' }, include: WITH_CARD });
     const mine = await this.prisma.supplyOffer.findMany({ where: { supplierId, requestId: { in: rows.map((r) => r.id) } }, orderBy: { createdAt: 'desc' } });
     const visible: ReturnType<typeof requestSupplierView>[] = [];
