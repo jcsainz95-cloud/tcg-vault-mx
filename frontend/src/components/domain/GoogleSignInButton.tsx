@@ -36,6 +36,7 @@ type GoogleIdApi = {
     id: {
       initialize: (opts: { client_id: string; callback: (r: GoogleCredentialResponse) => void }) => void;
       prompt: (momentListener?: (notification: PromptMomentNotification) => void) => void;
+      renderButton?: (parent: HTMLElement, opts: Record<string, unknown>) => void;
     };
   };
 };
@@ -88,6 +89,9 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
    * un tope por IP) y ⛔ sin reintento automático. `minutes` = `retryAfterMinutes` (`null` sin cifra usable).
    */
   const [rateLimited, setRateLimited] = useState<{ minutes: number | null } | null>(null);
+  /** One Tap no se pudo mostrar (iOS/Safari ITP, webviews, FedCM): se ofrece el botón oficial de GIS (popup con gesto). */
+  const [fallback, setFallback] = useState(false);
+  const fallbackRef = useRef<HTMLDivElement | null>(null);
   const scriptLoaded = useRef(false);
   const promptTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -154,6 +158,20 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [realMode]);
 
+  // Respaldo: GIS pinta su propio botón; el clic del usuario abre el popup de Google (válido en Safari iOS).
+  useEffect(() => {
+    if (!fallback || !fallbackRef.current) return;
+    window.google?.accounts.id.renderButton?.(fallbackRef.current, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'large',
+      text: 'continue_with',
+      shape: 'rectangular',
+      width: Math.min(320, Math.max(200, fallbackRef.current.clientWidth || 280)),
+      locale,
+    });
+  }, [fallback, locale]);
+
   function onClick() {
     setErrorCode(null);
     setRateLimited(null);
@@ -177,6 +195,7 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
         ) {
           clearPromptTimeout();
           setLoading(false);
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) setFallback(true);
         }
       });
       return;
@@ -200,6 +219,12 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
         {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <GoogleG />}
         <span aria-live="polite">{loading ? t('connecting') : t('cta')}</span>
       </button>
+      {fallback && (
+        <div data-testid="google-fallback" className="flex flex-col items-center gap-2">
+          <p className="text-[12px] text-muted">{t('fallbackHint')}</p>
+          <div ref={fallbackRef} className="flex min-h-[44px] w-full justify-center" />
+        </div>
+      )}
       {rateLimited && (
         <div data-testid="google-rate-limited">
           <Banner variant="warning" role="alert">

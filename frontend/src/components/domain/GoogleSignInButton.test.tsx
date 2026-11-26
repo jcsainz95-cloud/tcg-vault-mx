@@ -106,6 +106,28 @@ describe('GoogleSignInButton (§6.7, rama real GIS — descarte del prompt)', ()
 
     await waitFor(() => expect(btn).not.toBeDisabled());
   });
+
+  it('iOS/Safari: si One Tap no se muestra, ofrece el botón oficial de GIS (renderButton)', async () => {
+    let momentListener: ((n: ReturnType<typeof notification>) => void) | undefined;
+    const renderButton = vi.fn();
+    (window as { google?: unknown }).google = {
+      accounts: {
+        id: {
+          initialize: vi.fn(),
+          renderButton,
+          prompt: vi.fn((cb?: (n: ReturnType<typeof notification>) => void) => {
+            momentListener = cb;
+          }),
+        },
+      },
+    };
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Continuar con Google/ }));
+    act(() => momentListener?.(notification({ isNotDisplayed: () => true })));
+
+    await waitFor(() => expect(screen.getByTestId('google-fallback')).toBeInTheDocument());
+    expect(renderButton).toHaveBeenCalledTimes(1);
+  });
 });
 
 /**

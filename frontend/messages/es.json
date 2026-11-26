@@ -1435,7 +1435,8 @@
     "dividerOr": "o",
     "google": {
       "cta": "Continuar con Google",
-      "connecting": "Conectando…"
+      "connecting": "Conectando…",
+      "fallbackHint": "Toca el botón de Google para continuar."
     },
     "forgotPassword": "¿Olvidaste tu contraseña?",
     "login": {
