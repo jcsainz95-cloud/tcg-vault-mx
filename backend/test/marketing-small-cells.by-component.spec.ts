@@ -35,6 +35,11 @@ interface Order {
   firstUtmSource: string | null;
   firstUtmMedium: string | null;
   firstUtmContent: string | null;
+  /** §ORIGEN-VISITA (opcionales: los pedidos anteriores no los tienen). */
+  visitUtmSource?: string | null;
+  visitUtmMedium?: string | null;
+  visitUtmContent?: string | null;
+  visitReferrer?: string | null;
   totalCents: number;
   /** Piezas del pedido: una línea por pieza (carta suelta). */
   pieces: { cardId: string; cents: number }[];
@@ -123,7 +128,7 @@ function prismaOf(world: World) {
       }),
     },
     buylistQuoteDailyCount: { groupBy: jest.fn(async () => []) },
-    marketingBannerConsentCounter: { count: jest.fn(async () => 0) },
+    marketingBannerConsentCounter: { count: jest.fn(async () => 0), groupBy: jest.fn(async () => []) },
     cardShowLead: { findMany: jest.fn(csFindMany(() => world.leads ?? [])) },
     cardShowPlayerSignup: { findMany: jest.fn(csFindMany(() => world.signups ?? [])) },
   };
@@ -223,7 +228,7 @@ describe('SEC-MKT-1 · b1-b3 y g1: umbral por componente (§MKT.H.14 R1)', () =>
     const g = await screen('g', W41);
 
     const hidden = { pedidos: SMALL_CELL_SENTINEL, mxnPedidos: SMALL_CELL_HIDDEN, solicitudes: SMALL_CELL_SENTINEL, mxnOfertado: SMALL_CELL_HIDDEN };
-    expect(rowOf(tableOf(b, 'b1'), 'origen', 'instagram / paid')).toEqual({ origen: 'instagram / paid', ...hidden });
+    expect(rowOf(tableOf(b, 'b1'), 'origen', 'instagram / paid')).toEqual({ origen: 'instagram / paid', source: 'first', ...hidden });
     expect(rowOf(tableOf(b, 'b2'), 'puerta', 'Promoción')).toEqual({ puerta: 'Promoción', ...hidden });
     expect(rowOf(tableOf(b, 'b3'), 'pieza', 'pieza-x')).toEqual({ pieza: 'pieza-x', ...hidden });
     expect(tableOf(g, 'g1').rows).toEqual([{ concepto: expect.any(String), pedidos: SMALL_CELL_SENTINEL, mxn: SMALL_CELL_HIDDEN }]);
@@ -242,7 +247,7 @@ describe('SEC-MKT-1 · b1-b3 y g1: umbral por componente (§MKT.H.14 R1)', () =>
     for (let i = 0; i < 7; i++) w.requests.push(request(at('2026-10-08'), 10000, u));
     const b = await service(w)('b', W41);
     const expected = { pedidos: SMALL_CELL_SENTINEL, mxnPedidos: SMALL_CELL_HIDDEN, solicitudes: 7, mxnOfertado: 700 };
-    expect(rowOf(tableOf(b, 'b1'), 'origen', 'instagram / paid')).toEqual({ origen: 'instagram / paid', ...expected });
+    expect(rowOf(tableOf(b, 'b1'), 'origen', 'instagram / paid')).toEqual({ origen: 'instagram / paid', source: 'first', ...expected });
     expect(rowOf(tableOf(b, 'b2'), 'puerta', 'Promoción')).toEqual({ puerta: 'Promoción', ...expected });
     expect(rowOf(tableOf(b, 'b3'), 'pieza', 'pieza-x')).toEqual({ pieza: 'pieza-x', ...expected });
     expect(tableOf(b, 'b1').notes).toContain('Pedidos y solicitudes se ocultan por separado: menos de 5 ⇒ «< 5» sin su MX$.');
@@ -255,7 +260,7 @@ describe('SEC-MKT-1 · b1-b3 y g1: umbral por componente (§MKT.H.14 R1)', () =>
     w.orders.push(order({ settledAt: at('2026-10-07'), totalCents: 1234567, ...u }));
     for (let i = 0; i < 7; i++) w.requests.push(request(at('2026-10-08'), 10000, u));
     const b = await service(w)('b', W41, 'exact' as CellPrivacy);
-    expect(rowOf(tableOf(b, 'b1'), 'origen', 'instagram / paid')).toEqual({ origen: 'instagram / paid', pedidos: 1, mxnPedidos: 12345.67, solicitudes: 7, mxnOfertado: 700 });
+    expect(rowOf(tableOf(b, 'b1'), 'origen', 'instagram / paid')).toEqual({ origen: 'instagram / paid', source: 'first', pedidos: 1, mxnPedidos: 12345.67, solicitudes: 7, mxnOfertado: 700 });
   });
 
   it('g1 usa la base de b1-b3 (`firstUtmSource IS NOT NULL`): un pedido `paid` sin origen no entra, y g1 ≡ b2[Promoción]', async () => {
@@ -430,5 +435,42 @@ describe('MKT-MEDIR-CS · b5/b6: umbral por componente y por BUZÓN (§MKT.H.14 
     await service(w)('b', W41);
     expect(csSelects.length).toBeGreaterThan(0);
     for (const sel of csSelects) expect(Object.keys(sel).sort()).toEqual(['confirmedAt', 'mailboxHmac', 'utmCampaign', 'utmContent', 'utmMedium', 'utmSource']);
+  });
+});
+
+describe('§ORIGEN-VISITA · origen efectivo en f3, b1, b2 y g1', () => {
+  const visitUtm = (source: string, medium: string) => ({ visitUtmSource: source, visitUtmMedium: medium });
+  const build = () => {
+    const w = empty();
+    for (let i = 0; i < 5; i++) w.orders.push(order({ settledAt: at('2026-10-06'), ...utm('instagram', 'bio', 'reel-1'), visitReferrer: 'google' })); // primer origen manda
+    for (let i = 0; i < 5; i++) w.orders.push(order({ settledAt: at('2026-10-06'), ...visitUtm('instagram', 'paid') })); // visita con utm
+    for (let i = 0; i < 5; i++) w.orders.push(order({ settledAt: at('2026-10-06'), visitReferrer: 'google' })); // visita solo referente
+    for (let i = 0; i < 5; i++) w.orders.push(order({ settledAt: at('2026-10-06') })); // sin origen (NULL ≠ directo)
+    return w;
+  };
+  it('CV-6: f3 tiene tres cubetas excluyentes que suman el 100 % de los pagados', async () => {
+    const f3 = tableOf(await service(build())('f', W41, 'exact' as CellPrivacy), 'f3');
+    const row = (c: string) => f3.rows.find((r) => r.concepto === c)!;
+    expect([row('Primer origen (90 d, con permiso)'), row('Origen de visita'), row('Sin origen')].map((r) => [r.pedidos, r.pct])).toEqual([[5, 25], [10, 50], [5, 25]]);
+    expect(row('Pedidos pagados del periodo').pedidos).toBe(20);
+    expect(row('Con origen (primer origen o visita)').pedidos).toBe(15);
+  });
+  it('b1 usa el origen efectivo y rotula la fuente; firstUtm no se pisa con visit', async () => {
+    const b1 = tableOf(await service(build())('b', W41, 'exact' as CellPrivacy), 'b1');
+    expect(rowOf(b1, 'origen', 'instagram / bio')).toMatchObject({ source: 'first', pedidos: 5 });
+    expect(rowOf(b1, 'origen', 'visita · instagram / paid')).toMatchObject({ source: 'visit', pedidos: 5 });
+    expect(rowOf(b1, 'origen', 'visita · google / —')).toMatchObject({ source: 'visit', pedidos: 5 });
+    expect(b1.rows.some((r) => r.origen === 'google / —')).toBe(false);
+  });
+  it('g1 cuenta el paid de la visita y sigue siendo idéntico a b2[Promoción] (E4); supresión de celdas pequeñas intacta', async () => {
+    const svc = service(build());
+    const g1 = tableOf(await svc('g', W41, 'exact' as CellPrivacy), 'g1').rows[0];
+    const promo = rowOf(tableOf(await svc('b', W41, 'exact' as CellPrivacy), 'b2'), 'puerta', 'Promoción');
+    expect({ pedidos: g1.pedidos }).toEqual({ pedidos: 5 });
+    expect(g1.pedidos).toBe(promo.pedidos);
+    const small = empty();
+    small.orders.push(order({ settledAt: at('2026-10-06'), ...visitUtm('instagram', 'paid') }));
+    const g1s = tableOf(await service(small)('g', W41), 'g1').rows[0];
+    expect(g1s).toMatchObject({ pedidos: SMALL_CELL_SENTINEL, mxn: SMALL_CELL_HIDDEN });
   });
 });

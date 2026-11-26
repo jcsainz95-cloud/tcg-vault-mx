@@ -77,6 +77,8 @@ export class SessionDto {
    * saneador puro (`measurement/measurement-input.ts`), que descarta lo que no cumple. ⛔ Nunca 400 por este campo.
    */
   @IsOptional() measurement?: unknown;
+  /** §ORIGEN-VISITA (API_CONTRACT_ORIGEN.md): opcional, sin validación de forma aquí (saneador puro `common/visit-origin.ts`). ⛔ Nunca 400. */
+  @IsOptional() visitOrigin?: unknown;
   /** 💰 v1.110⟨descuentos⟩ (§DSC.6): ver `QuoteDto`. */
   @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
   /** 💰 §ENV3: ver `QuoteDto.shippingQuoteId` (aceptado e ignorado: la compra con cuenta es a bóveda, sin envío). */

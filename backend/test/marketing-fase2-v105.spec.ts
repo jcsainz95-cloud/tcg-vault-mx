@@ -87,6 +87,7 @@ function build(opts: { mode?: string; ga4?: boolean; failDims?: string; consentR
     }),
   };
   const orderCount = jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+    if ('OR' in where) return 0; // §ORIGEN-VISITA: «¿hay origen de visita en el periodo?» ⇒ no
     const c = where.measurementConsentAnalytics as unknown;
     if (c && typeof c === 'object' && 'not' in (c as object)) return opts.consentRows ?? 0;
     if ('firstUtmSource' in where) return 3;
@@ -179,6 +180,10 @@ describe('(2) f3 con las tres respuestas de consentimiento', () => {
     expect(f3.rows.map((r) => [r.concepto, r.pedidos, r.pct])).toEqual([
       ['Pedidos pagados del periodo', 10, 100],
       ['Con origen registrado (first_utm_source)', 3, 30],
+      ['Con origen (primer origen o visita)', 3, 30],
+      ['Primer origen (90 d, con permiso)', 3, 30],
+      ['Origen de visita', 0, 0],
+      ['Sin origen', 7, 70],
       ['Aceptaron la analítica', 4, 40],
       ['La rechazaron', 1, 10],
       ['Sin elección registrada (no respondió al aviso, o pedido anterior a la medición)', 2, 20],
@@ -426,8 +431,8 @@ describe('(5) diferidas con su motivo literal y b1-b3 solo de BD', () => {
     // §MKT.H.14: cada componente con su umbral (1 solicitud ⇒ «< 5» sin su MX$; los 5 pedidos de la fila siguen visibles);
     // orden R0 por valores publicados: pedidos (empate), luego solicitudes (0 visible antes que oculta).
     expect(by(b, 'b1').rows).toEqual([
-      { origen: 'instagram / bio', pedidos: 5, mxnPedidos: 500, solicitudes: 0, mxnOfertado: 0 },
-      { origen: 'instagram / dm', pedidos: 5, mxnPedidos: 250, solicitudes: SMALL_CELL_SENTINEL, mxnOfertado: SMALL_CELL_HIDDEN },
+      { origen: 'instagram / bio', source: 'first', pedidos: 5, mxnPedidos: 500, solicitudes: 0, mxnOfertado: 0 },
+      { origen: 'instagram / dm', source: 'first', pedidos: 5, mxnPedidos: 250, solicitudes: SMALL_CELL_SENTINEL, mxnOfertado: SMALL_CELL_HIDDEN },
     ]);
     expect(by(b, 'b2').rows.map((r) => r.puerta)).toEqual(['Bio', 'Mensaje directo']);
     expect(by(b, 'b3').rows.map((r) => r.pieza)).toEqual(['reel-1', 'Mensaje directo (dm)']);

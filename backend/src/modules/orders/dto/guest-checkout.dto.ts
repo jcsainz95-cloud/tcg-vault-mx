@@ -153,6 +153,8 @@ export class GuestSessionDto {
 
   /** v1.102⟨mkt-fase2⟩ (§MKT.H.2): ver `SessionDto.measurement`. ⛔ Nunca 400 por este campo. */
   @IsOptional() measurement?: unknown;
+  /** §ORIGEN-VISITA (API_CONTRACT_ORIGEN.md): opcional, sin validación de forma aquí (saneador puro `common/visit-origin.ts`). ⛔ Nunca 400. */
+  @IsOptional() visitOrigin?: unknown;
 
   /** Aceptación explícita de ventas finales + aviso de privacidad. Debe ser literalmente `true`. */
   @IsBoolean() @Equals(true) acceptedTerms!: boolean;

@@ -12,6 +12,7 @@ import {
 } from './dto/guest-checkout.dto';
 import { ShippingQuoteRequestDto } from './dto/shipping-quote.dto';
 import { MeasurementService } from '../measurement/measurement.service';
+import { sanitizeVisitOrigin } from '../../common/visit-origin';
 import { retryAfterOf } from '../discounts/discounts.service';
 
 const HOUR_MS = 3_600_000;
@@ -86,8 +87,10 @@ export class GuestOrdersController {
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
+    // §ORIGEN-VISITA: independiente de `measurement`; saneador puro, nunca lanza.
+    const cols = { ...(m?.columns ?? {}), ...sanitizeVisitOrigin(dto.visitOrigin) };
     // 💰 v1.110 (§DSC.6): `429 DISCOUNT_CODE_RATE_LIMITED` ⇒ cabecera `Retry-After`.
-    const result = await this.guest.createSession(dto, ip, m?.columns).catch((e: unknown) => {
+    const result = await this.guest.createSession(dto, ip, cols).catch((e: unknown) => {
       const retryAfter = retryAfterOf(e);
       if (retryAfter !== null) res.setHeader('Retry-After', String(retryAfter));
       throw e;

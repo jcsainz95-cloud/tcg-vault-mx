@@ -169,6 +169,8 @@ export class CreateRequestDto {
   @IsOptional() @ValidateNested() @Type(() => IneUploadKeysDto) ineUploadKeys?: IneUploadKeysDto;
   /** v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): ver `SessionDto.measurement`. ⛔ Nunca 400 por este campo. */
   @IsOptional() measurement?: unknown;
+  /** §ORIGEN-VISITA (API_CONTRACT_ORIGEN.md): opcional, sin validación de forma aquí (saneador puro `common/visit-origin.ts`). ⛔ Nunca 400. */
+  @IsOptional() visitOrigin?: unknown;
 }
 
 export class RespondDto {

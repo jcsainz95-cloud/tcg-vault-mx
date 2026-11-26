@@ -355,6 +355,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     'MetaCardGroup',
     'MetaMatchStatus',
     'PromoLinkConfidence', // enum aditivo v2, documentado en AUTO_CATALOGO §B
+    'VisitReferrer', // §ORIGEN-VISITA: sus nueve valores viven en el ANEXO `docs/API_CONTRACT_ORIGEN.md` (§0 no lo conoce); paridad con `VISIT_REFERRERS` en `common/visit-origin.spec.ts`
     // §PROV F1 (M-102, docs/API_CONTRACT_PROVEEDORES.md): los siete enums del portal de proveedores viven en el ANEXO (el
     // archivo congelado no los conoce). Decidido al añadirlos (las tres preguntas): (1) el dominio entero ES la regla;
     // (2) sin lista de negocio que recorte; (3) sin calibración de precio por valor.

@@ -12,6 +12,7 @@ import { QuoteDto, SessionDto } from './dto/orders.dto';
 import { ClaimOrdersDto } from './dto/guest-checkout.dto';
 import { BusinessException } from '../../common/business.exception';
 import { MeasurementService } from '../measurement/measurement.service';
+import { sanitizeVisitOrigin } from '../../common/visit-origin';
 import { retryAfterOf } from '../discounts/discounts.service';
 
 /**
@@ -67,10 +68,12 @@ export class OrdersController {
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
+    // §ORIGEN-VISITA: independiente de `measurement`; saneador puro, nunca lanza.
+    const cols = { ...(m?.columns ?? {}), ...sanitizeVisitOrigin(dto.visitOrigin) };
     // 💰 v1.110 (§DSC.6): `discountCode` opcional; sin él, la llamada de hoy (I-1). `429` ⇒ cabecera `Retry-After`.
     const result = await (dto.discountCode === undefined
-      ? this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns)
-      : this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns, { discountCode: dto.discountCode, ip })
+      ? this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, cols)
+      : this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, cols, { discountCode: dto.discountCode, ip })
     ).catch((e: unknown) => {
       const retryAfter = retryAfterOf(e);
       if (retryAfter !== null) res.setHeader('Retry-After', String(retryAfter));
