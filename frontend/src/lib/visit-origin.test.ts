@@ -85,3 +85,66 @@ describe('aislamiento: ningún visit* va a GA4, Meta, CAPI ni MeasurementContext
     }
   });
 });
+
+describe('correcciones del gate de qa (I-3, I-4, M-3, M-4)', () => {
+  it('M-3: UTM sin utm_source ⇒ también el referente reducido', () => {
+    expect(computeVisitOrigin('?utm_medium=social', 'https://l.instagram.com/')).toEqual({
+      utmMedium: 'social',
+      referrer: 'instagram',
+    });
+    expect(computeVisitOrigin('?utm_medium=social', '')).toEqual({ utmMedium: 'social', referrer: 'directo' });
+    // Con utm_source no se añade referente.
+    expect(computeVisitOrigin('?utm_source=ig&utm_medium=social', 'https://google.com/')).toEqual({
+      utmSource: 'ig',
+      utmMedium: 'social',
+    });
+  });
+  it('M-3: lo guardado con medium + referrer sobrevive a la relectura', () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/?utm_medium=social');
+    captureVisitOrigin();
+    expect(readVisitOrigin()).toEqual({ utmMedium: 'social', referrer: 'directo' });
+  });
+  it('M-4: referentes android-app y copilot', () => {
+    expect(reduceReferrer('android-app://com.google.android.googlequicksearchbox')).toBe('google');
+    expect(reduceReferrer('android-app://com.instagram.android')).toBe('instagram');
+    expect(reduceReferrer('android-app://com.otra.app')).toBe('otro');
+    expect(reduceReferrer('https://copilot.microsoft.com/')).toBe('otro');
+  });
+  it('I-3: entrada por /card-show?utm… y luego la tienda con referente propio conserva instagram', () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/card-show?utm_source=instagram&utm_medium=bio');
+    captureVisitOrigin(); // VisitOriginCapture montado en el layout de /card-show
+    window.history.replaceState({}, '', '/es/catalog');
+    Object.defineProperty(document, 'referrer', { value: `${window.location.origin}/card-show`, configurable: true });
+    captureVisitOrigin(); // layout [locale]
+    expect(readVisitOrigin()).toEqual({ utmSource: 'instagram', utmMedium: 'bio' });
+  });
+  it('I-3: ambos layouts raíz montan VisitOriginCapture', () => {
+    const root = join(__dirname, '..', 'app');
+    for (const f of [join('card-show', 'layout.tsx'), join('[locale]', 'layout.tsx')]) {
+      expect(readFileSync(join(root, f), 'utf8'), f).toMatch(/<VisitOriginCapture \/>/);
+    }
+    // Solo hay dos layouts raíz (con <html>) bajo app/.
+    const roots = readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .filter((d) => {
+        try {
+          return /<html[\s>]/.test(readFileSync(join(root, d.name, 'layout.tsx'), 'utf8'));
+        } catch {
+          return false;
+        }
+      })
+      .map((d) => d.name)
+      .sort();
+    expect(roots).toEqual(['[locale]', 'card-show']);
+  });
+  it('I-4: las 3 llamadas de api.ts mandan visitOriginBodyField()', () => {
+    const src = readFileSync(join(__dirname, 'api.ts'), 'utf8');
+    for (const path of ["'/checkout/session'", "'/checkout/guest/session'", "'/buylist/requests', { method: 'POST'"]) {
+      const i = src.indexOf(path);
+      expect(i, path).toBeGreaterThan(-1);
+      expect(src.slice(i, i + 700), path).toContain('...visitOriginBodyField()');
+    }
+  });
+});

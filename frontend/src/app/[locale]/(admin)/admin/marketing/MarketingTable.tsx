@@ -84,8 +84,8 @@ export function CellValue({ cell, column }: { cell: MarketingCell | undefined; c
   const v = cell as number | string;
   if (typeof v === 'string' && v === OTROS_LABEL) return <span data-cell="others">{t('others')}</span>;
   // §ORIGEN-VISITA: b1/g1 suman `source: 'first'|'visit'` por fila; se rotula, no se muestra la clave cruda.
-  if (column.key === 'source' && (v === 'first' || v === 'visit')) {
-    return <span data-cell="value">{t(v === 'first' ? 'sourceFirst' : 'sourceVisit')}</span>;
+  if (column.key === 'source' && (v === 'first' || v === 'visit' || v === 'mixed')) {
+    return <span data-cell="value">{t(v === 'first' ? 'sourceFirst' : v === 'visit' ? 'sourceVisit' : 'sourceMixed')}</span>;
   }
   const text = formatValue(v, column, locale);
   return (

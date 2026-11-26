@@ -5,6 +5,7 @@ import { headers } from 'next/headers';
 import { NONCE_HEADER } from '@/security/csp';
 import { CARD_SHOW } from '@/content/card-show';
 import { CardShowMeasurement } from '@/components/consent/CardShowMeasurement';
+import { VisitOriginCapture } from '@/components/consent/VisitOriginCapture';
 import '../globals.css';
 import './card-show.css';
 
@@ -110,6 +111,8 @@ export default async function CardShowLayout({ children }: { children: React.Rea
         {children}
         {/* ARCHITECTURE §14.4 (D-MKT2-9, C-F9): solo `page_view` a GA4 con una elección ya guardada; con `off`, nada. */}
         <CardShowMeasurement />
+        {/* §ORIGEN-VISITA (I-3): la bio de Instagram aterriza aquí; misma pestaña ⇒ sessionStorage compartido con la tienda. */}
+        <VisitOriginCapture />
       </body>
     </html>
   );

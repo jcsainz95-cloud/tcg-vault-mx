@@ -30,7 +30,7 @@ import { WISHLIST_PRIVACY_ES } from './privacy-wishlist';
 import { MEASUREMENT_DISCLOSURE, type MeasurementDisclosure } from './measurement-disclosure';
 
 /**
- * §ORIGEN-VISITA (DECISIONES §ORIGEN-VISITA, CV-9). Variante A del arquitecto; el dueño aún no elige entre A y B:
+ * §ORIGEN-VISITA (DECISIONES §ORIGEN-VISITA, CV-9). Variantes A y B del arquitecto (B vigente); el dueño aún no elige:
  * se cambia SOLO aquí. El aviso es solo en español (ARCHITECTURE §4.63.7); texto en inglés de la variante A, por si
  * se traduce: "Where your visit came from (no measurement cookies). While you browse, your browser keeps in its
  * temporary memory, which is erased when you close the tab, how you reached our store: the post or link you used,
@@ -39,7 +39,11 @@ import { MEASUREMENT_DISCLOSURE, type MeasurementDisclosure } from './measuremen
  * it with Google, Meta or anyone else, it does not store your IP next to it, and it does not follow you between visits."
  */
 const VISIT_ORIGIN_NOTICE =
-  '**Origen de tu visita (sin cookies de medición).** Mientras navegas, tu navegador recuerda en su memoria temporal, que se borra al cerrar la pestaña, por dónde llegaste a nuestra tienda: la publicación o el enlace con que entraste, o el sitio del que venías (por ejemplo, Google o Instagram), sin guardar la dirección completa. Si compras o nos envías una solicitud de venta, guardamos ese dato junto con el pedido o la solicitud, solo para saber qué publicaciones funcionan. No lo compartimos con Google, Meta ni nadie más, no guarda tu IP junto a él y no te sigue entre visitas.';
+  // Variante B (vigente; el dueño aún no elige). La variante A queda abajo, comentada.
+  '**Origen de tu visita (sin cookies de medición).** Mientras navegas, tu navegador recuerda solo en esa pestaña cómo llegaste (el enlace con el que entraste o si vienes de Google, Instagram u otro sitio; no la dirección exacta). Si compras o envías una solicitud de venta, ese dato se guarda con tu pedido o solicitud, se conserva el mismo tiempo que ellos y lo usamos únicamente en estadísticas de mercadotecnia, sin cookies. Puedes pedir acceso, corrección, cancelación u oposición sobre este dato en el apartado 7 («Tus derechos ARCO y cómo ejercerlos») de este aviso.';
+// Variante A:
+// const VISIT_ORIGIN_NOTICE =
+//   '**Origen de tu visita (sin cookies de medición).** Mientras navegas, tu navegador recuerda en su memoria temporal, que se borra al cerrar la pestaña, por dónde llegaste a nuestra tienda: la publicación o el enlace con que entraste, o el sitio del que venías (por ejemplo, Google o Instagram), sin guardar la dirección completa. Si compras o nos envías una solicitud de venta, guardamos ese dato junto con el pedido o la solicitud, solo para saber qué publicaciones funcionan. No lo compartimos con Google, Meta ni nadie más, no guarda tu IP junto a él y no te sigue entre visitas.';
 
 export type LegalBlock =
   | { type: 'p'; text: string }

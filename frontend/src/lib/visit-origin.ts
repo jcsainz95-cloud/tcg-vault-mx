@@ -41,7 +41,15 @@ export function reduceReferrer(raw: string | null | undefined, ownHost?: string)
   if (!raw) return 'directo';
   let host: string;
   try {
-    host = new URL(raw).hostname.toLowerCase();
+    const u = new URL(raw);
+    host = u.hostname.toLowerCase();
+    // Apps de Android (referente `android-app://<paquete>`): el paquete es el «host».
+    if (u.protocol === 'android-app:') {
+      if (host === 'com.google.android.googlequicksearchbox') return 'google';
+      if (host === 'com.instagram.android') return 'instagram';
+      if (host === 'com.facebook.katana' || host === 'com.facebook.lite') return 'facebook';
+      return 'otro';
+    }
   } catch {
     return 'directo';
   }
@@ -67,6 +75,8 @@ export function computeVisitOrigin(search: string, referrer: string | null | und
     if (utm.medium) out.utmMedium = utm.medium;
     if (utm.campaign) out.utmCampaign = utm.campaign;
     if (utm.content) out.utmContent = utm.content;
+    // M-3: UTM sin `utm_source` (solo medium, etc.) ⇒ también el referente, para no caer en «Sin origen».
+    if (!utm.source) out.referrer = reduceReferrer(referrer, ownHost);
     return out;
   }
   return { referrer: reduceReferrer(referrer, ownHost) };
@@ -104,11 +114,12 @@ export function readVisitOrigin(): VisitOrigin | undefined {
     if (utm.medium) out.utmMedium = utm.medium;
     if (utm.campaign) out.utmCampaign = utm.campaign;
     if (utm.content) out.utmContent = utm.content;
-    if (Object.keys(out).length > 0) return out;
-    if (typeof o.referrer === 'string' && (VISIT_REFERRERS as readonly string[]).includes(o.referrer)) {
-      return { referrer: o.referrer as VisitReferrer };
-    }
-    return undefined;
+    const validRef =
+      typeof o.referrer === 'string' && (VISIT_REFERRERS as readonly string[]).includes(o.referrer)
+        ? (o.referrer as VisitReferrer)
+        : undefined;
+    if (validRef && !out.utmSource) out.referrer = validRef;
+    return Object.keys(out).length > 0 ? out : undefined;
   } catch {
     return undefined;
   }
