@@ -12,6 +12,7 @@ import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { OrderReservationSweepJobService } from './order-reservation-sweep.service';
 import { VaultOrphanRepairService } from './vault-orphan-repair.service';
+import { UsersPhoneBackfillService } from './users-phone-backfill.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import {
@@ -194,6 +195,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly supplySuggest?: SupplySuggestService,
     // §BOVEDA-COBRADA-SIN-PIEZAS: reparación diaria (09:20 UTC) de pedidos liquidados con piezas sin asignar. Idempotente y sin dinero.
     @Optional() private readonly vaultOrphanRepair?: VaultOrphanRepairService,
+    @Optional() private readonly usersPhoneBackfill?: UsersPhoneBackfillService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -450,6 +452,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: DemandMatchService NO está inyectado; demand-match no queda programado.');
     }
 
+    // §CELULAR-ALTA (v2 §6.4a): relleno diario del celular de cuentas viejas (04:30 UTC), idempotente.
+    if (this.usersPhoneBackfill) {
+      await this.queue.add('users-phone-backfill', {}, { ...this.repeat('users-phone-backfill', '30 4 * * *'), attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
+    } else {
+      this.logger.error('Scheduler: UsersPhoneBackfillService NO está inyectado; users-phone-backfill no queda programado.');
+    }
+
     if (this.vaultOrphanRepair) {
       await this.queue.add('vault-orphan-repair', {}, { ...this.repeat('vault-orphan-repair', '20 9 * * *'), attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
     } else {
@@ -590,6 +599,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       }
       case 'supply-suggest':
         return this.supplySuggest?.run() ?? null;
+      case 'users-phone-backfill':
+        return this.usersPhoneBackfill?.run() ?? null;
       case 'vault-orphan-repair':
         return this.vaultOrphanRepair?.run('daily') ?? null;
       // ⭐💰 D2d (§M4-SHIP.19.10): rastreo (lote), guía en proceso + verificación + huérfanas, cargos extra.

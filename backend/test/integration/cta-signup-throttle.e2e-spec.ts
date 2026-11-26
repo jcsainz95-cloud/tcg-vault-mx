@@ -35,7 +35,7 @@ describe('CTA-B4 — throttler `signup` compartido entre register y register/ema
   const email = () => `cta4.${RUN}.${(n += 1)}@example.com`;
   const register = (ip: string) =>
     h.api('POST', '/auth/register', { json: { email: email(), password: 'Termina123!', name: 'Ana', phone: '5512345678' }, headers: { 'x-forwarded-for': ip } });
-  const emailOnly = (ip: string) => h.api('POST', '/auth/register/email-only', { json: { email: email() }, headers: { 'x-forwarded-for': ip } });
+  const emailOnly = (ip: string) => h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: email() }, headers: { 'x-forwarded-for': ip } });
 
   it.each([
     ['email-only', 'el 6.º es email-only'],
@@ -58,13 +58,13 @@ describe('CTA-B4 — throttler `signup` compartido entre register y register/ema
   it('un 409 y un 400 también gastan cupo (el guard corre antes que el handler)', async () => {
     const ip = ipOf(3000 + (Date.now() % 200));
     const taken = email();
-    expect((await h.api('POST', '/auth/register/email-only', { json: { email: taken }, headers: { 'x-forwarded-for': ip } })).status).toBe(201);
+    expect((await h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: taken }, headers: { 'x-forwarded-for': ip } })).status).toBe(201);
     const statuses: number[] = [];
     for (let i = 0; i < 2; i += 1) {
-      statuses.push((await h.api('POST', '/auth/register/email-only', { json: { email: taken }, headers: { 'x-forwarded-for': ip } })).status);
+      statuses.push((await h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: taken }, headers: { 'x-forwarded-for': ip } })).status);
     }
     for (let i = 0; i < 2; i += 1) {
-      statuses.push((await h.api('POST', '/auth/register/email-only', { json: { email: 'no-es-correo' }, headers: { 'x-forwarded-for': ip } })).status);
+      statuses.push((await h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: 'no-es-correo' }, headers: { 'x-forwarded-for': ip } })).status);
     }
     expect(statuses).toEqual([409, 409, 400, 400]);
     expect((await emailOnly(ip)).status).toBe(429);
@@ -76,7 +76,7 @@ describe('CTA-B4 — throttler `signup` compartido entre register y register/ema
    * la IP y sale sin `user`, tokens ni correo. Mutaciones: cubo propio del `PATCH`; `409` sin telemetría.
    */
   it('CTA-B17 — misma IP: 3 register + 2 email-only ⇒ el PATCH siguiente 429 RATE_LIMITED', async () => {
-    const session = await h.api('POST', '/auth/register/email-only', { json: { email: email() }, headers: { 'x-forwarded-for': ipOf(5000 + (Date.now() % 200)) } });
+    const session = await h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: email() }, headers: { 'x-forwarded-for': ipOf(5000 + (Date.now() % 200)) } });
     expect(session.status).toBe(201);
     const ip = ipOf(5300 + (Date.now() % 200));
     const statuses: number[] = [];
@@ -91,8 +91,8 @@ describe('CTA-B4 — throttler `signup` compartido entre register y register/ema
     const record = jest.spyOn(SignupConflictTelemetry.prototype, 'record');
     try {
       const taken = email();
-      expect((await h.api('POST', '/auth/register/email-only', { json: { email: taken }, headers: { 'x-forwarded-for': ipOf(5600 + (Date.now() % 200)) } })).status).toBe(201);
-      const s = await h.api('POST', '/auth/register/email-only', { json: { email: email() }, headers: { 'x-forwarded-for': ipOf(5800 + (Date.now() % 200)) } });
+      expect((await h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: taken }, headers: { 'x-forwarded-for': ipOf(5600 + (Date.now() % 200)) } })).status).toBe(201);
+      const s = await h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email: email() }, headers: { 'x-forwarded-for': ipOf(5800 + (Date.now() % 200)) } });
       expect(s.status).toBe(201);
       const ip = ipOf(6000 + (Date.now() % 200));
       record.mockClear();

@@ -151,7 +151,6 @@ describe('Contrato — endpoints públicos del guest checkout', () => {
       { ...base, email: 'a@b.com', acceptedTerms: false },
       { ...base, email: 'a@b.com', acceptedTerms: undefined },
       { ...base, email: 'a@b.com', shippingAddress: { ...ADDRESS, postalCode: '123' } },
-      { ...base, email: 'a@b.com', shippingAddress: { ...ADDRESS, phone: '55' } },
       // ⭐ v1.81 (criterio 235): sin colonia, o en blanco, o con referencias de 71 ⇒ 400 de forma.
       { ...base, email: 'a@b.com', shippingAddress: { ...ADDRESS, neighborhood: undefined } },
       { ...base, email: 'a@b.com', shippingAddress: { ...ADDRESS, neighborhood: '   ' } },

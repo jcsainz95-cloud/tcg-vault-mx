@@ -177,7 +177,7 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
   }
   async function emailOnly(tag: string) {
     const email = nextEmail(tag);
-    const r = await post('/auth/register/email-only', { email });
+    const r = await post('/auth/register/email-only', { email, phone: '5512345678' });
     expect([r.status, r.text]).toEqual([201, r.text]);
     const u = await prisma.user.findUniqueOrThrow({ where: { email } });
     return { id: u.id, email, access: r.body.accessToken as string };
@@ -217,7 +217,7 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
         'emisión tras email-only',
         async () => {
           const email = nextEmail('b19eo');
-          return { email, act: async () => expect((await post('/auth/register/email-only', { email })).status).toBe(201) };
+          return { email, act: async () => expect((await post('/auth/register/email-only', { email, phone: '5512345678' })).status).toBe(201) };
         },
       ],
       [

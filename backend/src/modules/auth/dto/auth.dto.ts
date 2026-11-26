@@ -138,6 +138,16 @@ export class GoogleLoginDto {
   idToken!: string;
 }
 
+/** §CELULAR-ALTA: `POST /auth/google/complete`. `phone` sin tipo estricto: lo valida `assertValidPhone` (422 PHONE_INVALID). */
+export class GoogleCompleteDto {
+  @IsString()
+  @MinLength(1)
+  signupToken!: string;
+
+  @IsOptional()
+  phone?: unknown;
+}
+
 // v1.5 — Verificación de correo + recuperación self-service.
 
 /**

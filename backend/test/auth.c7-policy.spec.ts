@@ -525,7 +525,7 @@ describe('C7 — deviceToken en las cuatro respuestas: login, google, refresh y 
     (google.verify as jest.Mock).mockResolvedValue({ sub: 'g-1', email: u.email, emailVerified: true });
     // Candado puesto en la cuenta: google entra igual (no hay contraseña que adivinar).
     for (let i = 0; i < 5; i++) await attempt(svc, { email: u.email, password: BAD });
-    const r = await svc.google('id-token');
+    const r: any = await svc.google('id-token');
     expect(typeof r.deviceToken).toBe('string');
     await expect(deps.devices.verify(r.deviceToken)).resolves.toMatchObject({ userId: u.id });
   });

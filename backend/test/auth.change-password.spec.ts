@@ -306,7 +306,10 @@ describe('google() alta nueva (D-CTA-4) — escribe nameSource', () => {
     const verifier = { verify: jest.fn(async () => identity) } as unknown as GoogleTokenVerifier;
     const svc = new AuthService(
       prisma as unknown as PrismaService,
-      { signAsync: jest.fn(async () => 'tok') } as unknown as JwtService,
+      {
+        signAsync: jest.fn(async () => 'tok'),
+        verifyAsync: jest.fn(async () => ({ purpose: 'google_signup', sub: identity.sub, email: identity.email, name: identity.name?.trim() || null })),
+      } as unknown as JwtService,
       config,
       verifier,
       { log: jest.fn(async () => undefined) } as unknown as AuditService,
@@ -319,19 +322,25 @@ describe('google() alta nueva (D-CTA-4) — escribe nameSource', () => {
 
   it('el ID token trae name ⇒ name=<name>, nameSource=google', async () => {
     const { svc, create } = makeGoogle({ sub: 'g1', email: 'ana@x.com', emailVerified: true, name: 'Ana Pérez' });
-    await svc.google('t');
+    expect(await svc.google('t')).toHaveProperty('pendingSignup'); // §CELULAR-ALTA: Google nuevo NO crea cuenta
+    expect(create).not.toHaveBeenCalled();
+    await svc.googleComplete('tok', '5512345678');
     expect(create.mock.calls[0][0].data).toMatchObject({ name: 'Ana Pérez', nameSource: 'google' });
   });
 
   it('sin name ⇒ name=<trozo del correo>, nameSource=derived (la regla del backfill M-52b, hacia delante)', async () => {
     const { svc, create } = makeGoogle({ sub: 'g1', email: 'jcsainz95@x.com', emailVerified: true });
-    await svc.google('t');
+    expect(await svc.google('t')).toHaveProperty('pendingSignup'); // §CELULAR-ALTA: Google nuevo NO crea cuenta
+    expect(create).not.toHaveBeenCalled();
+    await svc.googleComplete('tok', '5512345678');
     expect(create.mock.calls[0][0].data).toMatchObject({ name: 'jcsainz95', nameSource: 'derived' });
   });
 
   it('name en blanco ⇒ cuenta como ausente: derived (no se guarda "" ni se marca google)', async () => {
     const { svc, create } = makeGoogle({ sub: 'g1', email: 'jcsainz95@x.com', emailVerified: true, name: '   ' });
-    await svc.google('t');
+    expect(await svc.google('t')).toHaveProperty('pendingSignup'); // §CELULAR-ALTA: Google nuevo NO crea cuenta
+    expect(create).not.toHaveBeenCalled();
+    await svc.googleComplete('tok', '5512345678');
     expect(create.mock.calls[0][0].data).toMatchObject({ name: 'jcsainz95', nameSource: 'derived' });
   });
 });

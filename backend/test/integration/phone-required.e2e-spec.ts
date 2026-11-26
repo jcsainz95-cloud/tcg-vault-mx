@@ -61,12 +61,12 @@ describe('E2E — §CELULAR obligatorio', () => {
       expect(res.body.user.phoneRequired).toBe(false);
       expect(await phoneOf(res.body.user.id)).toBe('5512345678');
     });
-    it.each([undefined, '', '0000000000', 'abc'])('phone %j ⇒ 201 con phone null y phoneRequired=true (no se pierde la compra)', async (phone) => {
+    it.each([undefined, '', '0000000000', 'abc'])('phone %j ⇒ 422 PHONE_INVALID y NO se crea la cuenta (§CELULAR-ALTA v2 §6.3)', async (phone) => {
       const e = `eo2-${String(phone).length}-${run}@e2e.local`;
       const res = await h.api('POST', '/auth/register/email-only', { json: { email: e, phone } });
-      expect(res.status).toBe(201);
-      expect(res.body.user.phoneRequired).toBe(true);
-      expect(await phoneOf(res.body.user.id)).toBeNull();
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('PHONE_INVALID');
+      expect(await h.prisma.user.findUnique({ where: { email: e } })).toBeNull();
     });
   });
 
