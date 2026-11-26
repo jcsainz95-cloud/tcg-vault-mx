@@ -97,6 +97,7 @@ import {
   cellId,
   type ComponentRow,
   type SafeComponentRow,
+  OTROS_LABEL,
   SMALL_CELL_HIDDEN,
   SMALL_CELL_SENTINEL,
   SMALL_CELL_THRESHOLD,
@@ -1388,7 +1389,6 @@ export class MarketingAnalyticsService {
       ],
       rows: [
         { concepto: 'Pedidos pagados del periodo', pedidos: paid, pct: paid === 0 ? null : 100 },
-        { concepto: 'Con origen registrado (first_utm_source)', pedidos: withOrigin, pct: pct(withOrigin) },
         { concepto: 'Con origen (primer origen o visita)', pedidos: withOrigin + visitOnly, pct: pct(withOrigin + visitOnly) },
         { concepto: F3_BUCKET_FIRST, pedidos: withOrigin, pct: pct(withOrigin) },
         { concepto: F3_BUCKET_VISIT, pedidos: visitOnly, pct: pct(visitOnly) },
@@ -1556,7 +1556,7 @@ export class MarketingAnalyticsService {
       ],
       rows: rows.map((r) => ({
         [col]: r.key,
-        ...(withSource ? { source: r.key.startsWith(VISIT_KEY_PREFIX) ? 'visit' : 'first' } : {}),
+        ...(withSource ? { source: r.key === OTROS_LABEL ? 'mixed' : r.key.startsWith(VISIT_KEY_PREFIX) ? 'visit' : 'first' } : {}),
         pedidos: r.parts.pedidos.count as Cell,
         mxnPedidos: (r.parts.pedidos.money.mxnPedidos ?? null) as Cell,
         solicitudes: r.parts.solicitudes.count as Cell,
@@ -1727,7 +1727,7 @@ export class MarketingAnalyticsService {
         rows: [{ concepto: G1_KEY, pedidos: row.count as Cell, mxn: (row.money.mxn ?? null) as Cell }],
         measured: true,
         notes: [
-          'Primer origen guardado con el pedido (solo de quien aceptó analítica): cuenta lo que se puede atribuir, no todo lo que trajo la promoción.',
+          'Origen guardado con el pedido (primer origen de quien aceptó analítica, o el de la visita sin cookies): cuenta lo que se puede atribuir, no todo lo que trajo la promoción.',
           cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} pedidos ⇒ «< 5» sin MX$.`),
         ],
       },

@@ -12,7 +12,7 @@ import {
 } from './dto/guest-checkout.dto';
 import { ShippingQuoteRequestDto } from './dto/shipping-quote.dto';
 import { MeasurementService } from '../measurement/measurement.service';
-import { sanitizeVisitOrigin } from '../../common/visit-origin';
+import { mergeOriginColumns } from '../../common/visit-origin';
 import { retryAfterOf } from '../discounts/discounts.service';
 
 const HOUR_MS = 3_600_000;
@@ -88,7 +88,7 @@ export class GuestOrdersController {
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
     // §ORIGEN-VISITA: independiente de `measurement`; saneador puro, nunca lanza.
-    const cols = { ...(m?.columns ?? {}), ...sanitizeVisitOrigin(dto.visitOrigin) };
+    const cols = mergeOriginColumns(m?.columns, dto.visitOrigin);
     // 💰 v1.110 (§DSC.6): `429 DISCOUNT_CODE_RATE_LIMITED` ⇒ cabecera `Retry-After`.
     const result = await this.guest.createSession(dto, ip, cols).catch((e: unknown) => {
       const retryAfter = retryAfterOf(e);

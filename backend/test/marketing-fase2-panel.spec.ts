@@ -93,7 +93,7 @@ describe('f3/g1 · desde las columnas de consentimiento', () => {
   it('on ⇒ f3 con pagados, con origen, con analítica y «antes de Fase 2»; g1 con N<5 ⇒ «< 5» sin MX$', async () => {
     const { svc } = build({ mode: 'on' });
     const f3 = by((await svc.screen('f', week, NOW, 'small_cells')).tables, 'f3');
-    expect(f3.rows.map((r) => [r.pedidos, r.pct])).toEqual([[10, 100], [3, 30], [3, 30], [3, 30], [0, 0], [7, 70], [4, 40], [1, 10], [2, 20]]);
+    expect(f3.rows.map((r) => [r.pedidos, r.pct])).toEqual([[10, 100], [3, 30], [3, 30], [0, 0], [7, 70], [4, 40], [1, 10], [2, 20]]);
     const g1 = by((await svc.screen('g', week, NOW, 'small_cells')).tables, 'g1');
     expect(g1.rows).toEqual([{ concepto: expect.any(String), pedidos: SMALL_CELL_SENTINEL, mxn: 'oculta' }]);
   });

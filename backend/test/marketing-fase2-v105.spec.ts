@@ -179,7 +179,6 @@ describe('(2) f3 con las tres respuestas de consentimiento', () => {
     const f3 = by((await build({ mode: 'on' }).screen('f')).tables, 'f3');
     expect(f3.rows.map((r) => [r.concepto, r.pedidos, r.pct])).toEqual([
       ['Pedidos pagados del periodo', 10, 100],
-      ['Con origen registrado (first_utm_source)', 3, 30],
       ['Con origen (primer origen o visita)', 3, 30],
       ['Primer origen (90 d, con permiso)', 3, 30],
       ['Origen de visita', 0, 0],

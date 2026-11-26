@@ -41,3 +41,8 @@ export function visitColumnsData(c: Partial<VisitColumns>): Partial<VisitColumns
   for (const k of VISIT_KEYS) if (c[k] !== undefined) out[k] = c[k];
   return out as Partial<VisitColumns>;
 }
+
+/** Fusión única para los controladores: columnas de medición (si las hay) + origen de visita saneado (§ORIGEN-VISITA). */
+export function mergeOriginColumns<M extends object>(measurementColumns: M | undefined, visitOrigin: unknown): M & VisitColumns {
+  return { ...(measurementColumns ?? ({} as M)), ...sanitizeVisitOrigin(visitOrigin) };
+}

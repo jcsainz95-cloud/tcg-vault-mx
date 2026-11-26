@@ -22,7 +22,7 @@
  * Deterministas (sin reloj ni azar): N=1 por caso.
  */
 import { MarketingAnalyticsService } from '../src/modules/marketing/marketing-analytics.service';
-import { SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type CellPrivacy } from '../src/modules/marketing/small-cells';
+import { OTROS_LABEL, SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type CellPrivacy } from '../src/modules/marketing/small-cells';
 import type { MarketingPeriod, MarketingScreen } from '../src/modules/marketing/marketing-period';
 import type { AggTable, Cell, ScreenPayload } from '../src/modules/marketing/marketing-aggregates.types';
 
@@ -461,6 +461,14 @@ describe('§ORIGEN-VISITA · origen efectivo en f3, b1, b2 y g1', () => {
     expect(rowOf(b1, 'origen', 'visita · instagram / paid')).toMatchObject({ source: 'visit', pedidos: 5 });
     expect(rowOf(b1, 'origen', 'visita · google / —')).toMatchObject({ source: 'visit', pedidos: 5 });
     expect(b1.rows.some((r) => r.origen === 'google / —')).toBe(false);
+  });
+  it('I-1: una fila «Otros (< 5 c/u)» en b1 se rotula source «mixed» (puede mezclar primer origen y visita); las demás, first/visit', () => {
+    const part = (n: number) => ({ count: n, money: { mxnPedidos: 0 } });
+    const row = (key: string) => ({ key, parts: { pedidos: part(5), solicitudes: part(0) } });
+    const f = { dims: { parts: { b1: [row('instagram / bio'), row('visita · google / —'), row(OTROS_LABEL)] } }, forced: new Map() };
+    const t = (MarketingAnalyticsService.prototype as any).bTable.call({}, 'b1', 'b1', 'origen', 'Origen', 'exact', f);
+    expect(t.rows.map((r: any) => [r.origen, r.source])).toEqual(expect.arrayContaining([['instagram / bio', 'first'], ['visita · google / —', 'visit'], [OTROS_LABEL, 'mixed']]));
+    expect(t.rows).toHaveLength(3);
   });
   it('g1 cuenta el paid de la visita y sigue siendo idéntico a b2[Promoción] (E4); supresión de celdas pequeñas intacta', async () => {
     const svc = service(build());

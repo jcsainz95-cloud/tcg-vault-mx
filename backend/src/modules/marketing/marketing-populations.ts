@@ -148,7 +148,6 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
     class: 'accepted_total',
     components: [
       c('pedidos', [], 'PAID', { row: 'Pedidos pagados del periodo' }),
-      c('pedidos', [], 'PAID_ORIGIN', { row: 'Con origen registrado (first_utm_source)' }),
       // §ORIGEN-VISITA: «con origen» = primer origen o visita (base de b1 = E2) y las tres cubetas que suman el total.
       c('pedidos', [], 'PAID_ORIGIN', { row: 'Con origen (primer origen o visita)' }),
       c('pedidos', [], 'PAID', { row: 'Primer origen (90 d, con permiso)', filter: 'firstUtmSource IS NOT NULL' }),

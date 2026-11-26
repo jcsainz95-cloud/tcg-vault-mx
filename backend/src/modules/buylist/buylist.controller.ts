@@ -12,7 +12,7 @@ import { AuditService } from '../audit/audit.service';
 import { MarketingQuoteCounterService } from '../marketing/marketing-quote-counter.service';
 // v1.102⟨mkt-fase2⟩ (§MKT.H.2/.6): consentimiento en la solicitud y `generate_lead` SOLO de servidor, post-commit.
 import { MeasurementService } from '../measurement/measurement.service';
-import { sanitizeVisitOrigin } from '../../common/visit-origin';
+import { mergeOriginColumns } from '../../common/visit-origin';
 import {
   BatchQuoteDto,
   CreateRequestDto,
@@ -135,7 +135,7 @@ export class BuylistController {
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
     // §ORIGEN-VISITA: independiente de `measurement`; saneador puro, nunca lanza.
-    const cols = { ...(m?.columns ?? {}), ...sanitizeVisitOrigin(dto.visitOrigin) };
+    const cols = mergeOriginColumns(m?.columns, dto.visitOrigin);
     // ⚠️ v1.51.3 (D36/D37) — `addressId` viaja al servicio. Sin esta línea el campo se recibe y se
     // tira: era el defecto BL-1 (toda solicitud nacía sin snapshot de origen y, por tanto,
     // inofertable). El `422 PICKUP_ADDRESS_REQUIRED` lo emite el servicio, no el pipe.
