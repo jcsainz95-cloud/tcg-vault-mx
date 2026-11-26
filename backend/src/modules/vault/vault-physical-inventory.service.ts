@@ -269,7 +269,7 @@ export class VaultPhysicalInventoryService {
       });
     }
 
-    counts.needsAttention = unassigned.filter((l) => l.fulfillmentFailedAt !== null).length;
+    counts.needsAttention = unassigned.length; // TODAS las líneas pagadas sin asignar (fallidas + `unassigned`)
 
     return {
       unassignedLines,

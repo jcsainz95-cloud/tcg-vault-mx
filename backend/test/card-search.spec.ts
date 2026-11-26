@@ -33,6 +33,10 @@ describe('card-search (§BUSCADOR-CARTAS) — parseo puro', () => {
     expect(buildCardSearchPlan('charizard', keys)?.identityTiers.length).toBe(0);
     expect(buildCardSearchPlan('78', keys)?.identityTiers.length).toBe(0);
   });
+  it('BUSC-1: la rama de folio solo con allowFolio (panel); en los públicos «INV-…» es texto', () => {
+    expect(JSON.stringify(buildCardSearchPlan('INV-000123', keys)?.where)).not.toContain('inventoryItems');
+    expect(JSON.stringify(buildCardSearchPlan('INV-000123', keys, { allowFolio: true })?.where)).toContain('inventoryItems');
+  });
   it('clave candidata de TCGCSV: 2-5 alfanuméricos en mayúsculas', () => {
     expect(candidateSetKey(' 30c ')).toBe('30C');
     expect(candidateSetKey('S')).toBeNull();

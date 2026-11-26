@@ -109,7 +109,7 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — visibilidad (panel, Pedidos, bóvedas,
     for (const tok of [admin, operator]) {
       const phys = await h.api('GET', `/admin/vaults/${ghost.id}/physical-inventory`, { token: tok });
       expect(phys.status).toBe(200);
-      expect(phys.body.counts.needsAttention).toBe(1);
+      expect(phys.body.counts.needsAttention).toBe(phys.body.unassignedLines.length);
       expect(phys.body.unassignedLines).toHaveLength(1);
       expect(phys.body.unassignedLines[0]).toMatchObject({
         orderId: order.id,
@@ -141,7 +141,7 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — visibilidad (panel, Pedidos, bóvedas,
     expect((await h.api('GET', '/admin/inventory/by-folio/banana', { token: admin })).status).toBe(400);
     const cat = await h.api('GET', `/buylist/cards?q=${encodeURIComponent(String(fp.folio).toLowerCase())}`);
     expect(cat.status).toBe(200);
-    expect(cat.body.data.map((c: { id: string }) => c.id)).toEqual([cardNone.id]);
+    expect(cat.body.data).toEqual([]); // BUSC-1: el buscador PÚBLICO no resuelve folios (es texto)
     expect((await h.api('GET', '/buylist/cards?q=INV-999999999')).body.total).toBe(0);
 
     // --- D: editar el NOMBRE (solo súper-admin, auditado antes/después, sin HTML)
@@ -151,6 +151,7 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — visibilidad (panel, Pedidos, bóvedas,
     expect((await patch(admin, { name: '   ' })).status).toBe(400);
     expect((await patch(admin, { name: 'x'.repeat(121) })).status).toBe(400);
     expect((await patch(admin, { name: 123 })).status).toBe(400);
+    expect((await patch(admin, { name: 'A' })).status).toBe(400); // mínimo 2 caracteres (igual que el front)
     const okName = await patch(admin, { name: '  Nuevo Nombre  ' });
     expect(okName.status).toBe(200);
     expect(okName.body).toEqual({ id: ghost.id, name: 'Nuevo Nombre' });

@@ -39,18 +39,18 @@ export function clearCardSearchKeysCache(): void {
 
 export async function loadCardSearchSetKeys(db: SetKeyDb, now = Date.now()): Promise<CardSearchSetKeys> {
   if (keysCache && now - keysCache.at < CARD_SEARCH_KEYS_TTL_MS) return keysCache.value;
-  const sets = await db.cardSet.findMany({
-    where: { ptcgoCode: { not: null } },
-    select: { id: true, ptcgoCode: true, printedTotal: true },
-  });
+  // Todos los sets (cientos de filas): los totales impresos sirven también a los sets SIN clave («078/131»).
+  const sets = await db.cardSet.findMany({ select: { id: true, ptcgoCode: true, printedTotal: true } });
   const byKey = new Map<string, string[]>();
   const totals = new Map<string, number | null>();
   for (const s of sets) {
+    totals.set(s.id, s.printedTotal ?? null);
     const k = (s.ptcgoCode ?? '').trim().toLowerCase();
     if (!/^[a-z0-9]{2,5}$/.test(k)) continue;
     byKey.set(k, [...(byKey.get(k) ?? []), s.id]);
-    totals.set(s.id, s.printedTotal ?? null);
   }
+  // KEY-1: una clave que comparten dos o más sets es AMBIGUA ⇒ no se usa para buscar (el nombre y el número siguen valiendo).
+  for (const [k, ids] of byKey) if (ids.length > 1) byKey.delete(k);
   const value = { byKey, totals };
   keysCache = { at: now, value };
   return value;
@@ -80,6 +80,8 @@ export function parseCardQuery(raw: string | undefined | null): ParsedCardQuery 
   if (!trimmed) return null;
   let text = foldCardText(trimmed.slice(0, CARD_SEARCH_Q_MAX));
   let total: number | null = null;
+  // «TG12/TG30», «GG05/GG70»: código con prefijo + total de la galería ⇒ solo el código (el total de galería no es el del set).
+  text = text.replace(/([a-z]{1,5})(\d{1,3})\s*\/\s*(?:[a-z]{1,5})?\d{1,3}(?!\d)/, (_m, l: string, n: string) => ` ${l}${n} `);
   text = text.replace(/(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/, (_m, n: string, t: string) => {
     total = parseInt(t, 10);
     return ` ${n} `;
@@ -123,14 +125,21 @@ export interface CardSearchPlan {
   identityTiers: Prisma.CardWhereInput[];
   /** `q` sin ninguna palabra útil ⇒ no coincide nada. */
   matchesNothing: boolean;
+  /** El filtro nuevo equivale EXACTAMENTE al de production (una palabra sin acentos/clave): una sola consulta. */
+  sameAsLegacy?: boolean;
 }
 
 /** Puro (recibe las claves ya cargadas): arma `where` e identidad. */
-export function buildCardSearchPlan(raw: string | undefined | null, keys: CardSearchSetKeys): CardSearchPlan | null {
+export function buildCardSearchPlan(
+  raw: string | undefined | null,
+  keys: CardSearchSetKeys,
+  opts: { allowFolio?: boolean } = {},
+): CardSearchPlan | null {
   const parsed = parseCardQuery(raw);
   if (!parsed) return null;
   // Folio de pieza («INV-001306»): devuelve la carta de ESA pieza (o nada), no busca por nombre.
-  const folio = /^\s*(inv)-(\d{1,12})\s*$/i.exec(raw ?? '');
+  // BUSC-1: SOLO en buscadores del panel (`allowFolio`); en los públicos «INV-…» es texto.
+  const folio = opts.allowFolio ? /^\s*(inv)-(\d{1,12})\s*$/i.exec(raw ?? '') : null;
   if (folio) {
     const where: Prisma.CardWhereInput = { inventoryItems: { some: { folio: { equals: `INV-${folio[2]}`, mode: 'insensitive' } } } };
     return { where, identityTiers: [], matchesNothing: false };
@@ -219,14 +228,43 @@ export function buildCardSearchPlan(raw: string | undefined | null, keys: CardSe
     }
     tiers.push(identity);
   }
-  return { where, identityTiers: tiers, matchesNothing: false };
+  const w0 = words[0];
+  const sameAsLegacy =
+    single &&
+    (raw ?? '').trim().toLowerCase() === w0 &&
+    !w0.includes('e') &&
+    !w0.includes('delta') &&
+    keyIds(w0).length === 0 &&
+    !/^[a-z]{1,5}\d{1,3}$/.test(w0) &&
+    (!/^\d{1,3}$/.test(w0) || stripZeros(w0) === w0) &&
+    total === null;
+  return { where, identityTiers: tiers, matchesNothing: false, sameAsLegacy };
 }
 
-/** Solo el filtro (para buscadores que ya tienen su propio orden/paginación). `null` ⇒ sin `q`. */
-export async function buildCardSearchWhere(db: SetKeyDb, q: string | undefined | null): Promise<Prisma.CardWhereInput | null> {
+/** «Lo que production encontraba»: `contains` del texto completo (sin plegar) en nombre (y número). */
+export function legacyCardWhere(raw: string, fields: 'name' | 'name_number'): Prisma.CardWhereInput {
+  const q = raw.slice(0, CARD_SEARCH_Q_MAX);
+  // `contains` de Prisma NO escapa `%`/`_`/`\\`: con ellos la búsqueda coincidiría con todo (comodines) ⇒ ese bloque no aplica.
+  if (/[%_\\]/.test(q)) return { id: { in: [] } };
+  return fields === 'name'
+    ? { name: { contains: q, mode: 'insensitive' } }
+    : { OR: [{ name: { contains: q, mode: 'insensitive' } }, { number: { contains: q, mode: 'insensitive' } }] };
+}
+
+/**
+ * Solo el filtro (para buscadores que ya tienen su propio orden/paginación). `null` ⇒ sin `q`.
+ * Regla general: lo que production encontraba SE SIGUE encontrando (unión con `legacyCardWhere`); la búsqueda nueva suma.
+ */
+export async function buildCardSearchWhere(
+  db: SetKeyDb,
+  q: string | undefined | null,
+  opts: { allowFolio?: boolean; legacy?: 'name' | 'name_number' } = {},
+): Promise<Prisma.CardWhereInput | null> {
   if (!parseCardQuery(q)) return null;
   const keys = await loadCardSearchSetKeys(db);
-  return buildCardSearchPlan(q, keys)?.where ?? null;
+  const plan = buildCardSearchPlan(q, keys, { allowFolio: opts.allowFolio });
+  if (!plan) return null;
+  return { OR: [legacyCardWhere(q as string, opts.legacy ?? 'name_number'), plan.where] };
 }
 
 /**
@@ -243,51 +281,72 @@ export async function searchCardsPage<I extends Prisma.CardInclude>(
     page: number;
     pageSize: number;
     include: I;
+    allowFolio?: boolean;
   },
 ) {
-  const keys = parseCardQuery(params.q) ? await loadCardSearchSetKeys(db) : null;
-  const plan = keys ? buildCardSearchPlan(params.q, keys) : null;
-  const where: Prisma.CardWhereInput = plan
-    ? { AND: [params.baseWhere ?? {}, plan.where] }
-    : (params.baseWhere ?? {});
+  type Row = Prisma.CardGetPayload<{ include: I }>;
+  const base = params.baseWhere ?? {};
   const skip = (params.page - 1) * params.pageSize;
   const take = params.pageSize;
-  const total = await db.card.count({ where });
-  type Row = Prisma.CardGetPayload<{ include: I }>;
-
-  if (plan && !params.hasSetId && skip + take > CARD_SEARCH_DEPTH_CAP) {
-    return { rows: [] as Row[], total };
+  const keys = parseCardQuery(params.q) ? await loadCardSearchSetKeys(db) : null;
+  const plan = keys ? buildCardSearchPlan(params.q, keys, { allowFolio: params.allowFolio }) : null;
+  if (!plan || plan.sameAsLegacy) {
+    const w: Prisma.CardWhereInput = plan ? { AND: [base, legacyCardWhere(params.q as string, 'name_number')] } : base;
+    const [rows, total] = await Promise.all([
+      db.card.findMany({ where: w, include: params.include, orderBy: params.orderBy, skip, take }),
+      db.card.count({ where: w }),
+    ]);
+    return { rows: rows as Row[], total };
   }
 
-  const tier1: string[] = [];
-  if (plan && !params.hasSetId) {
+  // Bloques, en este orden (ANTES de paginar): (0) lo que production encontraba (`contains` del texto completo), en su orden
+  // normativo; (1) coincidencia de identidad nueva (clave+número, código…; ≤ 200 ids; solo sin `setId`); (2) el resto.
+  const legacy = legacyCardWhere(params.q as string, 'name_number');
+  const where: Prisma.CardWhereInput = { AND: [base, { OR: [legacy, plan.where] }] };
+  const legacyWhere: Prisma.CardWhereInput = { AND: [base, legacy] };
+
+  const identityIds = async (): Promise<string[]> => {
+    const ids: string[] = [];
+    if (params.hasSetId) return ids;
     for (const tier of plan.identityTiers) {
-      if (tier1.length >= CARD_SEARCH_IDENTITY_MAX) break;
+      if (ids.length >= CARD_SEARCH_IDENTITY_MAX) break;
       const got = await db.card.findMany({
-        where: { AND: [params.baseWhere ?? {}, where, tier, ...(tier1.length ? [{ id: { notIn: tier1 } }] : [])] },
+        where: { AND: [base, plan.where, tier, { NOT: legacy }, ...(ids.length ? [{ id: { notIn: ids } }] : [])] },
         select: { id: true },
         orderBy: CARD_ORDER_BY_GLOBAL,
-        take: CARD_SEARCH_IDENTITY_MAX - tier1.length,
+        take: CARD_SEARCH_IDENTITY_MAX - ids.length,
       });
-      tier1.push(...got.map((g) => g.id));
+      ids.push(...got.map((g) => g.id));
     }
-  }
+    return ids;
+  };
+  // `count` y búsquedas en paralelo (I-4).
+  const [total, n0, ids1] = await Promise.all([db.card.count({ where }), db.card.count({ where: legacyWhere }), identityIds()]);
+  if (!params.hasSetId && skip + take > CARD_SEARCH_DEPTH_CAP) return { rows: [] as Row[], total };
 
-  const head = tier1.slice(skip, skip + take);
   let rows: Row[] = [];
-  if (head.length > 0) {
+  let remaining = take;
+  const from0 = Math.min(Math.max(n0 - skip, 0), take);
+  if (from0 > 0) {
+    rows = (await db.card.findMany({ where: legacyWhere, include: params.include, orderBy: params.orderBy, skip, take: from0 })) as Row[];
+    remaining -= rows.length;
+  }
+  const afterLegacy = Math.max(0, skip - n0);
+  if (remaining > 0 && afterLegacy < ids1.length) {
+    const head = ids1.slice(afterLegacy, afterLegacy + remaining);
     const found = (await db.card.findMany({ where: { id: { in: head } }, include: params.include })) as Row[];
     const byId = new Map(found.map((r) => [r.id, r]));
-    rows = head.map((id) => byId.get(id)).filter((r): r is Row => !!r);
+    const got = head.map((id) => byId.get(id)).filter((r): r is Row => !!r);
+    rows = rows.concat(got);
+    remaining -= got.length;
   }
-  const need = take - rows.length;
-  if (need > 0) {
+  if (remaining > 0) {
     const rest = (await db.card.findMany({
-      where: tier1.length ? { AND: [where, { id: { notIn: tier1 } }] } : where,
+      where: { AND: [base, plan.where, { NOT: legacy }, ...(ids1.length ? [{ id: { notIn: ids1 } }] : [])] },
       include: params.include,
       orderBy: params.orderBy,
-      skip: Math.max(0, skip - tier1.length),
-      take: need,
+      skip: Math.max(0, afterLegacy - ids1.length),
+      take: remaining,
     })) as Row[];
     rows = rows.concat(rest);
   }

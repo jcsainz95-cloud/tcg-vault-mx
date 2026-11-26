@@ -151,14 +151,11 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     await svc.searchAllCards({ q: 'pika', page: 1, pageSize: 20 });
 
-    // §BUSCADOR-CARTAS: una sola palabra = nombre OR número contiene (conducta de siempre), vía la función compartida.
-    expect(capturedWhere.AND[1].OR).toEqual(
-      expect.arrayContaining([
-        { number: { contains: 'pika', mode: 'insensitive' } },
-        { OR: [{ name: { contains: 'pika', mode: 'insensitive' } }] },
-      ]),
-    );
-  });
+    // §BUSCADOR-CARTAS: una palabra sin acentos/clave = EXACTAMENTE la consulta de production (nombre OR número contiene).
+    expect(capturedWhere.AND[1].OR).toEqual([
+      { name: { contains: 'pika', mode: 'insensitive' } },
+      { number: { contains: 'pika', mode: 'insensitive' } },
+    ]);  });
 
   it('sin setId → orden GLOBAL normativo (name, set.releaseDate desc nulls-last, numberPrefix, numberSort, id)', async () => {
     let capturedArgs: any;

@@ -459,7 +459,7 @@ export class SealedCatalogService {
     const cardWhere: Prisma.CardWhereInput = {};
     if (q.setId) cardWhere.setId = q.setId;
     if (q.q) {
-      const qWhere = await buildCardSearchWhere(this.prisma, q.q);
+      const qWhere = await buildCardSearchWhere(this.prisma, q.q, { legacy: 'name' });
       if (qWhere) cardWhere.AND = [qWhere];
     }
     if (Object.keys(cardWhere).length) where.card = cardWhere;

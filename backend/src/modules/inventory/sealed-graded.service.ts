@@ -373,7 +373,7 @@ export class SealedGradedInventoryService {
    * `items?cardId=&productType=graded` (P-17).
    */
   async gradedIndex(q: { q?: string; page: number; pageSize: number }): Promise<GradedIndexResponse> {
-    const cardQ = q.q ? await buildCardSearchWhere(this.prisma, q.q) : null;
+    const cardQ = q.q ? await buildCardSearchWhere(this.prisma, q.q, { legacy: 'name', allowFolio: true }) : null;
     const grouped = await this.prisma.inventoryItem.groupBy({
       by: ['cardId', 'gradingCompany', 'gradeValue'],
       where: {

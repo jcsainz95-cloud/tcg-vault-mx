@@ -211,7 +211,7 @@ export class AdminBountiesService {
     if (params.setId !== undefined) card.setId = params.setId;
     if (params.q !== undefined) {
       // §BUSCADOR-CARTAS: una sola función (nombre, número, clave de set, código impreso).
-      const qWhere = await buildCardSearchWhere(this.prisma, params.q);
+      const qWhere = await buildCardSearchWhere(this.prisma, params.q, { allowFolio: true });
       if (qWhere) card.AND = [qWhere];
     }
     return {

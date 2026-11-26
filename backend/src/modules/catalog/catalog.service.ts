@@ -1411,7 +1411,7 @@ export class CatalogService {
     if (q.rarity) cardWhere.rarity = q.rarity;
     if (q.q) {
       // §BUSCADOR-CARTAS: una sola función de búsqueda (nombre, número, clave de set).
-      const qWhere = await buildCardSearchWhere(this.prisma, q.q);
+      const qWhere = await buildCardSearchWhere(this.prisma, q.q, { legacy: 'name' });
       if (qWhere) cardWhere.AND = [qWhere];
     }
     if (Object.keys(cardWhere).length) extra.card = cardWhere;

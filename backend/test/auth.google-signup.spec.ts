@@ -75,14 +75,22 @@ describe('Google alta con celular (§CELULAR-ALTA)', () => {
     }
   });
 
-  it('doble complete: la cuenta ya existe por googleId ⇒ responde como login, 1 sola cuenta', async () => {
+  it('SIGN-1: token de UN solo uso ⇒ con la cuenta ya creada, reusarlo NO da sesión (401 SIGNUP_EXPIRED)', async () => {
     const existing = { id: 'u1', status: 'active', tokenVersion: 0, role: 'customer', googleId: 'g1', email: 'ana@x.com' };
     const { svc, create } = build({ byGoogle: existing });
-    const { pendingSignup } = (await svc.google('id')) as any; // cuenta existente ⇒ login normal
-    expect(pendingSignup).toBeUndefined();
     const t = await jwt.signAsync({ purpose: 'google_signup', sub: 'g1', email: 'ana@x.com', name: 'Ana' }, { secret: createHmac('sha256', 'access-secret-test').update('google_signup').digest('hex'), expiresIn: 900 });
-    const res: any = await svc.googleComplete(t, '5512345678');
+    await expect(svc.googleComplete(t, '5512345678')).rejects.toMatchObject({ code: 'SIGNUP_EXPIRED', status: 401 });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('carrera simultánea: el que pierde el P2002 responde como login (1 sola cuenta)', async () => {
+    const { svc, prisma } = build();
+    const { Prisma } = require('@prisma/client'); // eslint-disable-line @typescript-eslint/no-var-requires
+    const winner = { id: 'w', status: 'active', tokenVersion: 0, role: 'customer', googleId: 'g1' };
+    prisma.user.create.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }));
+    prisma.user.findUnique.mockImplementation(async ({ where }: any) => (where.googleId && prisma.user.create.mock.calls.length ? winner : null));
+    const { pendingSignup } = (await svc.google('id')) as any;
+    const res: any = await svc.googleComplete(pendingSignup.signupToken, '5512345678');
     expect(res.accessToken).toBe('a');
   });
 });

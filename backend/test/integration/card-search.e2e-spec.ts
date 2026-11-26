@@ -22,8 +22,12 @@ const SETS: { slug: string; name: string; key: string | null; total: number; dat
   { slug: 'crz', name: 'Crown Zenith GG', key: 'CRZ', total: 159, date: '2023/01/20', cards: [['crz-gg05', 'Mimikyu', 'GG05']] },
   { slug: 'bwp', name: 'BW Black Star Promos', key: null, total: 0, date: '2011/03/01', cards: [['bw100', 'Reshiram', 'BW100']] },
   { slug: 'nokey', name: 'Sin Clave Set', key: null, total: 50, date: '2020/01/01', cards: [['nokey-5', 'Sinclavemon', '5']] },
-  { slug: 'dupa', name: 'Dup A', key: 'DUP', total: 20, date: '2020/02/01', cards: [['dupa-7', 'Dupa', '7']] },
-  { slug: 'dupb', name: 'Dup B', key: 'DUP', total: 20, date: '2020/03/01', cards: [['dupb-7', 'Dupb', '7']] },
+  { slug: 'dupa', name: 'Dup A', key: 'DUP', total: 20, date: '2020/02/01', cards: [['dupa-7', 'Alfaone', '7']] },
+  { slug: 'dupb', name: 'Dup B', key: 'DUP', total: 20, date: '2020/03/01', cards: [['dupb-7', 'Betatwo', '7']] },
+  { slug: 'nk131', name: 'Sin clave 131', key: null, total: 131, date: '2020/04/01', cards: [['nk131-78', 'Zzkeyless', '78']] },
+  { slug: 'leg', name: 'Legacy', key: null, total: 0, date: '2020/05/01', cards: [['leg-dex', 'Pokédex', '1'], ['leg-gear', 'Pokégear 3.0', '2'], ['leg-quiz', "Blaine's Quiz #1", '3'], ['leg-pory', 'Porygon-Z', '4'], ['leg-mchar', 'M Charizard-EX', '5']] },
+  { slug: 'mew151', name: '151', key: 'MEW', total: 165, date: '2023/09/22', cards: [['mew151-1', 'Zubatx', '1'], ['mew151-mew', 'Mew ex', '151']] },
+  { slug: 'gal', name: 'Galería', key: null, total: 0, date: '2022/03/01', cards: [['gal-tg14', 'Umbreon TG', 'TG14'], ['gal-gg06', 'Mimikyu GG', 'GG06']] },
   { slug: 'tcsv', name: 'TCGCSV Set', key: null, total: 0, date: '2024/01/01', cards: [['tcsv-12', 'Charmander', '12']] },
   { slug: 'many', name: 'Muchos Charizard', key: 'MCH', total: 30, date: '2021/01/01', cards: Array.from({ length: 9 }, (_, i): CardSeed => [`many-${i + 1}`, 'Charizard', String(i + 1)]) },
 ];
@@ -74,14 +78,15 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
 
   it('3: «078» ⇒ número 78 primero, luego 178/278 (contiene)', async () => {
     const r = await search('078');
-    expect(r.ids.slice(0, 5)).toEqual(['pal-78', 'pre-78', 'svi-78', 'pal-178', 'pal-278']);
+    expect(r.ids.slice(0, 6)).toEqual(['pal-78', 'pre-78', 'svi-78', 'nk131-78', 'pal-178', 'pal-278']);
   });
 
   it('4-5: «078/131» y «78/131» ⇒ 78 primero; los de set con total 131 antes', async () => {
     for (const q of ['078/131', '78/131']) {
       const r = await search(q);
       expect(r.ids[0]).toBe('pre-78');
-      expect(r.ids.slice(0, 3)).toEqual(['pre-78', 'pal-78', 'svi-78']);
+      // los sets con total 131 primero, también el que NO tiene clave
+      expect(r.ids.slice(0, 4)).toEqual(['pre-78', 'nk131-78', 'pal-78', 'svi-78']);
     }
   });
 
@@ -162,7 +167,10 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
   });
 
   it('29: clave repetida entre dos sets + número ⇒ trae de ambos', async () => {
-    expect((await search('DUP 7')).ids.sort()).toEqual(['dupa-7', 'dupb-7']);
+    // KEY-1: una clave repetida es ambigua ⇒ no se usa para buscar (no se rompe, simplemente no filtra por ella)
+    const d = await search('DUP 7');
+    expect(d.ids).toEqual([]);
+    expect(d.total).toBe(0);
   });
 
   it('30: paginación estable de «charizard» (sin repetidos ni saltados, orden idéntico)', async () => {
@@ -198,6 +206,46 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
     expect(r.total).toBe(9);
   });
 
+  it('lo que production encontraba se sigue encontrando y va PRIMERO (B-1/B-2)', async () => {
+    expect((await search('Pokédex')).ids[0]).toBe('leg-dex');
+    expect((await search('Pokégear 3.0')).ids[0]).toBe('leg-gear');
+    expect((await search("Blaine's Quiz #1")).ids[0]).toBe('leg-quiz');
+    expect((await search('Porygon-Z')).ids[0]).toBe('leg-pory');
+    expect((await search('M Charizard-EX')).ids[0]).toBe('leg-mchar');
+    for (const q of ['Pokédex', 'Pokégear 3.0', "Blaine's Quiz #1", 'Porygon-Z', 'M Charizard-EX']) {
+      expect((await search(q, { pageSize: 100 })).all.slice(0, 1)).toEqual((await legacy(q)).slice(0, 1));
+    }
+    const mew = await search('mew');
+    expect(mew.ids[0]).toBe('mew151-mew');
+    expect(mew.ids).toContain('mew151-1'); // el set 151 (clave MEW) después
+    expect(mew.ids.indexOf('mew151-1')).toBeGreaterThan(mew.ids.indexOf('mew151-mew'));
+    expect(mew.all).toEqual(expect.arrayContaining([`${P}mew151-1`]));
+  });
+
+  it('≥90 consultas de UNA palabra: el primer bloque es idéntico al de production (función vieja)', async () => {
+    const words = new Set<string>();
+    for (const s of SETS) for (const c of s.cards) { for (const w of c[1].split(/[\s-]+/)) if (w.length >= 3) words.add(w.toLowerCase()); words.add(c[2]); }
+    for (let i = 1; i <= 40; i += 1) words.add(String(i));
+    for (const w of ['char', 'pika', 'e', 'ex', '1', '12', '78', 'mew', 'pre', 'bs', 'dup']) words.add(w);
+    const list = [...words].slice(0, 120);
+    expect(list.length).toBeGreaterThanOrEqual(90);
+    let checked = 0;
+    for (const q of list) {
+      const old = (await h.prisma.card.findMany({ where: { OR: [{ name: { contains: q, mode: 'insensitive' } }, { number: { contains: q, mode: 'insensitive' } }] }, orderBy: CARD_ORDER_BY_GLOBAL, take: 100, select: { id: true } })).map((c) => c.id);
+      const ours = (await search(q, { pageSize: 100 })).all;
+      expect(ours.slice(0, old.length)).toEqual(old);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThanOrEqual(90);
+  });
+
+  it('«TG12/TG30» y «GG05/GG70» ⇒ la carta TG12 / GG05', async () => {
+    expect((await search('TG14/TG30')).ids[0]).toBe('gal-tg14');
+    expect((await search('GG06/GG70')).ids[0]).toBe('gal-gg06');
+    expect((await search('TG12/TG30')).ids.slice(0, 2).sort()).toEqual(['asr-tg12', 'brs-tg12']);
+    expect((await search('GG05/GG70')).ids[0]).toBe('crz-gg05');
+  });
+
   it('tiempo: p95 ≤ 300 ms (filas 1, 10, 14; 30 corridas)', async () => {
     for (const q of ['PRE 078', 'charizard 4', 'Charizard']) {
       const t: number[] = [];
@@ -212,5 +260,24 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
       console.log(`card-search p95 «${q}» = ${p95} ms (N=30, catálogo de prueba)`);
       expect(p95).toBeLessThanOrEqual(300);
     }
+  });
+
+  it('I-4: «Charizard» no es peor que +20 % (o +10 ms) frente a la función de production (p95, 30 corridas)', async () => {
+    const where = { OR: [{ name: { contains: 'Charizard', mode: 'insensitive' as const } }, { number: { contains: 'Charizard', mode: 'insensitive' as const } }] };
+    const p95 = (t: number[]) => t.sort((a, b) => a - b)[Math.floor(t.length * 0.95) - 1];
+    const old: number[] = [];
+    const now: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      let s0 = Date.now();
+      await Promise.all([h.prisma.card.findMany({ where, include: { set: true }, orderBy: CARD_ORDER_BY_GLOBAL, take: 20 }), h.prisma.card.count({ where })]);
+      old.push(Date.now() - s0);
+      s0 = Date.now();
+      await search('Charizard');
+      now.push(Date.now() - s0);
+    }
+    const [o, n] = [p95(old), p95(now)];
+    // eslint-disable-next-line no-console
+    console.log(`card-search «Charizard» p95: production=${o} ms, nuevo=${n} ms (N=30)`);
+    expect(n).toBeLessThanOrEqual(Math.max(o * 1.2, o + 10));
   });
 });

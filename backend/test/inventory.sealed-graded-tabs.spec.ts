@@ -319,7 +319,7 @@ describe('gradedIndex (P-20)', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           // §BUSCADOR-CARTAS: filtro de la función compartida (nombre OR número contiene, una palabra).
-          card: { OR: expect.arrayContaining([{ OR: [{ name: { contains: 'chari', mode: 'insensitive' } }] }]) },
+          card: { OR: expect.arrayContaining([{ name: { contains: 'chari', mode: 'insensitive' } }]) },
         }),
       }),
     );

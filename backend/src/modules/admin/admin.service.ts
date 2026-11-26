@@ -1493,6 +1493,7 @@ export class AdminService {
     auditInTx?: (tx: Prisma.TransactionClient, r: { name: string; previous: string | null }) => Promise<void>,
   ) {
     const name = assertPersonName(raw, 'name');
+    if (name.length < 2) throw BusinessException.badRequest('VALIDATION_ERROR', 'name must have at least 2 characters', { field: 'name' });
     // eslint-disable-next-line no-control-regex
     if (/[<>\u0000-\u001f\u007f]/.test(name)) {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'name must be plain text', { field: 'name' });

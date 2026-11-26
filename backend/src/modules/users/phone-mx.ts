@@ -3,7 +3,7 @@ import { BusinessException } from '../../common/business.exception';
 
 /**
  * §CELULAR (docs/API_CONTRACT_CELULAR.md §1) — ÚNICA fuente del formato de celular MX.
- * Quita espacios, `-`, `.`, `(`, `)`; quita `+52`; quita `52` solo si quedan 12 dígitos (un número de 10 que empieza
+ * Quita espacios, `-`, `.`, `(`, `)`; quita `+52`; quita los prefijos viejos `044`/`045` (13 dígitos) y `01` (12 dígitos); quita `52` solo si quedan 12 dígitos (un número de 10 que empieza
  * en 52 es válido) y `521` si quedan 13. Devuelve los 10 dígitos o `null`. Rechaza falsos obvios: dígitos iguales,
  * `1234567890`, `0123456789` y primer dígito 0 o 1. Solo strings.
  */
@@ -16,6 +16,9 @@ export function normalizeMxPhone(raw: unknown): string | null {
   if (!plus) {
     if (s.length === 12 && s.startsWith('52')) s = s.slice(2);
     else if (s.length === 13 && s.startsWith('521')) s = s.slice(3);
+    // Prefijos viejos de marcación (decidido, qa I-2): «044»/«045» (celular local/foráneo) y «01» (larga distancia).
+    else if (s.length === 13 && (s.startsWith('044') || s.startsWith('045'))) s = s.slice(3);
+    else if (s.length === 12 && s.startsWith('01')) s = s.slice(2);
   } else if (s.length === 11 && s.startsWith('1')) {
     s = s.slice(1); // +52 1 55…: formato móvil antiguo
   }

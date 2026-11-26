@@ -918,6 +918,11 @@ export class AuthService {
       throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
     }
     const phone = assertValidPhone(phoneRaw);
+    // SIGN-1: el token es de UN solo uso. Si la cuenta de ese Google ya existe, el token ya sirvió (o la cuenta es anterior):
+    // ⛔ no da sesión. La idempotencia queda SOLO para la carrera simultánea (P2002 en la alta, más abajo).
+    if (await this.prisma.user.findUnique({ where: { googleId: payload.sub }, select: { id: true } })) {
+      throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
+    }
     const res = await this.googleCore(
       {
         sub: payload.sub,
