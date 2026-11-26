@@ -13,7 +13,8 @@
 # 2026-11-03 · §IDS (rama claude/ids-diseno; rechazo de QA sobre f2cd0e31, frontend f7f2e5dd/1a767d62): mockOnly 153→155 (33→34) = import + UNA llamada en frontend/e2e/ids-versions.spec.ts:191, IDS-F3 «7 filas» (peor caso 2×N del simulador, c-ids-poffin-6, que el seed no trae); la mecánica 2×N la mide en real (11)(16) del mismo fichero (L152: data-form=2xN, burbujas y filas leídas de GET /catalog/cards/:id sobre «E2E League Bird», 2 filas) e IDS-L1 de ids-real.spec.ts:213. Lo que solo mide el simulador es el número de filas (7) y 6 rótulos de liga distintos a 360 px. realOnly 34→36 (12→13) = import + UN beforeEach de fichero en frontend/e2e/ids-real.spec.ts:35 que gatea los 8 tests @real (F1/F2/F3/F7 siembran por la API de admin y deshacen; L1-L4 leen E2E_IDS); en la corrida de mocks no hay backend; la pantalla en mocks la cubren ids-versions.spec.ts y los *.ids.test.tsx. needsSeed sin cambio (33/9). Ambos ficheros son nuevos desde aeaf3d34; sin test.skip/fixme nuevos en frontend/e2e desde aeaf3d34 (devops, medido 2026-11-03 sobre 1a767d62).
 # 2026-11-06 · frontend/e2e/ids-quick-add.spec.ts (UX-ALTA-LIGA, IDS-F11/F12): +6 mockOnly en 1 fichero nuevo; lee el cuerpo exacto del POST items/batch, solo posible con mocks; el caso real lo cubre el gate QA en stack real con semilla (E2E League Bird #35, 2026-11-06)
 # 2026-11-07 · admin-m2-tcgcsv-promos: el import real depende de tcgcsv.com y del backend; el spec usa un servidor falso (api/tcgcsv-promos)
-mockOnly 163 36
+# 2026-11-26 · frontend/e2e/auth.spec.ts (§CELULAR-ALTA): +1 mockOnly (163→164, mismo fichero, 36 ficheros) = caso «Google con correo nuevo ⇒ Completa tu cuenta»: el canje del idToken lo finge la rama mock de api.ts y un E2E no puede fabricar un idToken real; lo cubren CelularAlta.test.tsx y api.test.ts en vitest y la integración de backend (google/complete)
+mockOnly 164 36
 needsSeed 33 9
 harnessLimit 5 3
 skipIfSeedMissing 15 7
