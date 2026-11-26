@@ -30,6 +30,11 @@
     "back": "Back",
     "search": "Search",
     "clearFilters": "Clear filters",
+    "cardSearch": {
+      "placeholder": "Name, number or printed code (PRE 078)",
+      "lead": "We couldn't find that card.",
+      "tip": "Try the name, the number (078) or the printed code (PRE 078)."
+    },
     "noResults": "No results",
     "all": "All",
     "withoutIva": "before VAT",
@@ -271,7 +276,6 @@
       "title": "How much is your binder worth?",
       "subtitle": "Build your list and see what we pay today. Free, no account, no commitment.",
       "searchLabel": "Search a card to quote",
-      "searchPlaceholder": "Search a card…",
       "add": "Add",
       "empty": "Search your first card and we'll tell you what we pay for it.",
       "pending": "Pending",
@@ -349,7 +353,6 @@
     "filterRarity": "Rarity",
     "filterCondition": "Condition",
     "filterType": "Type",
-    "searchPlaceholder": "Search card…",
     "emptyTitle": "No card matches",
     "emptyBody": "Try other filters or clear the search.",
     "pageOutOfRange": {

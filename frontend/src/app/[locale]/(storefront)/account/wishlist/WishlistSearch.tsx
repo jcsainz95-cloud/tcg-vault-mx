@@ -4,6 +4,8 @@ import { forwardRef, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { searchBuylistCards } from '@/lib/api';
+import { CARD_SEARCH_MAX } from '@/lib/card-search';
+
 import { Link } from '@/i18n/navigation';
 import { Input } from '@/components/ui/Input';
 import { CardImage } from '@/components/ui/CardImage';
@@ -21,6 +23,7 @@ const MAX_RESULTS = 8;
  */
 export const WishlistSearch = forwardRef<HTMLInputElement>(function WishlistSearch(_props, ref) {
   const t = useTranslations('wishlist.page');
+  const tcs = useTranslations('common.cardSearch');
   const [text, setText] = useState('');
   const [q, setQ] = useState('');
 
@@ -46,7 +49,8 @@ export const WishlistSearch = forwardRef<HTMLInputElement>(function WishlistSear
         ref={ref}
         type="search"
         label={t('searchLabel')}
-        placeholder={t('searchPlaceholder')}
+        placeholder={tcs('placeholder')}
+        maxLength={CARD_SEARCH_MAX}
         value={text}
         onChange={(e) => setText(e.target.value)}
         autoComplete="off"
@@ -57,7 +61,7 @@ export const WishlistSearch = forwardRef<HTMLInputElement>(function WishlistSear
       {active && results.data && (
         <div data-testid="wishlist-search-results">
           {rows.length === 0 ? (
-            <p className="text-sm text-muted">{t('searchEmpty')}</p>
+            <p className="text-sm text-muted">{tcs('lead')} {tcs('tip')}</p>
           ) : (
             <ul className="border-t border-border">
               {rows.map((c) => (
