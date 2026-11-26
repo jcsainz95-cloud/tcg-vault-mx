@@ -62,9 +62,23 @@ test.describe('C-F3 · cuatro caminos de red', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       document.dispatchEvent(new Event('visibilitychange'));
       const keys = (s: Storage) => Array.from({ length: s.length }, (_, i) => s.key(i) ?? '');
-      return [...keys(window.sessionStorage), ...keys(window.localStorage)].filter((k) => /^th_|consent|banner|measurement/i.test(k));
+      const all = [...keys(window.sessionStorage), ...keys(window.localStorage)];
+      // §ORIGEN-VISITA (CV-3): `th_visit_origin` en sessionStorage es dato de la visita, no medición:
+      // sin cookie, sin identificador, no sale a Google/Meta. Se excluye SOLO esa clave, por nombre exacto.
+      return {
+        storage: all.filter((k) => k !== 'th_visit_origin' && /^th_|consent|banner|measurement/i.test(k)),
+        origin: window.sessionStorage.getItem('th_visit_origin'),
+        originInLocal: window.localStorage.getItem('th_visit_origin'),
+      };
     });
-    expect(storage).toEqual([]);
+    expect(storage.storage).toEqual([]);
+    // El origen no lleva identificador: solo claves permitidas y solo en sessionStorage.
+    expect(storage.originInLocal).toBeNull();
+    if (storage.origin !== null) {
+      const keysOrigin = Object.keys(JSON.parse(storage.origin) as Record<string, unknown>);
+      const allowed = ['utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'referrer'];
+      expect(keysOrigin.filter((k) => !allowed.includes(k))).toEqual([]);
+    }
     await expect.poll(() => log.bannerResponses.slice(sentBefore).map((b) => (b.body as { response: string }).response)).toEqual([
       'no_response',
     ]);
