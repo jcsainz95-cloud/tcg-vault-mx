@@ -7,7 +7,7 @@
       "body": "We use it to keep you posted on your orders, pickups and sales. Only TCG HUNT sees it.",
       "cart": "Your cart ({count}) is kept.",
       "label": "Mobile number (10 digits)",
-      "invalid": "Enter your 10-digit mobile number",
+      "invalid": "Enter a valid 10-digit mobile number",
       "failed": "Could not save. Check your connection and try again",
       "save": "Save and continue",
       "logout": "Log out"
@@ -1415,7 +1415,7 @@
       "title": "Complete your account",
       "help": "We need your mobile number to finish. We use it to notify you about orders, withdrawals and sales.",
       "label": "Mobile (10 digits)",
-      "error": "Enter a 10-digit mobile number",
+      "error": "Enter a valid 10-digit mobile number",
       "button": "Create my account",
       "cancel": "Cancel",
       "failed": "We couldn't save it. Check your connection and try again.",
@@ -5120,7 +5120,7 @@
         "nameEditAria": "Edit the name of {name}",
         "nameEditLabel": "Customer name",
         "nameSave": "Save",
-        "nameError": "Enter a name of {min} to {max} characters with at least one letter",
+        "nameError": "Enter a name of {min} to {max} characters, with at least one letter and no < or >",
         "nameSaveError": "The name could not be saved. Try again.",
         "nameMissing": "No name",
         "nameMissingAdd": "No name — add",
@@ -7311,11 +7311,28 @@
         "sealed": "Sealed",
         "graded": "Graded"
       },
+      "pieceDetail": {
+        "title": "Piece detail",
+        "set": "Set",
+        "number": "Number",
+        "finish": "Finish",
+        "language": "Language",
+        "condition": "Condition",
+        "status": "Status",
+        "owner": "Belongs to",
+        "ownerCustomer": "A customer's",
+        "ownerStore": "The store's",
+        "location": "Location",
+        "noLocation": "No location",
+        "close": "Close"
+      },
       "folioSearch": {
         "label": "Search by folio",
         "placeholder": "Search folio (INV-000123)",
         "cta": "Search folio",
-        "notFound": "No piece exists with that folio."
+        "notFound": "That folio does not exist.",
+        "invalid": "Enter a folio like INV-000123",
+        "failed": "The folio could not be searched. Try again."
       },
       "value": {
         "total": "Total value",

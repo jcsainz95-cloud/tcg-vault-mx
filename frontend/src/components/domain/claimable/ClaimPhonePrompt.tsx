@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { normalizeMxPhone, normalizePhoneInput } from '@/lib/phone';
+import { normalizeMxPhone, normalizePhoneInput, shouldShowPhoneError } from '@/lib/phone';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
@@ -23,6 +23,7 @@ export function ClaimPhonePrompt({
   const t = useTranslations('auth.phoneSignup');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState(false);
+  const [blurred, setBlurred] = useState(false);
   const normalized = normalizeMxPhone(phone);
   return (
     <form
@@ -52,7 +53,8 @@ export function ClaimPhonePrompt({
             setError(false);
             setPhone(normalizePhoneInput(e.target.value));
           }}
-          error={error ? t('error') : failed ? t('failed') : undefined}
+          onBlur={() => setBlurred(true)}
+          error={error || shouldShowPhoneError(phone, blurred) ? t('error') : failed ? t('failed') : undefined}
         />
       </div>
       <Button type="submit" disabled={!normalized} loading={busy}>

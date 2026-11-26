@@ -271,8 +271,10 @@ export function lineCardFacts(it: {
 }
 
 /** `/admin/m1?addQ=<nombre>`: abre el alta de M1 con la búsqueda ya hecha por esa carta. */
-export function inventorySearchHref(name: string | null): string | null {
-  return name ? `/admin/m1?addQ=${encodeURIComponent(name)}` : null;
+export function inventorySearchHref(f: { name: string | null; setCode?: string | null; number?: string | null }): string | null {
+  // Clave de set + número cuando existen (`PRE 161`): es lo más exacto; si no, el nombre.
+  const q = f.setCode && f.number ? `${f.setCode} ${f.number}` : f.name;
+  return q ? `/admin/m1?addQ=${encodeURIComponent(q)}` : null;
 }
 
 /** Línea pagada sin asignar de la bóveda de un cliente (`unassignedLines[]` de `physical-inventory`, backend 92fe0cf0). */

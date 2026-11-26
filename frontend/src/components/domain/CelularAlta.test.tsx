@@ -106,7 +106,7 @@ describe('1 · Google nuevo: «Completa tu cuenta»', () => {
     const f = await screen.findByLabelText('Celular (10 dígitos)');
     fireEvent.change(f, { target: { value: '5512345678' } });
     fireEvent.click(screen.getByRole('button', { name: 'Crear mi cuenta' }));
-    expect(await screen.findByText('Escribe un celular de 10 dígitos')).toBeInTheDocument();
+    expect(await screen.findByText('Escribe un celular de 10 dígitos válido')).toBeInTheDocument();
     spy.mockRejectedValueOnce(new Error('network'));
     fireEvent.click(screen.getByRole('button', { name: 'Crear mi cuenta' }));
     expect(await screen.findByText(/No pudimos guardarlo/)).toBeInTheDocument();
@@ -179,7 +179,7 @@ describe('solo-correo del checkout (§6.3)', () => {
     renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="a@b.mx" phone="0000000000" onSuccess={() => {}} />, 'es');
     const f = screen.getByLabelText('Celular (10 dígitos)');
     fireEvent.submit(f.closest('form')!);
-    expect(await screen.findByText('Escribe un celular de 10 dígitos')).toBeInTheDocument();
+    expect(await screen.findByText('Escribe un celular de 10 dígitos válido')).toBeInTheDocument();
     expect(reg).not.toHaveBeenCalled();
   });
 });

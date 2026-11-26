@@ -174,7 +174,7 @@ export const NAME_MIN = 2;
 export const NAME_MAX = 80;
 export function validNameInput(raw: string): string | null {
   const n = raw.replace(/\s+/g, ' ').trim();
-  return n.length >= NAME_MIN && n.length <= NAME_MAX && /\p{L}/u.test(n) ? n : null;
+  return n.length >= NAME_MIN && n.length <= NAME_MAX && /\p{L}/u.test(n) && !/[<>]/.test(n) ? n : null;
 }
 export async function updateAdminUserName(id: string, name: string): Promise<{ id: string; name: string }> {
   if (!isMock()) return apiRequest<{ id: string; name: string }>(`/admin/users/${enc(id)}/name`, { method: 'PATCH', body: { name } });

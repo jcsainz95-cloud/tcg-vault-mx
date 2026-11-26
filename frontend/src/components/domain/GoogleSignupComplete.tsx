@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { completeGoogleSignup } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { clearGoogleSignup, readGoogleSignup, trackSignupPhone, type GoogleSignupStash } from '@/lib/api/google-signup';
-import { normalizeMxPhone, normalizePhoneInput } from '@/lib/phone';
+import { normalizeMxPhone, normalizePhoneInput, shouldShowPhoneError } from '@/lib/phone';
 import { homeForRole, safeNext as safeNextOf } from '@/lib/account-routes';
 import { Link, useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/Button';
@@ -25,6 +25,7 @@ export function GoogleSignupComplete({ next }: { next?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [blurred, setBlurred] = useState(false);
   const shown = useRef(false);
 
   useEffect(() => {
@@ -109,7 +110,8 @@ export function GoogleSignupComplete({ next }: { next?: string }) {
             setError(null);
             setPhone(normalizePhoneInput(e.target.value));
           }}
-          error={error ?? undefined}
+          onBlur={() => setBlurred(true)}
+          error={error ?? (shouldShowPhoneError(phone, blurred) ? t('error') : undefined)}
         />
       </div>
       <Button type="submit" size="lg" disabled={!normalized} loading={busy}>

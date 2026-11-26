@@ -7,6 +7,8 @@ import * as cf from '@/lib/api/customer-file';
 import es from '../../../../../../../messages/es.json';
 import en from '../../../../../../../messages/en.json';
 import { looksLikeFolio, folioInventoryHref, folioOf } from '@/lib/folio-hint';
+import { normalizeMxPhone, normalizePhoneInput, shouldShowPhoneError } from '@/lib/phone';
+import { validNameInput } from '@/lib/api/customer-file';
 import { lineCardFacts, inventorySearchHref, paidUnassignedLines } from '@/lib/api/vault-unassigned';
 import { M6View } from '../M6View';
 import { FolioHint } from '@/components/domain/FolioHint';
@@ -102,8 +104,9 @@ describe('detalle de pedido: datos de la carta y «Buscar en inventario»', () =
     expect(lineCardFacts({})).toEqual({ name: null, setName: null, setCode: null, number: null, condition: null, finish: null, folio: null, imageUrl: null });
     // Forma del backend: `setKey`/`imageUrl`/`finish` al nivel del ítem.
     expect(lineCardFacts({ card: { name: 'X' }, setKey: 'PRE', imageUrl: 'big', finish: 'holofoil' })).toMatchObject({ setCode: 'PRE', imageUrl: 'big', finish: 'holofoil' });
-    expect(inventorySearchHref('Mr. Mime')).toBe('/admin/m1?addQ=Mr.%20Mime');
-    expect(inventorySearchHref(null)).toBeNull();
+    expect(inventorySearchHref({ name: 'Mr. Mime' })).toBe('/admin/m1?addQ=Mr.%20Mime');
+    expect(inventorySearchHref({ name: 'Umbreon ex', setCode: 'PRE', number: '161' })).toBe('/admin/m1?addQ=PRE%20161');
+    expect(inventorySearchHref({ name: null })).toBeNull();
   });
   it('la línea «Requiere atención» muestra set, número y folio y enlaza a M1; la asignada no enlaza', async () => {
     const base = await api.getAdminOrder('ord-9001');
@@ -114,13 +117,54 @@ describe('detalle de pedido: datos de la carta y «Buscar en inventario»', () =
       fulfillmentMode: 'vault',
       items: [
         { ...base.items![0]!, inventoryItemId: 'a1', card, folio: 'INV-1', fulfillmentState: 'assigned' },
-        { ...base.items![0]!, inventoryItemId: 'a2', card, folio: 'INV-2', fulfillmentState: 'needs_attention', fulfillmentFailedAt: '2026-11-25T00:00:00Z', fulfillmentFailedReason: 'no_equivalent_copy' },
+        { ...base.items![0]!, inventoryItemId: 'a2', card, folio: 'INV-2', finish: 'reverse_holo', fulfillmentState: 'needs_attention', fulfillmentFailedAt: '2026-11-25T00:00:00Z', fulfillmentFailedReason: 'no_equivalent_copy' },
       ],
     });
     renderWithProviders(<M3OrderDetailView orderId="ord-9001" />, 'es');
-    expect(await screen.findByTestId('m3-item-facts-a2')).toHaveTextContent('Base Set (BS) · #2 · NM · INV-2');
-    expect(screen.getByTestId('m3-item-search-inventory-a2')).toHaveAttribute('href', '/admin/m1?addQ=Blastoise');
+    expect(await screen.findByTestId('m3-item-facts-a2')).toHaveTextContent('Base Set (BS) · #2 · NM · Reverse Holo · INV-2');
+    expect(screen.getByTestId('m3-item-facts-a2').textContent).not.toMatch(/reverse_holo/);
+    expect(screen.getByTestId('m3-item-search-inventory-a2')).toHaveAttribute('href', '/admin/m1?addQ=BS%202');
     expect(screen.queryByTestId('m3-item-search-inventory-a1')).toBeNull();
+  });
+});
+
+describe('qa: celular, nombre y folio', () => {
+  it('el celular acepta 044/045/01/+52 1 como el servidor y no recorta a ciegas', () => {
+    for (const ok of ['044 55 1234 5678', '045-55-1234-5678', '01 55 1234 5678', '+52 1 55 1234 5678', '5215512345678']) expect(normalizeMxPhone(ok), ok).toBe('5512345678');
+    expect(normalizePhoneInput('04455 1234 5678')).toBe('5512345678');
+    expect(normalizePhoneInput('044551')).toBe('044551'); // mientras teclea el prefijo no se corta
+    expect(shouldShowPhoneError('0000000000', false)).toBe(true);
+    expect(shouldShowPhoneError('55', false)).toBe(false);
+    expect(shouldShowPhoneError('55', true)).toBe(true);
+    expect(shouldShowPhoneError('5512345678', true)).toBe(false);
+    expect(shouldShowPhoneError('', true)).toBe(false);
+  });
+  it('el nombre: mínimo 2, rechaza < y >', () => {
+    expect(validNameInput('A')).toBeNull();
+    expect(validNameInput('Ana <b>')).toBeNull();
+    expect(validNameInput('  Ana   Ruiz ')).toBe('Ana Ruiz');
+  });
+  it('folio: 404 ⇒ «No existe ese folio.», 400 ⇒ «Escribe un folio como INV-000123»; pieza de cliente ⇒ detalle de solo lectura', async () => {
+    const { M1View } = await import('../../m1/M1View');
+    renderWithProviders(<M1View />, 'es');
+    const box = await screen.findByLabelText('Buscar por folio');
+    fireEvent.change(box, { target: { value: 'INV-999999' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(await screen.findByTestId('folio-search-error')).toHaveTextContent('No existe ese folio.');
+    fireEvent.change(box, { target: { value: 'hola' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('folio-search-error')).toHaveTextContent('Escribe un folio como INV-000123'));
+    fireEvent.change(box, { target: { value: 'inv-001306' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    const dlg = await screen.findByTestId('piece-by-folio');
+    expect(dlg).toHaveTextContent('Umbreon ex');
+    expect(dlg).toHaveTextContent('Prismatic Evolutions (PRE)');
+    expect(dlg).toHaveTextContent('#161');
+    expect(dlg).toHaveTextContent('Reverse Holo');
+    expect(dlg).not.toHaveTextContent('reverse_holo');
+    expect(dlg).toHaveTextContent('De un cliente');
+    expect(dlg).toHaveTextContent('C-04');
+    expect(within(dlg).queryByRole('button', { name: /guardar|eliminar|editar/i })).toBeNull();
   });
 });
 

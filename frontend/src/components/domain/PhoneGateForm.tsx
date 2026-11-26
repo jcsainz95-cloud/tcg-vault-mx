@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getMe, listAddresses, logout, updateMe } from '@/lib/api';
 import { useCart } from '@/lib/cart';
-import { normalizeMxPhone, normalizePhoneInput } from '@/lib/phone';
+import { normalizeMxPhone, normalizePhoneInput, shouldShowPhoneError } from '@/lib/phone';
 import { useSession } from '@/lib/session';
 import { ApiClientError } from '@/lib/api-client';
 import { usePathname, useRouter } from '@/i18n/navigation';
@@ -55,6 +55,7 @@ export function PhoneGateForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [blurred, setBlurred] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const addresses = useQuery({ queryKey: ['addresses'], queryFn: listAddresses, retry: false });
@@ -174,7 +175,8 @@ export function PhoneGateForm() {
               prefix="+52"
               value={phone}
               onChange={(e) => onChange(e.target.value)}
-              error={error ?? undefined}
+              onBlur={() => setBlurred(true)}
+              error={error ?? (shouldShowPhoneError(phone, blurred) ? t('invalid') : undefined)}
             />
           </div>
           <Button type="submit" size="lg" disabled={!normalized} loading={busy}>

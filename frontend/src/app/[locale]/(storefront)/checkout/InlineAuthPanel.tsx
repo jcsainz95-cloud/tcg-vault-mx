@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { login, registerEmailOnly } from '@/lib/api';
-import { normalizeMxPhone, normalizePhoneInput } from '@/lib/phone';
+import { normalizeMxPhone, normalizePhoneInput, shouldShowPhoneError } from '@/lib/phone';
 import { trackSignupPhone } from '@/lib/api/google-signup';
 import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
@@ -68,6 +68,7 @@ export function InlineAuthPanel({
   // §CELULAR-ALTA: celular propio del panel solo cuando el checkout no trae uno válido.
   const [ownPhone, setOwnPhone] = useState('');
   const [phoneError, setPhoneError] = useState(false);
+  const [phoneBlurred, setPhoneBlurred] = useState(false);
   const tp = useTranslations('auth.phoneSignup');
   const knownPhone = normalizeMxPhone(phone ?? '');
   const [loading, setLoading] = useState(false);
@@ -231,7 +232,8 @@ export function InlineAuthPanel({
               setPhoneError(false);
               setOwnPhone(normalizePhoneInput(e.target.value));
             }}
-            error={phoneError ? tp('error') : undefined}
+            onBlur={() => setPhoneBlurred(true)}
+            error={phoneError || shouldShowPhoneError(ownPhone, phoneBlurred) ? tp('error') : undefined}
             required
           />
         )}

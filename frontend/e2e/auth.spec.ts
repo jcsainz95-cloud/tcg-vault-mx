@@ -41,6 +41,8 @@ test.describe('auth · login y registro (ES/EN)', () => {
   });
 
   test('Google con correo NUEVO (mock): sin sesión hasta «Completa tu cuenta»; celular falso no pasa; con celular válido entra (§CELULAR-ALTA)', async ({ page }) => {
+    // MOTIVO (censo e2e-skip): solo-mock. El canje del idToken de Google (correo nuevo ⇒ `pendingSignup`) lo finge la rama mock de
+    // `api.ts`; un E2E no puede fabricar un idToken real. Lo real lo cubren `CelularAlta.test.tsx`, `api.test.ts` y la integración de backend.
     mockOnly('el canje del idToken de Google solo lo simula la rama mock de api.ts');
     await page.goto('/es/login');
     await page.getByRole('button', { name: t('es', 'auth.google.cta') }).click();

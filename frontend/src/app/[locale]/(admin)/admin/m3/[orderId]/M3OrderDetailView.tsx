@@ -26,6 +26,7 @@ import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
 import { inventorySearchHref, lineCardFacts, lineFulfillment, piecesExceptUnassigned } from '@/lib/api/vault-unassigned';
 import { CardImage } from '@/components/ui/CardImage';
+import { useFinishLabel } from '@/lib/finish-label';
 import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
 import { RefundAccessoryLineDialog, type AccessoryRefundTarget } from '../RefundAccessoryLineDialog';
 import { energyBreakdown } from '@/lib/accessories';
@@ -56,6 +57,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   const tOrders = useTranslations('orders');
   const tc = useTranslations('common');
   const tfu = useTranslations('admin.m3.fulfillment');
+  const finishLabel = useFinishLabel();
   const tm = useTranslations('admin');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
@@ -353,15 +355,15 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                                 facts.setName ? (facts.setCode ? `${facts.setName} (${facts.setCode})` : facts.setName) : null,
                                 facts.number ? `#${facts.number}` : null,
                                 facts.condition,
-                                facts.finish,
+                                finishLabel(facts.finish),
                                 facts.folio,
                               ]
                                 .filter(Boolean)
                                 .join(' · ')}
                             </span>
-                            {fulfillment?.kind === 'attention' && inventorySearchHref(facts.name) && (
+                            {fulfillment?.kind === 'attention' && inventorySearchHref(facts) && (
                               <Link
-                                href={inventorySearchHref(facts.name)!}
+                                href={inventorySearchHref(facts)!}
                                 className="inline-flex min-h-[44px] items-center self-start text-xs text-text underline underline-offset-4 hover:text-accent focus-visible:shadow-focus focus-visible:outline-none"
                                 data-testid={`m3-item-search-inventory-${it.inventoryItemId}`}
                               >

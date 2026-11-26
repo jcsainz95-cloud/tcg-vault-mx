@@ -7,7 +7,7 @@
       "body": "Lo usamos para avisarte de tus pedidos, retiros y ventas. Solo lo ve TCG HUNT.",
       "cart": "Tu carrito ({count}) se conserva.",
       "label": "Celular (10 dígitos)",
-      "invalid": "Escribe tu celular de 10 dígitos",
+      "invalid": "Escribe un celular de 10 dígitos válido",
       "failed": "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo",
       "save": "Guardar y continuar",
       "logout": "Cerrar sesión"
@@ -1415,7 +1415,7 @@
       "title": "Completa tu cuenta",
       "help": "Falta tu celular para terminar. Lo usamos para avisarte de tus pedidos, retiros y ventas.",
       "label": "Celular (10 dígitos)",
-      "error": "Escribe un celular de 10 dígitos",
+      "error": "Escribe un celular de 10 dígitos válido",
       "button": "Crear mi cuenta",
       "cancel": "Cancelar",
       "failed": "No pudimos guardarlo. Revisa tu conexión e inténtalo de nuevo.",
@@ -5120,7 +5120,7 @@
         "nameEditAria": "Editar el nombre de {name}",
         "nameEditLabel": "Nombre del cliente",
         "nameSave": "Guardar",
-        "nameError": "Escribe un nombre de {min} a {max} caracteres, con al menos una letra",
+        "nameError": "Escribe un nombre de {min} a {max} caracteres, con al menos una letra y sin < ni >",
         "nameSaveError": "No se pudo guardar el nombre. Inténtalo de nuevo.",
         "nameMissing": "Sin nombre",
         "nameMissingAdd": "Sin nombre — agregar",
@@ -7311,11 +7311,28 @@
         "sealed": "Sellado",
         "graded": "Gradeadas"
       },
+      "pieceDetail": {
+        "title": "Detalle de pieza",
+        "set": "Set",
+        "number": "Número",
+        "finish": "Acabado",
+        "language": "Idioma",
+        "condition": "Condición",
+        "status": "Estado",
+        "owner": "Pertenece a",
+        "ownerCustomer": "De un cliente",
+        "ownerStore": "De la tienda",
+        "location": "Ubicación",
+        "noLocation": "Sin ubicación",
+        "close": "Cerrar"
+      },
       "folioSearch": {
         "label": "Buscar por folio",
         "placeholder": "Buscar folio (INV-000123)",
         "cta": "Buscar folio",
-        "notFound": "No existe una pieza con ese folio."
+        "notFound": "No existe ese folio.",
+        "invalid": "Escribe un folio como INV-000123",
+        "failed": "No se pudo buscar el folio. Inténtalo de nuevo."
       },
       "value": {
         "total": "Valor total",

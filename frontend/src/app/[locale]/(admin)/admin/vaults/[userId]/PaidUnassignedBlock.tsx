@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { cn } from '@/lib/cn';
+import { useFinishLabel } from '@/lib/finish-label';
 import { lineCardFacts, reasonKey, type PaidUnassignedLine } from '@/lib/api/vault-unassigned';
 
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
@@ -17,6 +18,7 @@ const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 export function PaidUnassignedBlock({ lines }: { lines: PaidUnassignedLine[] }) {
   const t = useTranslations('admin.vaults.physical.paidUnassigned');
   const tr = useTranslations('admin.m3.fulfillment');
+  const finishLabel = useFinishLabel();
   if (lines.length === 0) return null;
   return (
     <section aria-labelledby="paid-unassigned-block" data-testid="paid-unassigned-block" className="flex flex-col gap-3">
@@ -33,7 +35,7 @@ export function PaidUnassignedBlock({ lines }: { lines: PaidUnassignedLine[] }) 
               <span className="flex min-w-0 flex-col gap-1">
                 <span lang="en" className="font-medium">{f.name ?? '—'}</span>
                 <span className="font-mono text-xs text-muted">
-                  {[f.setName ? (f.setCode ? `${f.setName} (${f.setCode})` : f.setName) : null, f.number ? `#${f.number}` : null, f.condition, f.finish, f.folio]
+                  {[f.setName ? (f.setCode ? `${f.setName} (${f.setCode})` : f.setName) : null, f.number ? `#${f.number}` : null, f.condition, finishLabel(f.finish), f.folio]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>

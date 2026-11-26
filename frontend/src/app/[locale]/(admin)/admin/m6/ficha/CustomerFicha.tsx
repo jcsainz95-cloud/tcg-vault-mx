@@ -130,6 +130,8 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
             canEdit={isSuperAdmin}
             onSaved={() => {
               void qc.invalidateQueries({ queryKey: ['admin-user', d.id] });
+              // La lista de usuarios (M6) también muestra el nombre: se refresca.
+              void qc.invalidateQueries({ queryKey: ['admin-users'] });
             }}
           />
           {badges}

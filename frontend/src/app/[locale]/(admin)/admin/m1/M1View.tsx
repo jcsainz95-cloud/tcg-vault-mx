@@ -5,7 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Search, Plus, Megaphone, MapPin, FileSpreadsheet } from 'lucide-react';
-import { getAdminInventory, getLocations, exportAdminInventoryXlsx } from '@/lib/api';
+import { getAdminInventory, getInventoryByFolio, getLocations, exportAdminInventoryXlsx } from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
+import type { PieceByFolioDTO } from '@/lib/api/inventory-folio';
+import { PieceByFolioDialog } from '@/components/domain/PieceByFolioDialog';
 import type {
   Finish,
   GradedInventoryGroupDTO,
@@ -142,16 +145,30 @@ export function M1View() {
   // dueña de esa pieza, con la fila resaltada. Folio inexistente = mensaje inline (no toast).
   const [folioInput, setFolioInput] = useState('');
   const [folioNotFound, setFolioNotFound] = useState(false);
+  // B-4 (qa): el folio se resuelve con `GET /admin/inventory/by-folio/:folio`. 404 ⇒ «No existe ese folio»; 400 ⇒ «Escribe un
+  // folio como INV-000123». Pieza de la tienda con variante en la lista ⇒ el detalle editable de siempre; de un CLIENTE (o
+  // fuera de la variante) ⇒ «Detalle de pieza» de SOLO lectura.
+  const [folioPiece, setFolioPiece] = useState<PieceByFolioDTO | null>(null);
+  const [folioError, setFolioError] = useState<'notFound' | 'invalid' | 'failed' | null>(null);
   const folioSearch = useMutation({
-    mutationFn: (folio: string) => getAdminInventory({ q: folio, pageSize: 5 }),
-    onSuccess: (res, folio) => {
-      const item = res.data.find((i) => i.folio.toLowerCase() === folio.toLowerCase()) ?? res.data[0];
-      if (!item) {
-        setFolioNotFound(true);
-        return;
+    mutationFn: async (folio: string) => {
+      const piece = await getInventoryByFolio(folio);
+      if (piece.owner.type === 'platform') {
+        const list = await getAdminInventory({ q: piece.folio, pageSize: 5 });
+        const item = list.data.find((i) => i.folio.toLowerCase() === piece.folio.toLowerCase());
+        if (item) return { piece, item };
       }
+      return { piece, item: null };
+    },
+    onMutate: () => setFolioError(null),
+    onSuccess: ({ piece, item }) => {
       setFolioNotFound(false);
-      setDrawer(drawerFromItem(item));
+      if (item) setDrawer(drawerFromItem(item));
+      else setFolioPiece(piece);
+    },
+    onError: (e) => {
+      setFolioNotFound(false);
+      setFolioError(e instanceof ApiClientError && e.status === 404 ? 'notFound' : e instanceof ApiClientError && e.status === 400 ? 'invalid' : 'failed');
     },
   });
   // P-31 «Exportar a Excel»: descarga el .xlsx con el filtro/set actual (set del binder + tipo por
@@ -295,6 +312,7 @@ export function M1View() {
               onChange={(e) => {
                 setFolioInput(e.target.value);
                 setFolioNotFound(false);
+                setFolioError(null);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -312,9 +330,9 @@ export function M1View() {
               <Search size={18} />
             </Button>
           </div>
-          {folioNotFound && (
-            <p className="mt-1 text-xs text-accent" role="status">
-              {tInv('folioSearch.notFound')}
+          {(folioNotFound || folioError) && (
+            <p className="mt-1 text-xs text-accent" role="status" data-testid="folio-search-error">
+              {folioError === 'invalid' ? tInv('folioSearch.invalid') : folioError === 'failed' ? tInv('folioSearch.failed') : tInv('folioSearch.notFound')}
             </p>
           )}
         </div>
@@ -412,6 +430,7 @@ export function M1View() {
       />
 
       {/* «Alta por lote» — modal de alta masiva existente (P-5), sin cambios. */}
+      <PieceByFolioDialog piece={folioPiece} onClose={() => setFolioPiece(null)} />
       {addOpen && <AddItemModal initialQuery={addQuery} onClose={() => { setAddOpen(false); setAddQuery(undefined); }} onToast={pushToast} />}
 
       {/* «Agregar gradeada» (P-20). */}

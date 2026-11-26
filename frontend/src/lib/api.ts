@@ -382,6 +382,7 @@ import { mockPnlWithComparison } from './mock/period-compare';
 import { mockPnlCalendar, mockPnlReport } from './mock/pnl-lines';
 import { fetchPnlCalendar, fetchPnlReport, type PnlCalendarParams, type PnlReportRange } from './api/reports-pnl';
 import { orderUnassignedCount } from './api/vault-unassigned';
+import { MOCK_CUSTOMER_PIECE, normalizeFolioInput, realGetInventoryByFolio, type PieceByFolioDTO } from './api/inventory-folio';
 import type { PnlCalendarDTO, PnlReportDTO } from '@/types/reports-pnl';
 import * as salesMock from './mock/sales';
 import type { PeriodKind, SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
@@ -8816,4 +8817,22 @@ export async function chooseBuylistPickup(requestId: string, itemId: string, met
   if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.chooseBuylistPickup(requestId, itemId, method);
   await flujoMock.mockChooseBuylistPickup(requestId, itemId, method);
   return getSellRequest(requestId);
+}
+
+
+/** `GET /admin/inventory/by-folio/:folio` (§BUSCADOR-CARTAS, folio): ver `lib/api/inventory-folio.ts`. 400 ⇒ forma inválida; 404 ⇒ no existe. */
+export async function getInventoryByFolio(raw: string): Promise<PieceByFolioDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) return realGetInventoryByFolio(raw);
+  const folio = normalizeFolioInput(raw);
+  if (!/^INV-\d{1,12}$/i.test(folio)) throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'folio must look like INV-000123', details: { field: 'folio' } });
+  await delay(undefined, 150);
+  if (folio.toUpperCase() === MOCK_CUSTOMER_PIECE.folio) return { ...MOCK_CUSTOMER_PIECE };
+  const it = fx.mockInventory.find((i) => i.folio.toLowerCase() === folio.toLowerCase());
+  if (!it) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Not found' });
+  return {
+    id: it.id, folio: it.folio, status: it.status, productType: it.productType, finish: (it.finish ?? null) as PieceByFolioDTO['finish'], language: null,
+    rawCondition: it.rawCondition ?? null, gradingCompany: it.gradingCompany ?? null, gradeValue: it.gradeValue ?? null,
+    owner: { type: 'platform' }, location: null,
+    card: { id: it.card.id, name: it.card.name, number: it.card.number ?? null, setName: it.card.setName ?? null, setKey: it.card.setPtcgoCode ?? null, imageSmallUrl: it.card.imageSmallUrl ?? null, imageUrl: it.card.imageLargeUrl ?? null },
+  };
 }
