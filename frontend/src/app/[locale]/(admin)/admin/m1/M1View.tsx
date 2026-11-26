@@ -190,22 +190,27 @@ export function M1View() {
   });
 
   // Enlaces entrantes: `?folio=INV-…` abre directo el «Detalle de pieza» (o «No existe…») y `?addQ=` el alta con búsqueda.
-  const incoming = useRef(false);
+  // Reacciona al CAMBIO de la URL (no solo al montar): el enlace «Abrir INV-… en Inventario» también se pulsa desde un
+  // buscador de carta dentro de M1 (alta por lote, alta gradeada), y entonces esa alta se cierra para dejar ver el detalle.
+  const urlFolio = searchParams?.get('folio')?.trim() || null;
+  const urlAddQ = searchParams?.get('addQ')?.trim() || null;
+  const handled = useRef<string | null>(null);
   useEffect(() => {
-    if (incoming.current || typeof window === 'undefined') return;
-    incoming.current = true;
-    const p = new URLSearchParams(window.location.search);
-    const folio = p.get('folio')?.trim();
-    const addQ = p.get('addQ')?.trim();
-    if (folio) {
-      setFolioInput(folio);
-      folioSearch.mutate(folio);
-    } else if (addQ) {
-      setAddQuery(addQ.slice(0, 60));
+    const key = `${urlFolio ?? ''}|${urlAddQ ?? ''}`;
+    if (key === '|' || handled.current === key) return;
+    handled.current = key;
+    if (urlFolio) {
+      setAddOpen(false);
+      setAddQuery(undefined);
+      setAddGraded({ open: false, card: null });
+      setFolioInput(urlFolio);
+      folioSearch.mutate(urlFolio);
+    } else if (urlAddQ) {
+      setAddQuery(urlAddQ.slice(0, 60));
       setAddOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [urlFolio, urlAddQ]);
 
   function submitFolio() {
     const folio = folioInput.trim();
