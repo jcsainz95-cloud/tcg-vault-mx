@@ -2209,14 +2209,17 @@ export async function getAdminVaultPhysicalInventory(userId: string): Promise<Cu
       userId === 'u-777' && first
         ? {
             ...res,
-            paidUnassigned: [
+            unassignedLines: [
               {
                 orderItemId: 'oi-ord-9005-inv-9053',
                 orderId: fx.MOCK_UNASSIGNED_ORDER_ID,
                 orderNumber: 'TCG-9005',
                 folio: 'INV-009053',
-                reason: 'no_equivalent_copy',
-                card: { ...(first.card as unknown as Record<string, unknown>), setPtcgoCode: 'BS' },
+                state: 'needs_attention' as const,
+                fulfillmentFailedReason: 'no_equivalent_copy',
+                card: { ...(first.card as unknown as Record<string, unknown>), setKey: 'BS' },
+                finish: 'holofoil',
+                imageUrl: null,
               },
             ],
           }

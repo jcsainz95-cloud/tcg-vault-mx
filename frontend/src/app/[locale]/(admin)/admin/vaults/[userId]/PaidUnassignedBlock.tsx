@@ -26,14 +26,14 @@ export function PaidUnassignedBlock({ lines }: { lines: PaidUnassignedLine[] }) 
       <p className="text-sm text-muted">{t('help')}</p>
       <ul className="flex flex-col gap-3">
         {lines.map((l) => {
-          const f = lineCardFacts({ card: l.card, folio: l.folio });
+          const f = lineCardFacts({ card: l.card, folio: l.folio, imageUrl: l.imageUrl, finish: l.finish, setKey: (l.card as { setKey?: string } | null)?.setKey });
           return (
             <li key={l.orderItemId} className="flex items-start gap-3 border-l-2 border-l-accent pl-3 text-sm text-text" data-testid={`paid-unassigned-${l.orderItemId}`}>
               <CardImage src={f.imageUrl} alt="" className="w-12 shrink-0" />
               <span className="flex min-w-0 flex-col gap-1">
                 <span lang="en" className="font-medium">{f.name ?? '—'}</span>
                 <span className="font-mono text-xs text-muted">
-                  {[f.setName ? (f.setCode ? `${f.setName} (${f.setCode})` : f.setName) : null, f.number ? `#${f.number}` : null, f.condition, f.folio]
+                  {[f.setName ? (f.setCode ? `${f.setName} (${f.setCode})` : f.setName) : null, f.number ? `#${f.number}` : null, f.condition, f.finish, f.folio]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>

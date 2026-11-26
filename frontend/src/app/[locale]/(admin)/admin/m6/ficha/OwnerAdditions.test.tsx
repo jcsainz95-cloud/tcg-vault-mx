@@ -97,9 +97,11 @@ describe('ficha 360: nombre editable y pedidos enlazados', () => {
 describe('detalle de pedido: datos de la carta y «Buscar en inventario»', () => {
   it('mapeo: set + clave, número, condición, folio ORIGINAL; sin datos ⇒ nada inventado', () => {
     expect(lineCardFacts({ card: { name: 'Pikachu', setName: 'Base Set', setPtcgoCode: 'BS', number: '58', rawCondition: 'NM', imageSmallUrl: 'u' }, folio: 'INV-2', replacedFolio: 'INV-1' })).toEqual({
-      name: 'Pikachu', setName: 'Base Set', setCode: 'BS', number: '58', condition: 'NM', folio: 'INV-1', imageUrl: 'u',
+      name: 'Pikachu', setName: 'Base Set', setCode: 'BS', number: '58', condition: 'NM', finish: null, folio: 'INV-1', imageUrl: 'u',
     });
-    expect(lineCardFacts({})).toEqual({ name: null, setName: null, setCode: null, number: null, condition: null, folio: null, imageUrl: null });
+    expect(lineCardFacts({})).toEqual({ name: null, setName: null, setCode: null, number: null, condition: null, finish: null, folio: null, imageUrl: null });
+    // Forma del backend: `setKey`/`imageUrl`/`finish` al nivel del ítem.
+    expect(lineCardFacts({ card: { name: 'X' }, setKey: 'PRE', imageUrl: 'big', finish: 'holofoil' })).toMatchObject({ setCode: 'PRE', imageUrl: 'big', finish: 'holofoil' });
     expect(inventorySearchHref('Mr. Mime')).toBe('/admin/m1?addQ=Mr.%20Mime');
     expect(inventorySearchHref(null)).toBeNull();
   });
@@ -123,7 +125,8 @@ describe('detalle de pedido: datos de la carta y «Buscar en inventario»', () =
 });
 
 describe('«Qué debe haber»: pagadas sin asignar', () => {
-  const line = { orderItemId: 'oi1', orderId: 'ord-9', orderNumber: 'TCG-9', folio: 'INV-9', reason: 'no_equivalent_copy', card: { name: 'Charizard', setName: 'Base Set', setPtcgoCode: 'BS', number: '4', rawCondition: 'NM', imageSmallUrl: null } };
+  const raw = { orderItemId: 'oi1', orderId: 'ord-9', orderNumber: 'TCG-9', folio: 'INV-9', state: 'needs_attention' as const, fulfillmentFailedReason: 'no_equivalent_copy', card: { name: 'Charizard', setName: 'Base Set', setKey: 'BS', number: '4', rawCondition: 'NM' }, finish: null, imageUrl: null };
+  const line = paidUnassignedLines({ unassignedLines: [raw] })[0]!;
   it('cada línea: nombre, set y clave, número, condición, folio, pedido enlazado y motivo llano', () => {
     renderWithProviders(<PaidUnassignedBlock lines={[line]} />, 'es');
     const row = screen.getByTestId('paid-unassigned-oi1');
@@ -137,18 +140,18 @@ describe('«Qué debe haber»: pagadas sin asignar', () => {
     const { container } = renderWithProviders(<PaidUnassignedBlock lines={[]} />, 'es');
     expect(container.firstChild).toBeNull();
     expect(paidUnassignedLines(undefined)).toEqual([]);
-    expect(paidUnassignedLines({ paidUnassigned: [line] })).toHaveLength(1);
+    expect(paidUnassignedLines({ unassignedLines: [raw] })).toEqual([expect.objectContaining({ orderItemId: 'oi1', reason: 'no_equivalent_copy', folio: 'INV-9' })]);
   });
   it('el resumen dice «1 pagada sin asignar» (también sin piezas a su nombre) y el bloque aparece', async () => {
     const res = await api.getAdminVaultPhysicalInventory('u-777');
-    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue({ ...res, items: [], paidUnassigned: [line] });
+    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue({ ...res, items: [], unassignedLines: [raw] });
     renderWithProviders(<PhysicalInventoryPanel userId="u-777" />, 'es');
     expect(await screen.findByTestId('physical-paid-unassigned-count')).toHaveTextContent('1 pagada sin asignar');
     expect(screen.getByTestId('paid-unassigned-block')).toBeInTheDocument();
   });
-  it('sin `paidUnassigned` (servidor anterior) no cambia nada', async () => {
+  it('sin `unassignedLines` (servidor anterior) no cambia nada', async () => {
     const res = await api.getAdminVaultPhysicalInventory('u-778');
-    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue({ ...res, paidUnassigned: undefined });
+    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue({ ...res, unassignedLines: undefined });
     renderWithProviders(<PhysicalInventoryPanel userId="u-778" />, 'es');
     await screen.findByTestId('physical-inventory');
     expect(screen.queryByTestId('physical-paid-unassigned-count')).toBeNull();

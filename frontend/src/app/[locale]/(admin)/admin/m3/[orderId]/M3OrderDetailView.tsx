@@ -328,7 +328,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                       const { text: name } = historicalCardName(it.card, tOrders('item.unknownCard'));
                       const dr = it.deliveredRefund ?? null;
                       const fulfillment = lineFulfillment(it, isVault && o.status === 'settled');
-                      const facts = lineCardFacts(it as unknown as { card?: Record<string, unknown> | null; folio?: string | null; replacedFolio?: string | null });
+                      const facts = lineCardFacts(it as unknown as Parameters<typeof lineCardFacts>[0]);
                       // §60.3 a: botón SOLO con `refundable` ∧ súper-admin ∧ la llave del verbo. ⛔ Al operador, nada.
                       const canRefund = isSuperAdmin && dr?.kind === 'refundable' && !!it.orderItemId;
                       const notRefundableText =
@@ -353,6 +353,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                                 facts.setName ? (facts.setCode ? `${facts.setName} (${facts.setCode})` : facts.setName) : null,
                                 facts.number ? `#${facts.number}` : null,
                                 facts.condition,
+                                facts.finish,
                                 facts.folio,
                               ]
                                 .filter(Boolean)

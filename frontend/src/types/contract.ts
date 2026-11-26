@@ -2424,8 +2424,8 @@ export interface CustomerPhysicalInventoryDTO {
     unlocated: number;
   };
   items: PhysicalInventoryItemDTO[];
-  /** §BOVEDA (dueño 2026-11-26, ASSUMED; por confirmar con backend): líneas pagadas sin asignar de este cliente. Se leen por `paidUnassignedLines`. */
-  paidUnassigned?: { orderItemId: string; orderId: string; orderNumber: string | null; folio: string | null; reason: string | null; card: Record<string, unknown> | null }[];
+  /** §BOVEDA (backend 92fe0cf0): líneas PAGADAS sin asignar de este cliente (aditivo). Se leen por `paidUnassignedLines`. */
+  unassignedLines?: { orderItemId: string; orderId: string; orderNumber: string | null; folio: string | null; state: 'needs_attention' | 'unassigned'; fulfillmentFailedReason: string | null; card: Record<string, unknown> | null; finish: string | null; imageUrl: string | null }[];
 }
 export interface PhysicalInventoryItemDTO {
   inventoryItemId: string;
@@ -3183,6 +3183,10 @@ export interface AdminOrderDetailDTO {
     replacedInventoryItemId?: string | null;
     folio?: string | null;
     replacedFolio?: string | null;
+    /** Aditivos de identificación (backend 92fe0cf0). */
+    setKey?: string | null;
+    imageUrl?: string | null;
+    finish?: string | null;
   })[];
   shipments?: {
     id: string;
