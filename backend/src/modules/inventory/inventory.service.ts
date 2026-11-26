@@ -1,4 +1,5 @@
 import { CardLanguage, StampType } from '@prisma/client';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import { hypotheticalRawSaleItem, isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
 import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { isDefaultVersion, PieceVersion, pieceVersionOf, StampRef, versionDtoOf } from '../../common/card-version';
@@ -3118,9 +3119,10 @@ export class InventoryService {
     if (!m) throw BusinessException.badRequest('VALIDATION_ERROR', 'folio must look like INV-000123', { field: 'folio' });
     const item = await this.prisma.inventoryItem.findFirst({
       where: { folio: { equals: `INV-${m[1]}`, mode: 'insensitive' } },
-      include: { card: { include: { set: true } }, location: true },
+      include: { card: { include: { set: true } }, location: true, sealedProduct: true },
     });
     if (!item) throw BusinessException.notFound();
+    const display = pieceDisplayIdentityOf(item); // sellado ⇒ su nombre/imagen reales, nunca el del ancla (§4.34a.2)
     const stamps = item.cardProductId != null ? await this.pricing.findStampedProducts([item.cardProductId]) : new Map<number, StampRef>();
     return {
       id: item.id,
@@ -3137,12 +3139,12 @@ export class InventoryService {
       version: versionDtoOf(pieceVersionOf(item, stamps)),
       card: {
         id: item.card.id,
-        name: item.card.name,
-        number: item.card.number,
+        name: display.name,
+        number: display.isSealed ? null : item.card.number,
         setName: item.card.set.name,
         setKey: item.card.set.ptcgoCode ?? null,
-        imageSmallUrl: item.card.imageSmallUrl ?? null,
-        imageUrl: item.card.imageLargeUrl ?? item.card.imageSmallUrl ?? null,
+        imageSmallUrl: display.imageSmallUrl ?? null,
+        imageUrl: display.isSealed ? (display.imageSmallUrl ?? null) : (item.card.imageLargeUrl ?? display.imageSmallUrl ?? null),
       },
     };
   }

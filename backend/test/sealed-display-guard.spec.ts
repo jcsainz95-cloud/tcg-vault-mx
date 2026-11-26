@@ -150,6 +150,12 @@ type Allow = { file: string; snippet: string; lines: number[]; reason: string };
 
 const ALLOWLIST: Allow[] = [
   {
+    file: 'src/modules/inventory/inventory.service.ts',
+    snippet: 'number: display.isSealed ? null : item.card.number,',
+    lines: [3143],
+    reason: '§BUSCADOR-CARTAS (by-folio): nombre e imagen salen del resolutor (`display`); el número del ancla se oculta en sellado (`isSealed ⇒ null`).',
+  },
+  {
     file: 'src/modules/inventory/inventory-versions.service.ts',
     snippet: "const name = `${card.name} (${input.stampType}${label.label ? ` ${label.label}` : ''})`;",
     lines: [262],
