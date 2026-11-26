@@ -214,7 +214,7 @@ test.describe('C-F3 · ?q= (SEC-MED-1): el término no sale a Google ni a Meta',
     await expect.poll(async () => (await vendorState(page)).fbq).toBe('function');
     await settle(page);
     const before = (await vendorState(page)).fbqLen;
-    await page.getByRole('searchbox', { name: t('es', 'catalog.searchPlaceholder') }).first().fill(TERM);
+    await page.getByRole('searchbox', { name: t('es', 'common.cardSearch.placeholder') }).first().fill(TERM);
     await expect(page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first()).toBeVisible();
     await settle(page);
     await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
