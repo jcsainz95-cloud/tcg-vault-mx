@@ -126,7 +126,7 @@ export function RegistrationForms() {
             <>
               <h3 className="font-brand text-h3 font-bold">Preinscríbete al torneo</h3>
               <p className="mb-6 mt-2 max-w-prose text-sm text-muted">
-                Preinscripción abierta; los horarios se anuncian en los próximos días. Elige tu juego y tu día. En
+                Elige tu juego. Pokémon se juega sábado y domingo; los demás tienen un solo día. En
                 Pokémon pedimos tu Player ID; en los demás juegos basta con tu interés.
               </p>
               <TorneoForm />
