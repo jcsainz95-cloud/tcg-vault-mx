@@ -1503,7 +1503,9 @@ export class AdminService {
     if (prev.anonymizedAt) throw BusinessException.validation('USER_DELETED', 'Cannot edit an anonymized account');
     const res = { name, previous: prev.name ?? null };
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id }, data: { name } });
+      // Un nombre tecleado por el dueño es un nombre dicho, no fabricado: `nameSource='user'` (si no, un cliente `derived`
+      // seguiría saliendo «sin nombre» en `customerDisplayName`). Mismo precedente que `UsersService` (P-73-A).
+      await tx.user.update({ where: { id }, data: { name, nameSource: NameSource.user } });
       if (auditInTx) await auditInTx(tx, res);
     });
     return res;
