@@ -29,10 +29,11 @@ describe('GoogleSignInButton (§6.7, rama mock)', () => {
   });
 });
 
-// D6: en modo real (GIS), si el usuario descarta/omite el prompt, el `callback` del
-// credential nunca corre; el botón NO debe quedar atascado en "Conectando…".
-describe('GoogleSignInButton (§6.7, rama real GIS — descarte del prompt)', () => {
+// Modo real (GIS): el clic del usuario cae SIEMPRE en el botón oficial de GIS (renderButton),
+// superpuesto al de marca desde el primer render; One Tap ya no es necesario.
+describe('GoogleSignInButton (§6.7, rama real GIS — botón oficial superpuesto)', () => {
   const original = { useMocks: config.useMocks, googleClientId: config.googleClientId };
+  type Cb = (r: { credential?: string }) => void;
 
   beforeEach(() => {
     setToken(null);
@@ -43,90 +44,73 @@ describe('GoogleSignInButton (§6.7, rama real GIS — descarte del prompt)', ()
     config.useMocks = original.useMocks;
     config.googleClientId = original.googleClientId;
     delete (window as { google?: unknown }).google;
+    vi.restoreAllMocks();
   });
 
-  function notification(over: Record<string, () => boolean>) {
-    return {
-      isDisplayMoment: () => false,
-      isNotDisplayed: () => false,
-      isSkippedMoment: () => false,
-      isDismissedMoment: () => false,
-      ...over,
+  function installGis(withRender = true) {
+    const h: { cb?: Cb; renderButton: ReturnType<typeof vi.fn>; prompt: ReturnType<typeof vi.fn> } = {
+      renderButton: vi.fn(),
+      prompt: vi.fn(),
     };
+    (window as { google?: unknown }).google = {
+      accounts: {
+        id: {
+          initialize: vi.fn((o: { callback: Cb }) => {
+            h.cb = o.callback;
+          }),
+          prompt: h.prompt,
+          ...(withRender ? { renderButton: h.renderButton } : {}),
+        },
+      },
+    };
+    return h;
   }
 
-  it('al descartar el prompt (isDismissedMoment) sale del estado "connecting"', async () => {
-    let momentListener: ((n: ReturnType<typeof notification>) => void) | undefined;
-    (window as { google?: unknown }).google = {
-      accounts: {
-        id: {
-          initialize: vi.fn(),
-          prompt: vi.fn((cb?: (n: ReturnType<typeof notification>) => void) => {
-            momentListener = cb;
-          }),
-        },
-      },
-    };
+  it('hay UN solo botón "Continuar con Google" y el oficial se pinta superpuesto desde el primer render', async () => {
+    const h = installGis();
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    await waitFor(() => expect(h.renderButton).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByRole('button', { name: /Continuar con Google/ })).toHaveLength(1);
+    expect(screen.getByTestId('google-overlay')).toBeInTheDocument();
+  });
+
+  it('la credencial que entra por el botón oficial canjea y llama onSuccess; un callback repetido no reenvía', async () => {
+    const h = installGis();
+    const spy = vi.spyOn(api, 'loginWithGoogle').mockResolvedValue({
+      user: { role: 'customer' },
+    } as unknown as Awaited<ReturnType<typeof api.loginWithGoogle>>);
     const onSuccess = vi.fn();
     renderWithProviders(<GoogleSignInButton onSuccess={onSuccess} />, 'es');
-    const btn = screen.getByRole('button', { name: /Continuar con Google/ });
+    await waitFor(() => expect(h.cb).toBeDefined());
 
-    fireEvent.click(btn);
+    act(() => {
+      h.cb?.({ credential: 'tok' });
+      h.cb?.({ credential: 'tok' });
+    });
     expect(screen.getByText('Conectando…')).toBeInTheDocument();
-    expect(btn).toBeDisabled();
-
-    // El usuario cierra el One Tap sin autenticarse.
-    act(() => momentListener?.(notification({ isDismissedMoment: () => true })));
-
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByText('Conectando…')).not.toBeInTheDocument());
-    expect(btn).not.toBeDisabled();
-    expect(onSuccess).not.toHaveBeenCalled();
-    expect(getToken()).toBeNull();
   });
 
-  it('si el prompt no se puede mostrar (isNotDisplayed) tampoco queda en loading', async () => {
-    let momentListener: ((n: ReturnType<typeof notification>) => void) | undefined;
-    (window as { google?: unknown }).google = {
-      accounts: {
-        id: {
-          initialize: vi.fn(),
-          prompt: vi.fn((cb?: (n: ReturnType<typeof notification>) => void) => {
-            momentListener = cb;
-          }),
-        },
-      },
-    };
+  it('un callback sin credential muestra error y no deja el botón en "Conectando…"', async () => {
+    const h = installGis();
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    await waitFor(() => expect(h.cb).toBeDefined());
+    act(() => h.cb?.({}));
+    expect(screen.queryByText('Conectando…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Continuar con Google/ })).not.toBeDisabled();
+  });
+
+  it('sin renderButton: sin overlay, un solo botón y el clic (teclado) lanza One Tap sin quedar en loading', async () => {
+    const h = installGis(false);
     renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
     const btn = screen.getByRole('button', { name: /Continuar con Google/ });
-
+    expect(screen.queryByTestId('google-overlay')).not.toBeInTheDocument();
     fireEvent.click(btn);
-    expect(btn).toBeDisabled();
-
-    act(() => momentListener?.(notification({ isNotDisplayed: () => true })));
-
-    await waitFor(() => expect(btn).not.toBeDisabled());
-  });
-
-  it('iOS/Safari: si One Tap no se muestra, ofrece el botón oficial de GIS (renderButton)', async () => {
-    let momentListener: ((n: ReturnType<typeof notification>) => void) | undefined;
-    const renderButton = vi.fn();
-    (window as { google?: unknown }).google = {
-      accounts: {
-        id: {
-          initialize: vi.fn(),
-          renderButton,
-          prompt: vi.fn((cb?: (n: ReturnType<typeof notification>) => void) => {
-            momentListener = cb;
-          }),
-        },
-      },
-    };
-    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: /Continuar con Google/ }));
-    act(() => momentListener?.(notification({ isNotDisplayed: () => true })));
-
-    await waitFor(() => expect(screen.getByTestId('google-fallback')).toBeInTheDocument());
-    expect(renderButton).toHaveBeenCalledTimes(1);
+    expect(h.prompt).toHaveBeenCalledTimes(1);
+    expect(btn).not.toBeDisabled();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 });
 

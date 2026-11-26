@@ -24,25 +24,16 @@ function GoogleG({ size = 18 }: { size?: number }) {
 }
 
 type GoogleCredentialResponse = { credential?: string };
-// Subconjunto de PromptMomentNotification de GIS que nos interesa para no quedar atascados.
-type PromptMomentNotification = {
-  isDisplayMoment: () => boolean;
-  isNotDisplayed: () => boolean;
-  isSkippedMoment: () => boolean;
-  isDismissedMoment: () => boolean;
-};
 type GoogleIdApi = {
   accounts: {
     id: {
       initialize: (opts: { client_id: string; callback: (r: GoogleCredentialResponse) => void }) => void;
-      prompt: (momentListener?: (notification: PromptMomentNotification) => void) => void;
+      prompt?: () => void;
       renderButton?: (parent: HTMLElement, opts: Record<string, unknown>) => void;
     };
   };
 };
 
-/** Respaldo: si GIS no invoca ni el callback ni el moment listener, no dejar el botón en spinner. */
-const PROMPT_TIMEOUT_MS = 60_000;
 declare global {
   interface Window {
     google?: GoogleIdApi;
@@ -89,22 +80,21 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
    * un tope por IP) y ⛔ sin reintento automático. `minutes` = `retryAfterMinutes` (`null` sin cifra usable).
    */
   const [rateLimited, setRateLimited] = useState<{ minutes: number | null } | null>(null);
-  /** One Tap no se pudo mostrar (iOS/Safari ITP, webviews, FedCM): se ofrece el botón oficial de GIS (popup con gesto). */
-  const [fallback, setFallback] = useState(false);
-  const fallbackRef = useRef<HTMLDivElement | null>(null);
+  /** GIS inicializado y con `renderButton`: el botón oficial se superpone, transparente, sobre el de marca. */
+  const [overlayReady, setOverlayReady] = useState(false);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const scriptLoaded = useRef(false);
-  const promptTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Guarda de vuelo: una sola credencial en tránsito (evita doble envío si GIS repite el callback). */
+  const inFlight = useRef(false);
+  /** El callback de GIS se registra una vez; siempre llama a la última versión de `exchange`. */
+  const exchangeRef = useRef<(idToken: string) => Promise<void>>(async () => {});
 
   const realMode = !config.useMocks && !!config.googleClientId;
 
-  function clearPromptTimeout() {
-    if (promptTimeout.current) {
-      clearTimeout(promptTimeout.current);
-      promptTimeout.current = null;
-    }
-  }
-
   async function exchange(idToken: string) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setLoading(true);
     try {
       const res = await loginWithGoogle(idToken);
       if ('pendingSignup' in res) {
@@ -126,78 +116,64 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
       const code = e instanceof ApiClientError ? e.code : 'GOOGLE_TOKEN_INVALID';
       setErrorCode(code);
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   }
-
-  // Limpia el timeout de respaldo si el componente se desmonta con un prompt abierto.
-  useEffect(() => () => clearPromptTimeout(), []);
+  exchangeRef.current = exchange;
 
   // Carga perezosa de Google Identity Services solo en modo real.
   useEffect(() => {
     if (!realMode || scriptLoaded.current) return;
+    function init() {
+      const gid = window.google?.accounts.id;
+      if (!gid) return;
+      gid.initialize({
+        client_id: config.googleClientId,
+        callback: (r) => {
+          if (r.credential) void exchangeRef.current(r.credential);
+          else setErrorCode('GOOGLE_TOKEN_INVALID');
+        },
+      });
+      scriptLoaded.current = true;
+      // Sin `renderButton` no hay botón oficial: el botón de marca queda solo con One Tap (teclado).
+      if (typeof gid.renderButton === 'function') setOverlayReady(true);
+    }
+    if (window.google) {
+      init();
+      return;
+    }
     const s = document.createElement('script');
     s.src = 'https://accounts.google.com/gsi/client';
     s.async = true;
     s.defer = true;
-    s.onload = () => {
-      window.google?.accounts.id.initialize({
-        client_id: config.googleClientId,
-        callback: (r) => {
-          clearPromptTimeout();
-          if (r.credential) void exchange(r.credential);
-          else {
-            setErrorCode('GOOGLE_TOKEN_INVALID');
-            setLoading(false);
-          }
-        },
-      });
-      scriptLoaded.current = true;
-    };
+    s.onload = init;
     document.head.appendChild(s);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [realMode]);
 
-  // Respaldo: GIS pinta su propio botón; el clic del usuario abre el popup de Google (válido en Safari iOS).
+  // El botón oficial de GIS se pinta desde el primer render con GIS listo. El clic del usuario cae en su
+  // iframe (gesto real ⇒ popup válido en Safari iOS, sin depender de One Tap ni de sus avisos).
   useEffect(() => {
-    if (!fallback || !fallbackRef.current) return;
-    window.google?.accounts.id.renderButton?.(fallbackRef.current, {
+    const host = overlayRef.current;
+    if (!overlayReady || !host) return;
+    window.google?.accounts.id.renderButton?.(host, {
       type: 'standard',
       theme: 'outline',
       size: 'large',
       text: 'continue_with',
       shape: 'rectangular',
-      width: Math.min(320, Math.max(200, fallbackRef.current.clientWidth || 280)),
+      width: Math.min(400, Math.max(200, host.parentElement?.clientWidth || 280)),
       locale,
     });
-  }, [fallback, locale]);
+  }, [overlayReady, locale]);
 
   function onClick() {
     setErrorCode(null);
     setRateLimited(null);
-    setLoading(true);
-    if (realMode && window.google) {
-      clearPromptTimeout();
-      // Respaldo: si GIS nunca invoca el callback ni notifica el momento (edge de red/UI),
-      // salimos del spinner tras un tope para no quedar en "connecting" indefinido.
-      promptTimeout.current = setTimeout(() => {
-        promptTimeout.current = null;
-        setLoading(false);
-      }, PROMPT_TIMEOUT_MS);
-      // GIS invoca el callback con el credential (ID token). Si el usuario descarta/omite
-      // el prompt (o no se puede mostrar), el callback NUNCA corre: el moment listener lo
-      // detecta (isDismissedMoment/isSkippedMoment/isNotDisplayed) y devuelve loading=false.
-      window.google.accounts.id.prompt((notification) => {
-        if (
-          notification.isDismissedMoment() ||
-          notification.isSkippedMoment() ||
-          notification.isNotDisplayed()
-        ) {
-          clearPromptTimeout();
-          setLoading(false);
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) setFallback(true);
-        }
-      });
+    if (realMode) {
+      // Solo llega aquí con teclado/lector de pantalla (el puntero cae en el botón oficial superpuesto)
+      // o si GIS aún no cargó. One Tap es un extra opcional; si no se muestra, no pasa nada.
+      window.google?.accounts.id.prompt?.();
       return;
     }
     // MOCK: simula el canje del idToken (sin backend, funciona en Vercel).
@@ -206,25 +182,32 @@ export function GoogleSignInButton({ onSuccess, next, onPendingSignup }: GoogleS
 
   return (
     <div className="flex flex-col gap-2">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={loading}
-        aria-busy={loading || undefined}
-        className={
-          // Alternativa neutra: solo regla, sin relleno ni versalitas — no compite con el CTA de tinta.
-          'inline-flex min-h-[48px] w-full items-center justify-center gap-2.5 border border-border-strong px-4 text-[13px] font-medium text-text transition-colors hover:border-text disabled:cursor-not-allowed disabled:text-muted'
-        }
-      >
-        {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <GoogleG />}
-        <span aria-live="polite">{loading ? t('connecting') : t('cta')}</span>
-      </button>
-      {fallback && (
-        <div data-testid="google-fallback" className="flex flex-col items-center gap-2">
-          <p className="text-[12px] text-muted">{t('fallbackHint')}</p>
-          <div ref={fallbackRef} className="flex min-h-[44px] w-full justify-center" />
-        </div>
-      )}
+      <div className="relative mx-auto w-full max-w-[400px]">
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={loading}
+          aria-busy={loading || undefined}
+          className={
+            // Alternativa neutra: solo regla, sin relleno ni versalitas — no compite con el CTA de tinta.
+            'inline-flex min-h-[48px] w-full items-center justify-center gap-2.5 border border-border-strong px-4 text-[13px] font-medium text-text transition-colors hover:border-text disabled:cursor-not-allowed disabled:text-muted'
+          }
+        >
+          {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <GoogleG />}
+          <span aria-live="polite">{loading ? t('connecting') : t('cta')}</span>
+        </button>
+        {overlayReady && (
+          // Botón oficial de GIS (40 px) estirado a los 48 px del de marca; transparente pero tocable.
+          // Con `loading` deja de recibir toques (una credencial a la vez) sin desmontarse.
+          <div
+            data-testid="google-overlay"
+            aria-hidden
+            className={`absolute inset-0 flex items-center justify-center overflow-hidden opacity-[0.01] ${loading ? 'pointer-events-none' : ''}`}
+          >
+            <div ref={overlayRef} style={{ transform: 'scaleY(1.2)' }} className="w-full" />
+          </div>
+        )}
+      </div>
       {rateLimited && (
         <div data-testid="google-rate-limited">
           <Banner variant="warning" role="alert">
