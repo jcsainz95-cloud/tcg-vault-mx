@@ -29,6 +29,18 @@
 import { WISHLIST_PRIVACY_ES } from './privacy-wishlist';
 import { MEASUREMENT_DISCLOSURE, type MeasurementDisclosure } from './measurement-disclosure';
 
+/**
+ * §ORIGEN-VISITA (DECISIONES §ORIGEN-VISITA, CV-9). Variante A del arquitecto; el dueño aún no elige entre A y B:
+ * se cambia SOLO aquí. El aviso es solo en español (ARCHITECTURE §4.63.7); texto en inglés de la variante A, por si
+ * se traduce: "Where your visit came from (no measurement cookies). While you browse, your browser keeps in its
+ * temporary memory, which is erased when you close the tab, how you reached our store: the post or link you used,
+ * or the site you came from (for example, Google or Instagram), without saving the full address. If you buy or send
+ * us a sell request, we save that detail with the order or request, only to learn which posts work. We do not share
+ * it with Google, Meta or anyone else, it does not store your IP next to it, and it does not follow you between visits."
+ */
+const VISIT_ORIGIN_NOTICE =
+  '**Origen de tu visita (sin cookies de medición).** Mientras navegas, tu navegador recuerda en su memoria temporal, que se borra al cerrar la pestaña, por dónde llegaste a nuestra tienda: la publicación o el enlace con que entraste, o el sitio del que venías (por ejemplo, Google o Instagram), sin guardar la dirección completa. Si compras o nos envías una solicitud de venta, guardamos ese dato junto con el pedido o la solicitud, solo para saber qué publicaciones funcionan. No lo compartimos con Google, Meta ni nadie más, no guarda tu IP junto a él y no te sigue entre visitas.';
+
 export type LegalBlock =
   | { type: 'p'; text: string }
   | { type: 'list'; items: string[] }
@@ -304,7 +316,7 @@ export const privacyNoticeEs: LegalDocument = {
       // «Preferencias de cookies» NO va aquí: lo añade `CookiePreferencesNoticeSlot` al final del apartado (D-MKT2-6).
       blocks: [
         { type: 'p', text: '**Lo necesario (siempre activo).** Para mantener tu sesión abierta, recordar tu carrito y proteger tu cuenta de intentos de acceso, guardamos información en el **almacenamiento local de tu navegador**. Cuando respondes al aviso de cookies, guardamos tu elección en la cookie **th_consent** durante **180 días**; después, o si cambiamos este aviso en lo que toca a la medición, te volvemos a preguntar. Contamos cuántas personas aceptan o rechazan, sin guardar quién.' },
-        { type: 'p', text: '**Medición, solo si la aceptas.** Al entrar a la tienda verás un aviso con tres opciones: «Aceptar», «Solo lo necesario» y «Configurar», donde puedes activar por separado la analítica y la publicidad. **Antes de que elijas no se carga nada de Google ni de Meta** y no guardamos nada para medir.' },
+        { type: 'p', text: '**Medición, solo si la aceptas.** Al entrar a la tienda verás un aviso con tres opciones: «Aceptar», «Solo lo necesario» y «Configurar», donde puedes activar por separado la analítica y la publicidad. **Antes de que elijas no se carga nada de Google ni de Meta** y no guardamos nada para medir con esas herramientas (salvo lo descrito en «Origen de tu visita»).' },
         {
           type: 'list',
           items: [
@@ -312,6 +324,7 @@ export const privacyNoticeEs: LegalDocument = {
             '**Publicidad: Meta (Facebook e Instagram).** Mide qué publicaciones y anuncios llevan a visitas y compras. Usa las cookies **_fbp** y **_fbc** de Meta.',
           ],
         },
+        { type: 'p', text: VISIT_ORIGIN_NOTICE },
         { type: 'p', text: '**Qué se mide:** las páginas que visitas (sin datos personales en la dirección), los productos que ves, agregas al carrito o compras, el monto, el envío y la forma de pago que eliges (por ejemplo, tarjeta), los clics para escribirnos por WhatsApp o mensaje, cuánto tarda en aparecer el botón de compra, cuántos resultados da una búsqueda (no lo que buscaste) y de qué publicación llegaste. Cuando completas una compra o una solicitud de venta, nuestro servidor también avisa a Google y a Meta, según lo que hayas aceptado, con el número interno del pedido o de la solicitud, los productos y el monto.' },
         { type: 'p', text: '**Qué no se envía nunca:** tu nombre, correo, teléfono, dirección, código postal, datos de tarjeta, CLABE, INE, RFC, el número de pedido que tú ves (TCG-…) ni lo que escribes en los formularios. **Tampoco se envían cifrados** (lo que a veces se llama «hash»): simplemente no salen. Como pasa en cualquier sitio que usa estas herramientas, cuando tu navegador se conecta con Google o con Meta, ellos ven tu dirección IP y el tipo de navegador; desde nuestros servidores no les enviamos tu IP.' },
         { type: 'p', text: '**Dónde se mide y dónde no:** solo medimos en la portada, el catálogo y las fichas de cartas y sellado, el carrito y el pago, las guías, las preguntas frecuentes, «Cómo funciona» y el cotizador de venta. **No hay ninguna herramienta de medición** en tu cuenta, tu bóveda, el paso donde capturas tu CLABE y tu INE para vendernos cartas, el detalle de tus solicitudes de venta, el inicio de sesión y las contraseñas, el seguimiento de tus pedidos ni en este aviso. En la página de pago las herramientas están configuradas para no recoger lo que escribes. En la página del **Card Show** solo usamos Google Analytics para contar visitas: no usamos Meta y no medimos lo que escribes en sus formularios.' },

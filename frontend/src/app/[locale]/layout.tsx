@@ -10,6 +10,7 @@ import { getMessages, getTranslations } from 'next-intl/server';
 import { routing, type AppLocale } from '@/i18n/routing';
 import { shellMessages } from '@/i18n/message-scopes';
 import { Providers } from '@/components/Providers';
+import { VisitOriginCapture } from '@/components/consent/VisitOriginCapture';
 import { MeasurementProvider } from '@/components/consent/MeasurementProvider';
 import { NONCE_HEADER } from '@/security/csp';
 import { PhoneGate } from '@/components/domain/PhoneGateForm';
@@ -199,6 +200,7 @@ export default async function LocaleLayout({
           <PrivacyLinkProvider linked={privacyLinkVisible()}>
             <Providers>
               {/* §MKT.H · ARCHITECTURE §14: con NEXT_PUBLIC_MEASUREMENT_MODE=off solo pinta sus hijos. */}
+              <VisitOriginCapture />
               <MeasurementProvider>{children}</MeasurementProvider>
               {/* §CELULAR (variante B): modal de «Completa tu celular» sobre cualquier ruta con sesión. */}
               <PhoneGate />

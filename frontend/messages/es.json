@@ -8550,6 +8550,8 @@
         "notMeasuredSr": "no medido todavía: {motivo}",
         "none": "sin dato",
         "others": "Otros (< 5 c/u)",
+        "sourceFirst": "Primer origen (con cookies)",
+        "sourceVisit": "Origen de la visita (sin cookies)",
         "smallN": "N chico, sin veredicto",
         "footnote": "< 5 significa menos de 5. El monto de esas filas se oculta para que nadie pueda identificar a una persona."
       },

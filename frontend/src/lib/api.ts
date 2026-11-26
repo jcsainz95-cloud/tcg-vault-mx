@@ -1,3 +1,4 @@
+import { visitOriginBodyField } from '@/lib/visit-origin';
 import { config } from './config';
 import { measurementForRequest } from './measurement/request';
 import { sortPreparationOrders } from './preparation-order';
@@ -1436,7 +1437,7 @@ export async function createCheckoutSession(
     return apiRequest<CheckoutSessionResponse>('/checkout/session', {
       method: 'POST',
       // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja. §DSC.6: `discountCode` tampoco.
-      body: { inventoryItemIds, billingProfileId, ...measurementBodyField(), ...discountCodeField(discountCode) },
+      body: { inventoryItemIds, billingProfileId, ...measurementBodyField(), ...visitOriginBodyField(), ...discountCodeField(discountCode) },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
@@ -3233,7 +3234,7 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
     // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
-    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: { ...input, ...measurementBodyField() } });
+    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: { ...input, ...measurementBodyField(), ...visitOriginBodyField() } });
   }
   mockRequirePhone();
   // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
@@ -8093,7 +8094,7 @@ export async function createGuestCheckoutSession(
     return apiRequest<GuestCheckoutSessionResponse>('/checkout/guest/session', {
       method: 'POST',
       // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
-      body: { ...input, ...measurementBodyField() },
+      body: { ...input, ...measurementBodyField(), ...visitOriginBodyField() },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
