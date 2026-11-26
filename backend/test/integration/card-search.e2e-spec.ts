@@ -275,20 +275,44 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
 
   it('I-4: «Charizard» no es peor que +20 % (o +10 ms) frente a la función de production (p95, 30 corridas)', async () => {
     const where = { OR: [{ name: { contains: 'Charizard', mode: 'insensitive' as const } }, { number: { contains: 'Charizard', mode: 'insensitive' as const } }] };
-    const p95 = (t: number[]) => t.sort((a, b) => a - b)[Math.floor(t.length * 0.95) - 1];
-    const old: number[] = [];
-    const now: number[] = [];
-    for (let i = 0; i < 30; i++) {
-      let s0 = Date.now();
-      await Promise.all([h.prisma.card.findMany({ where, include: { set: true }, orderBy: CARD_ORDER_BY_GLOBAL, take: 20 }), h.prisma.card.count({ where })]);
-      old.push(Date.now() - s0);
-      s0 = Date.now();
-      await search('Charizard');
-      now.push(Date.now() - s0);
+    const p95 = (t: number[]) => [...t].sort((a, b) => a - b)[Math.floor(t.length * 0.95) - 1];
+    const mediana = (t: number[]) => [...t].sort((a, b) => a - b)[Math.floor(t.length / 2)];
+    const viejo = () => Promise.all([h.prisma.card.findMany({ where, include: { set: true }, orderBy: CARD_ORDER_BY_GLOBAL, take: 20 }), h.prisma.card.count({ where })]);
+    const nuevo = () => search('Charizard');
+    const medir = async (fn: () => Promise<unknown>) => {
+      const s0 = process.hrtime.bigint();
+      await fn();
+      return Number(process.hrtime.bigint() - s0) / 1e6;
+    };
+    // Método (causa del rojo de CI: p95 de UNA tanda de 30 en un runner con ~2 GB de heap, donde una pausa de GC o un
+    // vecino ruidoso cae en un solo brazo y mueve el p95 ±13 ms). Mismo criterio de negocio (p95 de 30 corridas,
+    // +20 % o +10 ms), pero: calentamiento previo, brazos intercalados en orden alterno (el ruido del runner cae en
+    // los dos) y la mediana de 7 tandas (un p95 contaminado por una pausa no decide; una regresión real mueve las 7).
+    for (let i = 0; i < 15; i++) {
+      await viejo();
+      await nuevo();
     }
-    const [o, n] = [p95(old), p95(now)];
+    const TANDAS = 7;
+    const p95Old: number[] = [];
+    const p95Now: number[] = [];
+    for (let b = 0; b < TANDAS; b++) {
+      const old: number[] = [];
+      const now: number[] = [];
+      for (let i = 0; i < 30; i++) {
+        if (i % 2 === 0) {
+          old.push(await medir(viejo));
+          now.push(await medir(nuevo));
+        } else {
+          now.push(await medir(nuevo));
+          old.push(await medir(viejo));
+        }
+      }
+      p95Old.push(p95(old));
+      p95Now.push(p95(now));
+    }
+    const [o, n] = [mediana(p95Old), mediana(p95Now)];
     // eslint-disable-next-line no-console
-    console.log(`card-search «Charizard» p95: production=${o} ms, nuevo=${n} ms (N=30)`);
+    console.log(`card-search «Charizard» p95 (mediana de ${TANDAS} tandas de 30): production=${o.toFixed(1)} ms, nuevo=${n.toFixed(1)} ms; por tanda old=[${p95Old.map((x) => x.toFixed(0))}] new=[${p95Now.map((x) => x.toFixed(0))}]`);
     expect(n).toBeLessThanOrEqual(Math.max(o * 1.2, o + 10));
   });
 });
