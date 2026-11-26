@@ -9,6 +9,7 @@ import {
   batchQuote,
   BUYLIST_QUOTE_BATCH_MAX,
   loginWithGoogle,
+  completeGoogleSignup,
   presignUpload,
   getAdminInventory,
   getAdminInventoryItem,
@@ -233,14 +234,35 @@ describe('api (rama mock, v1.1)', () => {
     expect(p.maxBytes).toBeGreaterThan(0);
   });
 
-  it('loginWithGoogle (mock) deja sesión y marca authProvider=google', async () => {
+  it('loginWithGoogle (mock, cuenta existente) deja sesión y marca authProvider=google', async () => {
     setToken(null);
+    window.localStorage.setItem('tcg.mock.googleExisting', '1');
     const res = await loginWithGoogle('mock-id-token');
+    window.localStorage.removeItem('tcg.mock.googleExisting');
+    if ('pendingSignup' in res) throw new Error('esperaba sesión');
     expect(res.user.authProvider).toBe('google');
     expect(getToken()).toBe('mock.session.token');
-    // §CELULAR: Google nace sin celular ⇒ la puerta del layout lo pedirá.
+    // §CELULAR: cuenta vieja sin celular ⇒ la puerta del layout lo pedirá.
     expect(res.user.phoneRequired).toBe(true);
     // La sesión no se filtra a las pruebas de dinero de abajo (que correrían con `phoneRequired:true`).
+    window.localStorage.removeItem('tcg.user');
+  });
+
+  it('§CELULAR-ALTA loginWithGoogle (mock, correo nuevo) NO deja sesión: devuelve pendingSignup', async () => {
+    setToken(null);
+    window.localStorage.removeItem('tcg.user');
+    const res = await loginWithGoogle('mock-id-token');
+    expect('pendingSignup' in res).toBe(true);
+    expect(getToken()).toBeNull();
+    expect(window.localStorage.getItem('tcg.user')).toBeNull();
+  });
+
+  it('§CELULAR-ALTA completeGoogleSignup (mock): celular válido ⇒ sesión con phoneRequired:false; token malo ⇒ SIGNUP_EXPIRED; celular falso ⇒ PHONE_INVALID', async () => {
+    await expect(completeGoogleSignup({ signupToken: 'viejo', phone: '5512345678' })).rejects.toMatchObject({ code: 'SIGNUP_EXPIRED', status: 401 });
+    await expect(completeGoogleSignup({ signupToken: 'mock-signup-token', phone: '0000000000' })).rejects.toMatchObject({ code: 'PHONE_INVALID', status: 422 });
+    const res = await completeGoogleSignup({ signupToken: 'mock-signup-token', phone: '+52 55 8821 4739' });
+    expect(res.user.phoneRequired).toBe(false);
+    expect(res.user.phone).toBe('5588214739');
     window.localStorage.removeItem('tcg.user');
   });
 

@@ -126,7 +126,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
    * v1.80.12.5 (§M4-SHIP.19.25): ⛔ sin `422` geográficos. Lo único que la sesión puede devolver sobre la
    * colonia, el municipio o el estado es un `400 {field, max}` de longitud: va bajo su campo (§43.18m.7).
    */
-  const [serverAddressError, setServerAddressError] = useState<{ field: 'neighborhood' | 'city' | 'state'; message: string } | null>(null);
+  const [serverAddressError, setServerAddressError] = useState<{ field: 'neighborhood' | 'city' | 'state' | 'phone'; message: string } | null>(null);
   /** El modo de la colonia (§43.18m.1): decide el texto del error y si municipio y estado se exigen. */
   const [geoMode, setGeoMode] = useState<NeighborhoodMode>('pending');
   const ta = useTranslations('addresses');
@@ -357,6 +357,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         orderNumber={paid.orderNumber}
         orderId={paid.orderId}
         email={form.email.trim()}
+        phone={form.address.phone}
       />
     );
   }
@@ -370,7 +371,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     if (patch.postalCode !== undefined && patch.postalCode !== form.address.postalCode) {
       setServerAddressError(null);
     } else {
-      for (const f of ['neighborhood', 'city', 'state'] as const) {
+      for (const f of ['neighborhood', 'city', 'state', 'phone'] as const) {
         if (patch[f] !== undefined && patch[f] !== form.address[f]) {
           setServerAddressError((cur) => (cur?.field === f ? null : cur));
         }
@@ -503,6 +504,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         setPayError(getMessage(e));
         shipQuote.retry();
         setOutcome(null);
+      } else if (e instanceof ApiClientError && e.code === 'PHONE_INVALID') {
+        // §CELULAR-ALTA §6.6: 422 del servidor sobre el celular ⇒ el mismo texto en el campo (cero órdenes creadas).
+        setServerAddressError({ field: 'phone', message: ta('guestPhoneInvalid') });
+        setPayError(null);
       } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
         // §4-R.2/.3: el PI del intento anterior ya está en curso o cobrado ⇒ no se abre otro. El
         // invitado no tiene `/orders/:id`: el bloqueo explica y ofrece reintentar en un momento.
@@ -759,6 +764,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       <InlineAuthPanel
                         variant={authPanel}
                         defaultEmail={form.email}
+                        phone={form.address.phone}
                         onSuccess={() => onAccountReady({ fromVaultUpsell: false })}
                       />
                     </div>
@@ -817,6 +823,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     <VaultUpsellPanel
                       shippingFeeLabel={shippingFeeLabel}
                       defaultEmail={form.email}
+                      phone={form.address.phone}
                       onDismiss={() => {
                         setUpsellOpen(false);
                         setDestination('ship');

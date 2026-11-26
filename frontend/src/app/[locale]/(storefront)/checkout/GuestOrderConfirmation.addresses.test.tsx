@@ -49,9 +49,9 @@ describe('CLM-F1 · confirmación del invitado: reclamo con `addressesSaved`', (
       const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
       claimMock.mockReset();
       claimMock.mockResolvedValue(res(saved));
-      renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" />, 'es');
+      renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" phone="5512345678" />, 'es');
       fireEvent.click(screen.getByRole('button', { name: 'crear cuenta (doble)' }));
-      await waitFor(() => expect(claimMock).toHaveBeenCalledWith(['o-1']));
+      await waitFor(() => expect(claimMock).toHaveBeenCalledWith(['o-1'], undefined));
       await screen.findByText(/./, { selector: '.text-success' });
       expect(addressInvalidations(spy)).toHaveLength(expected);
     });

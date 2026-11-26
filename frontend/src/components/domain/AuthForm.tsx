@@ -6,6 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { Link } from '@/i18n/navigation';
 import { login, register } from '@/lib/api';
 import { normalizeMxPhone } from '@/lib/phone';
+import { trackSignupPhone } from '@/lib/api/google-signup';
 import { ApiClientError } from '@/lib/api-client';
 import { config } from '@/lib/config';
 import { Input } from '@/components/ui/Input';
@@ -37,6 +38,10 @@ export function AuthForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [phoneError, setPhoneError] = useState(false);
+  // §CELULAR-ALTA §6.9: el formulario de alta con su campo de celular se mostró (sin valor del celular).
+  useEffect(() => {
+    if (mode === 'register') trackSignupPhone('shown', 'password');
+  }, [mode]);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   /**
    * `C7` (DESIGN_SYSTEM §37.13 v4.9.1 · contrato v1.80.8.1): el aviso del 429 se elige por `error.code`,
@@ -142,6 +147,7 @@ export function AuthForm({
           name: String(form.get('name') ?? ''),
           phone: phoneNorm ?? '',
         });
+        trackSignupPhone('done', 'password');
         redirectAfterAuth(res.user);
       }
     } catch (err) {
@@ -301,7 +307,7 @@ export function AuthForm({
       </div>
       {/* §81.2.4: pulsar Google cuenta como intento (captura: el botón vive dentro del componente). */}
       <div className="mt-6" onClickCapture={() => setNoticeDismissed(true)}>
-        <GoogleSignInButton onSuccess={(_role, user) => redirectAfterAuth(user)} />
+        <GoogleSignInButton onSuccess={(_role, user) => redirectAfterAuth(user)} next={safeNext ?? undefined} onPendingSignup={(p) => router.push(p)} />
       </div>
       {/* LIVE-8 · sitio 2b (§80.2 nota 2b): «Continuar con Google» desde «Entrar» también CREA cuenta
           si el correo no existe (`auth.service.ts:527`). */}

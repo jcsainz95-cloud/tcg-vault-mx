@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { login, registerEmailOnly } from '@/lib/api';
+import { normalizeMxPhone, normalizePhoneInput } from '@/lib/phone';
+import { trackSignupPhone } from '@/lib/api/google-signup';
 import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +26,11 @@ export interface InlineAuthPanelProps {
   switchLabel?: string;
   /** el padre re-cotiza y continúa el flujo donde estaba (nunca navega) */
   onSuccess: () => void;
+  /**
+   * §CELULAR-ALTA §6.3: el celular del comprador ya capturado en el checkout. Con uno válido, el alta solo-correo lo usa
+   * sin pedir nada; ausente o inválido ⇒ el panel de ALTA pide el celular (ninguna cuenta nace sin él).
+   */
+  phone?: string;
 }
 
 /**
@@ -50,6 +57,7 @@ export function InlineAuthPanel({
   onSwitchVariant,
   switchLabel,
   onSuccess,
+  phone,
 }: InlineAuthPanelProps) {
   const t = useTranslations('auth');
   const te = useTranslations('auth.emailOnly');
@@ -57,6 +65,11 @@ export function InlineAuthPanel({
   const getMessage = useErrorMessage();
   const [email, setEmail] = useState(defaultEmail ?? '');
   const [password, setPassword] = useState('');
+  // §CELULAR-ALTA: celular propio del panel solo cuando el checkout no trae uno válido.
+  const [ownPhone, setOwnPhone] = useState('');
+  const [phoneError, setPhoneError] = useState(false);
+  const tp = useTranslations('auth.phoneSignup');
+  const knownPhone = normalizeMxPhone(phone ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { status: resetState, send: sendResetTo, reset: clearReset } = useForgotPassword();
@@ -73,6 +86,10 @@ export function InlineAuthPanel({
   const passwordRef = useRef<HTMLInputElement>(null);
 
   const activeVariant = variantOverride ?? variant;
+  // §CELULAR-ALTA §6.9: el alta (solo-correo) del checkout se mostró (sin el celular).
+  useEffect(() => {
+    if (activeVariant === 'register') trackSignupPhone('shown', 'checkout');
+  }, [activeVariant]);
 
   // Si el padre reasigna la variante (p. ej. el switch del upsell), el override local deja
   // de mandar: así nunca conviven dos fuentes de verdad contradictorias.
@@ -115,7 +132,16 @@ export function InlineAuthPanel({
     setLoading(true);
     try {
       if (activeVariant === 'login') await login({ email, password });
-      else await registerEmailOnly({ email: email.trim(), locale });
+      else {
+        const phoneToSend = knownPhone ?? normalizeMxPhone(ownPhone);
+        if (!phoneToSend) {
+          setPhoneError(true);
+          setLoading(false);
+          return;
+        }
+        await registerEmailOnly({ email: email.trim(), locale, phone: phoneToSend });
+        trackSignupPhone('done', 'checkout');
+      }
       onSuccess();
     } catch (err) {
       // 409 EMAIL_TAKEN (970, P-CTA-3): el correo tiene cuenta ⇒ «Ingresar a cuenta» y «¿Olvidaste tu contraseña?».
@@ -191,6 +217,24 @@ export function InlineAuthPanel({
           hint={activeVariant === 'register' ? te('hint') : undefined}
           required
         />
+        {/* §CELULAR-ALTA §6.3: solo si el checkout no trae un celular válido. */}
+        {activeVariant === 'register' && !knownPhone && (
+          <Input
+            label={t('phone')}
+            name="phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel-national"
+            prefix="+52"
+            value={ownPhone}
+            onChange={(e) => {
+              setPhoneError(false);
+              setOwnPhone(normalizePhoneInput(e.target.value));
+            }}
+            error={phoneError ? tp('error') : undefined}
+            required
+          />
+        )}
         {/* 969: el alta del carrito NO pide contraseña (llega después, por el correo o desde «Mi cuenta»). */}
         {activeVariant === 'login' && (
           <Input
