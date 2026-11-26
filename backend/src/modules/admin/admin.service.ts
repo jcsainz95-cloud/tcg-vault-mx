@@ -1,4 +1,5 @@
 import { PatrimonyPiece, PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
+import { assertPersonName } from '../users/person-name';
 import { isOwnerAccount } from '../spend-alerts/owner';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
@@ -1480,6 +1481,28 @@ export class AdminService {
     const res = { phone, phoneMasked: maskPhone(phone), previousMasked: prev.phone ? maskPhone(prev.phone) : null };
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id }, data: { phone } });
+      if (auditInTx) await auditInTx(tx, res);
+    });
+    return res;
+  }
+
+  /** §FICHA-CLIENTE: corrige el NOMBRE de un cliente (1..PERSON_NAME_MAX, sin HTML/control). Nombre y auditoría antes/después en UNA tx. */
+  async updateUserName(
+    id: string,
+    raw: unknown,
+    auditInTx?: (tx: Prisma.TransactionClient, r: { name: string; previous: string | null }) => Promise<void>,
+  ) {
+    const name = assertPersonName(raw, 'name');
+    // eslint-disable-next-line no-control-regex
+    if (/[<>\u0000-\u001f\u007f]/.test(name)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'name must be plain text', { field: 'name' });
+    }
+    const prev = await this.prisma.user.findUnique({ where: { id }, select: { name: true, anonymizedAt: true } });
+    if (!prev) throw BusinessException.notFound();
+    if (prev.anonymizedAt) throw BusinessException.validation('USER_DELETED', 'Cannot edit an anonymized account');
+    const res = { name, previous: prev.name ?? null };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { name } });
       if (auditInTx) await auditInTx(tx, res);
     });
     return res;

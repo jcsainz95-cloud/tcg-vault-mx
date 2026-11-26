@@ -103,6 +103,65 @@ describe('§BOVEDA-COBRADA-SIN-PIEZAS — visibilidad (panel, Pedidos, bóvedas,
     expect(byItem.get(copy.id)).toMatchObject({ fulfillmentState: 'replaced', folio: copy.folio, replacedInventoryItemId: gone.id, replacedFolio: gone.folio });
     expect(byItem.get(lost.id)).toMatchObject({ fulfillmentState: 'needs_attention', fulfillmentFailedReason: 'no_equivalent_copy' });
 
+    // --- D: identificar la carta a reponer (campos aditivos del detalle) y «Qué debe haber» con las líneas pagadas sin asignar
+    expect(byItem.get(lost.id)).toMatchObject({ setKey: 'EEB', imageUrl: null, card: expect.objectContaining({ imageSmallUrl: null }), version: expect.objectContaining({ language: expect.any(String) }) });
+    expect(byItem.get(lost.id)).toHaveProperty('finish');
+    for (const tok of [admin, operator]) {
+      const phys = await h.api('GET', `/admin/vaults/${ghost.id}/physical-inventory`, { token: tok });
+      expect(phys.status).toBe(200);
+      expect(phys.body.counts.needsAttention).toBe(1);
+      expect(phys.body.unassignedLines).toHaveLength(1);
+      expect(phys.body.unassignedLines[0]).toMatchObject({
+        orderId: order.id,
+        orderItemId: expect.any(String),
+        folio: lost.folio,
+        state: 'needs_attention',
+        fulfillmentFailedReason: 'no_equivalent_copy',
+        fulfillmentFailedAt: expect.any(String),
+        card: { name: expect.any(String), number: expect.any(String), productType: expect.anything(), setKey: 'EEB' },
+        language: expect.any(String),
+      });
+      expect(phys.body.unassignedLines[0]).toHaveProperty('finish');
+      expect(JSON.stringify(phys.body.unassignedLines)).not.toContain('amountCents');
+    }
+    // otro cliente no ve líneas ajenas
+    expect((await h.api('GET', `/admin/vaults/${other.id}/physical-inventory`, { token: admin })).body.unassignedLines).toEqual([]);
+
+    // --- D: localizar una pieza por FOLIO (exacto, sin distinguir mayúsculas) y buscar la carta por folio
+    const fp = await fx.piece(cardNone.id, { status: 'in_custody', ownerType: 'customer', ownerUserId: other.id, ownershipStatus: 'settled', folio: `INV-${String(7000000 + (Date.now() % 1000000))}` });
+    const byF = await h.api('GET', `/admin/inventory/by-folio/${String(fp.folio).toLowerCase()}`, { token: admin });
+    expect(byF.status).toBe(200);
+    expect(byF.body).toMatchObject({ id: fp.id, folio: fp.folio, status: expect.any(String), owner: { type: 'customer', userId: other.id }, card: { id: cardNone.id, setKey: 'EEB', name: expect.any(String), number: expect.any(String), setName: expect.any(String) } });
+    expect(byF.body).toHaveProperty('location');
+    const byFOp = await h.api('GET', `/admin/inventory/by-folio/${fp.folio}`, { token: operator });
+    expect(byFOp.status).toBe(200);
+    expect(byFOp.body.owner).toEqual({ type: 'customer' });
+    expect(JSON.stringify(byFOp.body)).not.toContain(other.id);
+    expect((await h.api('GET', '/admin/inventory/by-folio/INV-999999999', { token: admin })).status).toBe(404);
+    expect((await h.api('GET', '/admin/inventory/by-folio/banana', { token: admin })).status).toBe(400);
+    const cat = await h.api('GET', `/buylist/cards?q=${encodeURIComponent(String(fp.folio).toLowerCase())}`);
+    expect(cat.status).toBe(200);
+    expect(cat.body.data.map((c: { id: string }) => c.id)).toEqual([cardNone.id]);
+    expect((await h.api('GET', '/buylist/cards?q=INV-999999999')).body.total).toBe(0);
+
+    // --- D: editar el NOMBRE (solo súper-admin, auditado antes/después, sin HTML)
+    const patch = (tok: string, body: unknown) => h.api('PATCH', `/admin/users/${ghost.id}/name`, { token: tok, json: body });
+    expect((await patch(operator, { name: 'Nuevo Nombre' })).status).toBe(403);
+    expect((await patch(admin, { name: '<b>x</b>' })).status).toBe(400);
+    expect((await patch(admin, { name: '   ' })).status).toBe(400);
+    expect((await patch(admin, { name: 'x'.repeat(121) })).status).toBe(400);
+    expect((await patch(admin, { name: 123 })).status).toBe(400);
+    const okName = await patch(admin, { name: '  Nuevo Nombre  ' });
+    expect(okName.status).toBe(200);
+    expect(okName.body).toEqual({ id: ghost.id, name: 'Nuevo Nombre' });
+    const nl = await h.prisma.auditLog.findFirst({ where: { action: 'user.name.update', entityId: ghost.id }, orderBy: { createdAt: 'desc' } });
+    expect(nl?.after).toEqual({ name: 'Nuevo Nombre' });
+    expect(nl?.before).toEqual({ name: (ghost.email as string).split('@')[0] });
+    expect((await h.api('PATCH', `/admin/users/00000000-0000-0000-0000-000000000000/name`, { token: admin, json: { name: 'Zed' } })).status).toBe(404);
+    // GET /admin/users/:id: cada pedido trae `id` (orderId) para enlazar
+    const u = await h.api('GET', `/admin/users/${ghost.id}`, { token: admin });
+    expect(u.body.orders[0]).toMatchObject({ id: order.id, orderNumber: expect.anything() });
+
     // --- la bóveda del cliente muestra la copia Y (no la X)
     const mineAfter = await h.api('GET', `/admin/vaults?q=${encodeURIComponent(ghost.email as string)}`, { token: admin });
     expect(mineAfter.body.data.find((v: { userId: string }) => v.userId === ghost.id)).toMatchObject({ pieceCount: 2 });

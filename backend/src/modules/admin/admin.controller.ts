@@ -77,6 +77,11 @@ export class UpdatePhoneDto {
   @IsOptional() phone?: unknown;
 }
 
+/** §FICHA-CLIENTE: `PATCH /admin/users/:id/name`. Lo valida `assertPersonName` (400 VALIDATION_ERROR `details.field='name'`). */
+export class UpdateNameDto {
+  @IsOptional() name?: unknown;
+}
+
 export class UpdateStatusDto {
   @IsIn(['active', 'blocked']) status!: 'active' | 'blocked';
 }
@@ -453,6 +458,23 @@ export class AdminUsersController {
       ),
     );
     return { id, phone: res.phone, phoneRequired: false };
+  }
+
+  /** §FICHA-CLIENTE: corrige el nombre de un cliente (super_admin, como el celular). Auditoría antes/después en la misma tx. */
+  @Patch(':id/name')
+  @Roles(Role.super_admin)
+  async updateName(
+    @Param('id') id: string,
+    @Body() dto: UpdateNameDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.admin.updateUserName(id, dto.name, (tx, r) =>
+      this.audit.log(
+        { actorUserId: user.id, actorRole: user.role, action: 'user.name.update', entityType: 'User', entityId: id, before: { name: r.previous }, after: { name: r.name } },
+        tx,
+      ),
+    );
+    return { id, name: res.name };
   }
 
   @Patch(':id/status')

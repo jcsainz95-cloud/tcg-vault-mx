@@ -3108,6 +3108,45 @@ export class InventoryService {
     });
   }
 
+  /**
+   * §BUSCADOR-CARTAS (folio): `GET /admin/inventory/by-folio/:folio` — pieza por FOLIO exacto (`INV-000123`, sin distinguir
+   * mayúsculas). Lectura, sin precios. Dueño = `ownerType` (+ `ownerUserId` solo súper-admin: es id, no dato personal); la
+   * ubicación y la carta (con set y clave) viajan para identificarla. 400 si no tiene forma de folio; 404 si no existe.
+   */
+  async getItemByFolio(raw: string, role: Role) {
+    const m = /^inv-(\d{1,12})$/i.exec((raw ?? '').trim());
+    if (!m) throw BusinessException.badRequest('VALIDATION_ERROR', 'folio must look like INV-000123', { field: 'folio' });
+    const item = await this.prisma.inventoryItem.findFirst({
+      where: { folio: { equals: `INV-${m[1]}`, mode: 'insensitive' } },
+      include: { card: { include: { set: true } }, location: true },
+    });
+    if (!item) throw BusinessException.notFound();
+    const stamps = item.cardProductId != null ? await this.pricing.findStampedProducts([item.cardProductId]) : new Map<number, StampRef>();
+    return {
+      id: item.id,
+      folio: item.folio,
+      status: item.status,
+      productType: item.productType,
+      finish: item.finish,
+      language: item.language,
+      rawCondition: item.rawCondition,
+      gradingCompany: item.gradingCompany,
+      gradeValue: item.gradeValue,
+      owner: { type: item.ownerType, ...(role === Role.super_admin ? { userId: item.ownerUserId } : {}) },
+      location: item.location ? { id: item.location.id, label: item.location.label, zone: item.location.zone } : null,
+      version: versionDtoOf(pieceVersionOf(item, stamps)),
+      card: {
+        id: item.card.id,
+        name: item.card.name,
+        number: item.card.number,
+        setName: item.card.set.name,
+        setKey: item.card.set.ptcgoCode ?? null,
+        imageSmallUrl: item.card.imageSmallUrl ?? null,
+        imageUrl: item.card.imageLargeUrl ?? item.card.imageSmallUrl ?? null,
+      },
+    };
+  }
+
   async getItem(id: string) {
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id },
