@@ -88,7 +88,7 @@ function buildOrders(stripe: Partial<Record<keyof StripeService, jest.Mock>> = {
     {} as never,
     // ⭐ D56: la derivación de `P` necesita los dos diales (§4.44.b). Neutro (t=100, r=16).
     ivaDialsStub() as unknown as SettingsService,
-    stripe as unknown as StripeService,
+    { getPendingVoucherExpiry: jest.fn(async () => null), ...stripe } as unknown as StripeService,
     {} as never,
   );
   return { svc, prisma };
@@ -99,6 +99,7 @@ const own = (over: Partial<{ items: string[]; held: string[]; alive: boolean; pi
     id: 'o1',
     orderNumber: 'TCG-000001',
     status: 'pending',
+    createdAt: new Date(0), // vieja ⇒ la sustitución no espera a un PI que no llegará (R1b)
     stripePaymentIntentId: over.pi === undefined ? 'pi_1' : over.pi,
     items: (over.items ?? ['x']).map((inventoryItemId) => ({ inventoryItemId })),
   } as any,

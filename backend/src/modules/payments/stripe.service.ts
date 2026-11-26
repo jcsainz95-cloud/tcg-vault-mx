@@ -249,6 +249,24 @@ export class StripeService implements OnModuleInit {
   }
 
   /**
+   * §BOVEDA-COBRADA-SIN-PIEZAS (punto 2) — si el PI espera un voucher / transferencia (`requires_action` con `next_action`
+   * vigente), el instante en que vence, LEÍDO DE STRIPE (nunca de tabla). `null` ⇒ no hay pago diferido vivo (o no se pudo leer:
+   * el barrido ya trata «no se pudo cancelar» como «no liberar», así que `null` aquí no libera nada por sí solo).
+   */
+  async getPendingVoucherExpiry(paymentIntentId: string): Promise<Date | null> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      if (pi.status !== 'requires_action') return null;
+      const na = pi.next_action as unknown as Record<string, Record<string, unknown> | undefined> | null;
+      const candidates = [na?.oxxo_display_details?.expires_after, na?.boleto_display_details?.expires_at, na?.konbini_display_details?.expires_at, na?.display_bank_transfer_instructions?.expires_at];
+      for (const c of candidates) if (typeof c === 'number') return new Date(c * 1000);
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * v1.21-guest-checkout (§4-G.10): marca + 4 últimos dígitos de la tarjeta con la que se pagó,
    * leídos del `charge` del PaymentIntent. Es el ÚNICO dato de tarjeta que se persiste (permitido
    * por PCI-DSS); jamás PAN, BIN ni titular. Best-effort: devuelve `null` si no se puede resolver

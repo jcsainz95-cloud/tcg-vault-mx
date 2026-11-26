@@ -81,6 +81,7 @@ import type {
   AdminSellerRef,
   RejectedSellItemDTO,
   AdminOrderDTO,
+  FulfillmentMode,
   AdminShipmentDTO,
   PreparationOrderDTO,
   PreparationItemStatus,
@@ -377,6 +378,7 @@ import * as spendMock from './mock/spend-alerts';
 import { mockPnlWithComparison } from './mock/period-compare';
 import { mockPnlCalendar, mockPnlReport } from './mock/pnl-lines';
 import { fetchPnlCalendar, fetchPnlReport, type PnlCalendarParams, type PnlReportRange } from './api/reports-pnl';
+import { orderUnassignedCount } from './api/vault-unassigned';
 import type { PnlCalendarDTO, PnlReportDTO } from '@/types/reports-pnl';
 import * as salesMock from './mock/sales';
 import type { PeriodKind, SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
@@ -4132,6 +4134,8 @@ export async function getDashboard(): Promise<DashboardDTO> {
         : null,
       // MOCK §M4-SHIP.18.12 (7): «Reembolso por revisar» (`null` para el operador).
       refundReviews: m4ship.mockRefundReviewsCounter(),
+      // MOCK §BOVEDA-COBRADA-SIN-PIEZAS: pedidos pagados con cartas sin asignar (1 ⇒ la tarjeta existe).
+      vaultOrdersWithUnassignedItems: fx.mockAdminOrders.filter((o) => orderUnassignedCount(o) > 0).length,
       // MOCK §19.29.9 (D2f): «Control del gasto» (`null` para el operador ⇒ la tarjeta no existe, GAS-1).
       spendControl: spendMock.mockSpendControl(),
       // MOCK §19.13 + §19.35.5 (D2f/B-3): «Alertas de envíos», los dos roles; cuenta sobre las MISMAS filas que
@@ -6237,6 +6241,10 @@ export interface AdminOrdersFilters {
    * así que la pantalla nunca manda otro (`parseRefundReview`).
    */
   refundReview?: 'pending';
+  /** §BOVEDA-COBRADA-SIN-PIEZAS: «Compra a bóveda» / «Envío a domicilio». */
+  fulfillmentMode?: FulfillmentMode;
+  /** §BOVEDA-COBRADA-SIN-PIEZAS: «Con cartas sin asignar». Solo se manda `true`. */
+  mismatch?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -6262,6 +6270,8 @@ export async function getAdminOrders(
         guest: filters.guest === undefined ? undefined : String(filters.guest),
         needsManual: filters.needsManual === undefined ? undefined : String(filters.needsManual),
         refundReview: filters.refundReview,
+        fulfillmentMode: filters.fulfillmentMode,
+        mismatch: filters.mismatch ? 'true' : undefined,
         page: filters.page,
         pageSize: filters.pageSize,
       },
@@ -6307,6 +6317,9 @@ export async function getAdminOrders(
   let rows = data.map((o) => ({ ...o, ...definedOnly(m4ship.mockAdminOrderRowAdditions(o.id)) }) as AdminOrderDTO);
   // MOCK §M4-SHIP.18.12 (7): `?refundReview=pending` filtra por el predicado del servidor.
   if (filters.refundReview === 'pending') rows = rows.filter((o) => o.refundReviewPending === true);
+  // MOCK §BOVEDA-COBRADA-SIN-PIEZAS: filtros de lectura `fulfillmentMode` y `mismatch`.
+  if (filters.fulfillmentMode) rows = rows.filter((o) => o.fulfillmentMode === filters.fulfillmentMode);
+  if (filters.mismatch) rows = rows.filter((o) => orderUnassignedCount(o) > 0);
   return delay(paginate(rows, filters));
 }
 
@@ -6382,6 +6395,15 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
   // ⛔ Proyección EXPLÍCITA a la forma del contrato (§11 `AdminOrderDetailDTO`), no `...order`: la fila del listado
   // trae `totalCents` en la raíz y el detalle real NO (vive en `breakdown`). Esparcir la fila hacía que el mock
   // pintara bien lo que producción pintaba «MX$NaN» (QA s5 IMPORTANTE-1).
+  // MOCK §BOVEDA-COBRADA-SIN-PIEZAS: tres líneas — en su bóveda, repuesta (INV-X → INV-Y) y «requiere atención».
+  const unassignedItems: AdminOrderDetailDTO['items'] =
+    orderId === fx.MOCK_UNASSIGNED_ORDER_ID
+      ? [
+          { ...items![0]!, inventoryItemId: 'inv-9051', folio: 'INV-009051', fulfillmentState: 'assigned', deliveredRefund: null },
+          { ...items![0]!, inventoryItemId: 'inv-9052', folio: 'INV-009052', fulfillmentState: 'replaced', replacedInventoryItemId: 'inv-9042', replacedFolio: 'INV-009042', deliveredRefund: null },
+          { ...items![0]!, inventoryItemId: 'inv-9053', fulfillmentState: 'needs_attention', fulfillmentFailedAt: '2026-11-24T23:54:05Z', fulfillmentFailedReason: 'no_equivalent_copy', deliveredRefund: null },
+        ]
+      : undefined;
   const detail: AdminOrderDetailDTO = {
     id: orderId,
     userId: order.userId ?? null,
@@ -6397,7 +6419,7 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
     chargebackNeedsManual: order.chargebackNeedsManual,
     refundReviewPending: order.refundReviewPending,
     createdAt: order.createdAt,
-    items,
+    items: unassignedItems ?? items,
     ...definedOnly(additions),
     settledAt,
   };

@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import { cn } from '@/lib/cn';
 
 export interface Column<T> {
@@ -14,6 +15,8 @@ export interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
+  /** Opcional: bloque a ANCHO COMPLETO bajo la fila (detalle desplegable). `null`/ausente ⇒ nada. */
+  expanded?: (row: T) => React.ReactNode;
 }
 
 /**
@@ -23,7 +26,7 @@ export interface DataTableProps<T> {
  * Dirección 5a: la tabla pierde el fondo y el hover coloreado; se apoya solo en
  * reglas y en la numeración monoespaciada de las cabeceras.
  */
-export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, rowKey, expanded }: DataTableProps<T>) {
   return (
     <div className="w-full">
       {/* Tabla (md+) */}
@@ -41,21 +44,33 @@ export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={rowKey(row)} className="border-b border-border">
-              {columns.map((c) => (
-                <td
-                  key={c.key}
-                  className={cn(
-                    'py-4 pr-5 text-sm text-text last:pr-0',
-                    (c.align === 'right' || c.numeric) && 'text-right tabular font-medium',
-                  )}
-                >
-                  {c.render(row)}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const extra = expanded?.(row) ?? null;
+            return (
+              <Fragment key={rowKey(row)}>
+                <tr className={cn(!extra && 'border-b border-border')}>
+                  {columns.map((c) => (
+                    <td
+                      key={c.key}
+                      className={cn(
+                        'py-4 pr-5 text-sm text-text last:pr-0',
+                        (c.align === 'right' || c.numeric) && 'text-right tabular font-medium',
+                      )}
+                    >
+                      {c.render(row)}
+                    </td>
+                  ))}
+                </tr>
+                {extra && (
+                  <tr className="border-b border-border">
+                    <td colSpan={columns.length} className="pb-4 text-sm text-text">
+                      {extra}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
 
@@ -71,6 +86,7 @@ export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
                 </span>
               </div>
             ))}
+            {expanded?.(row)}
           </div>
         ))}
       </div>

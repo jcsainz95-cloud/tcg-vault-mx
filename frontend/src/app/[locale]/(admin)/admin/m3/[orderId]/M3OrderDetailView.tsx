@@ -24,6 +24,7 @@ import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO,
 import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail, shippedRefundKey } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
+import { lineFulfillment, piecesExceptUnassigned } from '@/lib/api/vault-unassigned';
 import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
 import { RefundAccessoryLineDialog, type AccessoryRefundTarget } from '../RefundAccessoryLineDialog';
 import { energyBreakdown } from '@/lib/accessories';
@@ -53,6 +54,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   const tsr = useTranslations('admin.m3.shippedReason');
   const tOrders = useTranslations('orders');
   const tc = useTranslations('common');
+  const tfu = useTranslations('admin.m3.fulfillment');
   const tm = useTranslations('admin');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
@@ -96,6 +98,8 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   };
 
   const isVault = o?.fulfillmentMode === 'vault';
+  // §BOVEDA-COBRADA-SIN-PIEZAS: alguna línea «requiere atención» ⇒ explicación corta de qué puede hacer el dueño.
+  const needsAttention = (o?.items ?? []).some((it) => lineFulfillment(it, false)?.kind === 'attention');
   const packed = (o?.vaultPieces ?? []).filter((p) => p.state === 'in_packed_withdrawal');
   const pendingConfirm = (o?.vaultPieces ?? []).filter((p) => p.pendingConfirmation);
 
@@ -322,6 +326,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                     {(o.items ?? []).map((it) => {
                       const { text: name } = historicalCardName(it.card, tOrders('item.unknownCard'));
                       const dr = it.deliveredRefund ?? null;
+                      const fulfillment = lineFulfillment(it, isVault && o.status === 'settled');
                       // §60.3 a: botón SOLO con `refundable` ∧ súper-admin ∧ la llave del verbo. ⛔ Al operador, nada.
                       const canRefund = isSuperAdmin && dr?.kind === 'refundable' && !!it.orderItemId;
                       const notRefundableText =
@@ -334,6 +339,21 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                             <span lang="en">{name}</span>
                             {/* §IDS.5: versión congelada del `OrderItem` (insignias; el detalle del proveedor en admin). */}
                             <VersionChips version={it.version} size="tile" testId={`m3-item-version-${it.inventoryItemId}`} />
+                            {fulfillment && (
+                              <span
+                                className={cn('text-xs', fulfillment.kind === 'attention' ? 'font-medium text-accent' : 'text-muted')}
+                                data-testid={`m3-item-fulfillment-${it.inventoryItemId}`}
+                                data-kind={fulfillment.kind}
+                              >
+                                {fulfillment.kind === 'in_vault' && tfu('inVault')}
+                                {fulfillment.kind === 'replaced' &&
+                                  (fulfillment.from && fulfillment.to
+                                    ? tfu('replaced', { from: fulfillment.from, to: fulfillment.to })
+                                    : tfu('replacedNoFolio'))}
+                                {fulfillment.kind === 'attention' &&
+                                  tfu('attention', { reason: tfu(`reason.${fulfillment.reasonKey}`) })}
+                              </span>
+                            )}
                           </span>
                           <span className="flex flex-wrap items-baseline gap-3">
                             {/* 💰 §DSC I-3 (914): el exhibido del servidor (v1.110.3, DCO-F6), como el checkout; lo COBRADO va debajo. */}
@@ -380,6 +400,11 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                       );
                     })}
                   </ul>
+                  {needsAttention && (
+                    <p className="border-l-2 border-l-accent pl-3 text-sm text-text" role="note" data-testid="m3-attention-help">
+                      {tfu('attentionHelp')}
+                    </p>
+                  )}
                 </section>
 
                 {/* 💰 §AC.12 / §AC-UX.13 — renglones de accesorio y paquetes. ⛔ Sin costo. El botón SOLO con
@@ -439,11 +464,11 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                 )}
 
                 {/* §37.10b — solo órdenes `vault`. */}
-                {isVault && o.vaultPieces && o.vaultPieces.length > 0 && (
+                {isVault && piecesExceptUnassigned(o.vaultPieces ?? [], o.items).length > 0 && (
                   <section className="flex flex-col gap-3" data-testid="m3-vault-pieces">
                     <h2 className="text-h2 font-semibold">{tv('piecesTitle')}</h2>
                     <VaultPiecesList
-                      pieces={o.vaultPieces}
+                      pieces={piecesExceptUnassigned(o.vaultPieces ?? [], o.items)}
                       actions={(p) =>
                         p.state === 'in_packed_withdrawal' && isSuperAdmin ? (
                           <Button size="sm" variant="secondary" className="self-start" onClick={() => openReclaim([p])}>

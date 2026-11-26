@@ -117,6 +117,7 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
         return { status: 'canceled' };
       }),
       getPaymentIntentStatus: jest.fn(async () => 'canceled'),
+      getPendingVoucherExpiry: jest.fn(async () => null),
     };
     // T2: la liberación de la reserva es la del helper COMPARTIDO de `OrdersService` (el mismo que
     // compensa un PaymentIntent fallido). Se usa el servicio REAL con el prisma mockeado para que

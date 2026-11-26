@@ -58,7 +58,11 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
         return { count: 1 };
       }),
       update: jest.fn(async () => ({})),
+      // §BOVEDA-COBRADA-SIN-PIEZAS (d): sin copia equivalente en estos casos ⇒ «requiere atención».
+      findFirst: jest.fn(async () => null),
     },
+    auditLog: { create: jest.fn(async () => ({})) },
+    orderItem: { findFirst: jest.fn(async () => null), updateMany: jest.fn(async () => ({ count: 1 })), update: jest.fn(async () => ({})) },
     inventoryMovement: {
       create: jest.fn(async ({ data }: any) => {
         created.movements.push(data);
@@ -72,7 +76,8 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
         return data;
       }),
     },
-    shipmentItem: { findFirst: jest.fn(async () => null) },
+    // (b) `picking` solo es «ya entregada» si el envío de ESTA orden la lleva (un reintento del webhook).
+    shipmentItem: { findFirst: jest.fn(async () => null), count: jest.fn(async () => (opts.itemStatus === 'picking' ? 1 : 0)), updateMany: jest.fn(async () => ({ count: 0 })) },
     // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
     // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
     vaultPlacement: {
@@ -80,7 +85,7 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
       findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
   const prisma: any = {
     order: { findUnique: jest.fn(async () => opts.order ?? GUEST_ORDER), update: jest.fn() },
@@ -208,33 +213,29 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
    * ANOMALÍA (así sobrevivió el bug del barrido: un `continue` mudo en el camino del dinero).
    */
   it('B3: pieza liberada por el barrido y aún libre ⇒ se RE-CONGELA en `picking` y se audita', async () => {
-    const { svc, created, audit, itemState } = build({ itemStatus: 'listed' });
+    const { svc, created, audit, itemState, tx } = build({ itemStatus: 'listed' });
     await svc.onPaymentSucceeded(PI);
     // El pago confirmado manda sobre una reserva liberada: la pieza vuelve a estar fuera de venta.
     expect(itemState.status).toBe('picking');
     expect(['listed', 'in_stock']).not.toContain(itemState.status);
     expect(created.movements[0]).toMatchObject({ toStatus: 'picking', reason: 'settle' });
     expect(created.movements[0].note).toMatch(/ANOMAL/i);
-    expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'order.settle_inventory_anomaly',
-        entityType: 'Order',
-        after: expect.objectContaining({ needsHumanReview: false }),
-      }),
-    );
+    // §BOVEDA-COBRADA-SIN-PIEZAS: UNA sola fila de anomalía, escrita en la tx (ya no `order.settle_inventory_anomaly`).
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'order.settle_item_not_reserved', after: expect.objectContaining({ needsHumanReview: false }) }),
+    });
+    expect(audit.log).not.toHaveBeenCalled();
   });
 
   it('B3: pieza ya comprometida con otro flujo ⇒ NO se le quita a nadie, pero se escala a humano', async () => {
-    const { svc, created, audit, itemState } = build({ itemStatus: 'shipped' });
+    const { svc, created, audit, itemState, tx } = build({ itemStatus: 'shipped' });
     await svc.onPaymentSucceeded(PI);
     expect(itemState.status).toBe('shipped'); // intacta
     expect(created.movements).toHaveLength(0);
-    expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'order.settle_inventory_anomaly',
-        after: expect.objectContaining({ needsHumanReview: true }),
-      }),
-    );
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'order.settle_item_not_reserved', after: expect.objectContaining({ needsHumanReview: true }) }),
+    });
+    expect(audit.log).not.toHaveBeenCalled();
   });
 
   it('B3: la anomalía NO impide liquidar el pedido (el invitado pagó) ni crear su envío', async () => {

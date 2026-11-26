@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { customerDisplayName } from './customer-name';
+import { vaultMissingPieces } from '@/lib/api/vault-unassigned';
 
 const SORTS: AdminVaultSort[] = ['value_desc', 'pieces_desc', 'name_asc'];
 const PAGE_SIZE = 20;
@@ -103,6 +104,7 @@ export function VaultsView() {
                 {vaults.data.data.map((v) => {
                   // §36.4: la misma regla que la tarjeta, la cabecera y «Qué debe haber» (D6).
                   const name = customerDisplayName(v.name);
+                  const missing = vaultMissingPieces(v);
                   return (
                     <li key={v.userId}>
                       <Link
@@ -134,6 +136,15 @@ export function VaultsView() {
                         <span className="hidden font-mono tabular-nums text-xs text-muted sm:block sm:text-right">
                           {v.pendingPriceCount}
                         </span>
+                        {/* §BOVEDA-COBRADA-SIN-PIEZAS: aunque no tenga piezas a su nombre. Texto, no solo color. */}
+                        {missing && (
+                          <span
+                            className="col-span-full text-xs font-medium text-accent"
+                            data-testid={`vault-row-missing-${v.userId}`}
+                          >
+                            {t('missingPieces', { orders: missing.orders, pieces: missing.pieces })}
+                          </span>
+                        )}
                       </Link>
                     </li>
                   );

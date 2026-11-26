@@ -14,6 +14,8 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { orderUnassignedCount, type OrderModeFilter } from '@/lib/api/vault-unassigned';
 import { Banner } from '@/components/ui/Banner';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -26,7 +28,11 @@ const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 
 const M3_PAGE_SIZE = 25;
 
-export function M3View({ initialRefundReview = false }: { initialRefundReview?: boolean } = {}) {
+export function M3View({
+  initialRefundReview = false,
+  initialMismatch = false,
+  initialMode = '',
+}: { initialRefundReview?: boolean; initialMismatch?: boolean; initialMode?: OrderModeFilter } = {}) {
   const t = useTranslations('admin.m3');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tt = useTranslations('admin.m3.table');
@@ -47,6 +53,9 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
   const [maxPesos, setMaxPesos] = useState('');
   // §40.3 (b): «Solo reembolsos por revisar», sincronizado con `?refundReview=pending`.
   const [refundReview, setRefundReview] = useState(initialRefundReview);
+  // §BOVEDA-COBRADA-SIN-PIEZAS: «Con cartas sin asignar» (`?mismatch=true`) y «Compra a bóveda / Envío a domicilio».
+  const [mismatch, setMismatch] = useState(initialMismatch);
+  const [mode, setMode] = useState<OrderModeFilter>(initialMode);
   // Debounce (P-5): el estado del input es inmediato (UX), pero sólo el VALOR DEBOUNCED alimenta el
   // `queryKey`/params server-side — así no se dispara un fetch por pulsación. Las fechas (`type=date`)
   // cambian de golpe y no necesitan debounce.
@@ -71,6 +80,15 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
   }
 
+  function syncUrl(name: string, value: string | null) {
+    resetPage();
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (value) url.searchParams.set(name, value);
+    else url.searchParams.delete(name);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }
+
   const query = useQuery({
     queryKey: [
       'admin-orders',
@@ -81,6 +99,8 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
       minCents ?? '',
       maxCents ?? '',
       refundReview ? 'review' : '',
+      mismatch ? 'mismatch' : '',
+      mode,
     ],
     queryFn: () =>
       getAdminOrders({
@@ -92,6 +112,8 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
         minCents: minCents ?? undefined,
         maxCents: maxCents ?? undefined,
         ...(refundReview ? { refundReview: 'pending' as const } : {}),
+        ...(mismatch ? { mismatch: true } : {}),
+        ...(mode ? { fulfillmentMode: mode } : {}),
       }),
   });
   const totalPages =
@@ -139,6 +161,11 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
       render: (o) => (
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <StatusBadge domain="order" value={o.status} />
+          {orderUnassignedCount(o) > 0 && (
+            <span className={`${TAG} text-accent`} data-testid={`m3-unassigned-chip-${o.id}`}>
+              {t('unassigned.chip', { n: orderUnassignedCount(o) })}
+            </span>
+          )}
           {o.refundReviewPending === true && (
             <span className={`${TAG} text-accent`} data-testid={`m3-review-chip-${o.id}`}>
               {t('refundReview.chip')}
@@ -263,6 +290,36 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
           />
           {t('refundReview.filter')}
         </label>
+        <div className="w-52">
+          <Select
+            label={t('modeFilter.label')}
+            options={[
+              { value: '', label: t('modeFilter.all') },
+              { value: 'vault', label: t('modeFilter.vault') },
+              { value: 'direct_ship', label: t('modeFilter.direct_ship') },
+            ]}
+            value={mode}
+            onChange={(e) => {
+              const v = e.target.value as OrderModeFilter;
+              setMode(v);
+              syncUrl('fulfillmentMode', v || null);
+            }}
+            data-testid="m3-mode-filter"
+          />
+        </div>
+        <label className="flex min-h-[44px] items-center gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            className="h-5 w-5 accent-text"
+            checked={mismatch}
+            onChange={(e) => {
+              setMismatch(e.target.checked);
+              syncUrl('mismatch', e.target.checked ? 'true' : null);
+            }}
+            data-testid="m3-mismatch-filter"
+          />
+          {t('unassigned.filter')}
+        </label>
       </div>
 
       <QueryState
@@ -273,7 +330,9 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
       >
         {query.data &&
           (query.data.data.length === 0 ? (
-            refundReview ? (
+            mismatch ? (
+              <EmptyState title={t('unassigned.emptyTitle')} body={t('unassigned.emptyBody')} />
+            ) : refundReview ? (
               <EmptyState title={t('refundReview.emptyTitle')} body={t('refundReview.emptyBody')} />
             ) : (
               <EmptyState title={t('empty')} />

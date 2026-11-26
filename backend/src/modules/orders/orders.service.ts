@@ -228,6 +228,11 @@ function isPricePending(e: unknown): e is BusinessException {
   return e instanceof BusinessException && e.code === 'PRICE_PENDING';
 }
 
+/** R1(b) §BOVEDA-COBRADA-SIN-PIEZAS: edad bajo la cual una orden `pending` sin PI se considera «aún creando su PaymentIntent». */
+const SUPERSEDE_WAIT_AGE_MS = 2 * 60 * 1000;
+/** Espera máxima (tope duro) a que la petición lenta adjunte su PI antes de sustituir igual. */
+const SUPERSEDE_WAIT_MAX_MS = 5_000;
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -999,6 +1004,10 @@ export class OrdersService {
    * de las DOS rutas y la SUSTITUCIÓN del reintento.
    */
   async closePaymentIntent(paymentIntentId: string): Promise<{ closed: boolean; status: string | null }> {
+    // §BOVEDA-COBRADA-SIN-PIEZAS (punto 2): un voucher / transferencia pendiente NO se cancela mientras su `next_action` no
+    // haya vencido (leído de Stripe): el cliente aún puede pagar en la tienda de conveniencia.
+    const voucherUntil = await this.stripe.getPendingVoucherExpiry(paymentIntentId);
+    if (voucherUntil && voucherUntil.getTime() > Date.now()) return { closed: false, status: 'requires_action' };
     try {
       const { status } = await this.stripe.cancelPaymentIntent(paymentIntentId);
       return { closed: status === 'canceled', status };
@@ -1104,15 +1113,34 @@ export class OrdersService {
    * ⛔ El PI NUEVO se crea DESPUÉS del commit (`attachPaymentIntent`): «cancelar antes de crear»
    * (candado R-4).
    */
+  /** Tope de la espera de R1(b); las pruebas lo bajan a 0 para forzar el atajo (sustituir sin esperar). */
+  supersedeWaitMaxMs = SUPERSEDE_WAIT_MAX_MS;
+
   async supersedeOwnOrder(tx: Prisma.TransactionClient, own: OwnReservation): Promise<void> {
-    const { order } = own;
+    let { order } = own;
+    // §BOVEDA-COBRADA-SIN-PIEZAS R1(b): una orden `pending` SIN PI adjunto y de menos de 2 min es la de una petición que aún está
+    // hablando con Stripe: se ESPERA (máx. 5 s) a que lo adjunte para cancelarlo con el flujo normal. Pasado el plazo se sustituye
+    // igual: el CAS de `attachPaymentIntent` (R1a) hace perder a la petición lenta (cancela su PI y responde 409).
+    if (!order.stripePaymentIntentId && Date.now() - order.createdAt.getTime() < SUPERSEDE_WAIT_AGE_MS) {
+      const deadline = Date.now() + this.supersedeWaitMaxMs;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+        const fresh = await tx.order.findUnique({ where: { id: order.id }, select: { stripePaymentIntentId: true, status: true } });
+        if (fresh?.status !== 'pending') return; // otro escritor ya la movió: nada que sustituir
+        if (fresh.stripePaymentIntentId) {
+          order = { ...order, stripePaymentIntentId: fresh.stripePaymentIntentId };
+          break;
+        }
+      }
+    }
     if (order.stripePaymentIntentId) {
       const closed = await this.closePaymentIntent(order.stripePaymentIntentId);
       if (!closed.closed) {
         if (
           closed.status === 'processing' ||
           closed.status === 'succeeded' ||
-          closed.status === 'requires_capture'
+          closed.status === 'requires_capture' ||
+          closed.status === 'requires_action' // voucher / transferencia vigente (punto 2)
         ) {
           throw BusinessException.conflict(
             'PAYMENT_IN_PROGRESS',
@@ -1245,7 +1273,7 @@ export class OrdersService {
     for (const [orderId, itemIds] of byOrder) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true, settledAt: true },
+        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true, settledAt: true, createdAt: true },
       });
       if (!order) continue;
       // 💰 v1.80.8.6 (§M4-SHIP.18.12 (5)) — cierra el ruido de `SSL-R1`: orden `refunded` NUNCA liquidada. ⛔ Sin
@@ -1270,6 +1298,7 @@ export class OrdersService {
               'la reserva NO se libera (el pago aún puede confirmarse). Se reintentará en la próxima pasada.',
           );
           skipped += 1;
+          await this.extendBlockedReservation(order, itemIds, now);
           continue;
         }
       }
@@ -1295,6 +1324,14 @@ export class OrdersService {
       });
       if (released > 0) swept += 1;
       else noop += 1;
+      // §BOVEDA-COBRADA-SIN-PIEZAS (punto 2): una orden `pending` SIN PI vencida se liberó (no hay cobro posible) y queda anotado.
+      if (released > 0 && order.status === 'pending' && !order.stripePaymentIntentId) {
+        try {
+          await this.prisma.auditLog.create({ data: { actorUserId: null, actorRole: null, action: 'order.sweep_no_pi', entityType: 'Order', entityId: orderId, after: { released } } });
+        } catch (e) {
+          this.logger.error(`order.sweep_no_pi no se pudo auditar: ${(e as Error).message}`);
+        }
+      }
     }
     if (noop > 0) {
       this.logger.log(
@@ -1316,6 +1353,37 @@ export class OrdersService {
       );
     }
     return { swept, skipped, legacy };
+  }
+
+  /**
+   * §BOVEDA-COBRADA-SIN-PIEZAS (punto 2) — la cancelación del PI falló ⇒ NO se libera; la reserva se EXTIENDE 10 min (tope
+   * acumulado 24 h sobre su vencimiento original) para que no reaparezca en cada pasada sin motivo. Agotado el tope ⇒ alerta
+   * `order.sweep_blocked` (una sola vez por pedido). Nunca libera con el PI sin cerrar. Best-effort: no tumba el barrido.
+   */
+  private async extendBlockedReservation(
+    order: { id: string; orderNumber: string | null; createdAt: Date },
+    itemIds: string[],
+    now: Date,
+  ): Promise<void> {
+    try {
+      const cap = new Date(order.createdAt.getTime() + (ORDER_RESERVATION_TTL_MIN * 60 + 24 * 3600) * 1000);
+      const next = new Date(Math.min(now.getTime() + 10 * 60 * 1000, cap.getTime()));
+      if (itemIds.length > 0 && next.getTime() > now.getTime()) {
+        await this.prisma.inventoryItem.updateMany({
+          where: { id: { in: itemIds }, reservedByOrderId: order.id, status: 'reserved' },
+          data: { reservedUntil: next },
+        });
+      }
+      if (now.getTime() >= cap.getTime()) {
+        const already = await this.prisma.auditLog.findFirst({ where: { action: 'order.sweep_blocked', entityId: order.id }, select: { id: true } });
+        if (!already) {
+          this.logger.error(`order.sweep_blocked: el pedido ${order.orderNumber ?? order.id} lleva 24 h sin poder cancelar su PaymentIntent; sigue reservado.`);
+          await this.prisma.auditLog.create({ data: { actorUserId: null, actorRole: null, action: 'order.sweep_blocked', entityType: 'Order', entityId: order.id, after: { orderNumber: order.orderNumber } } });
+        }
+      }
+    } catch (e) {
+      this.logger.error(`order-reservation-sweep: no se pudo extender la reserva de ${order.id}: ${(e as Error).message}`);
+    }
   }
 
   /**
@@ -1456,11 +1524,27 @@ export class OrdersService {
       await this.releaseReservation(params.orderId, params.inventoryItemIds);
       throw this.toRetryError(e);
     }
-    await this.prisma.order.update({
-      where: { id: params.orderId },
+    // §BOVEDA-COBRADA-SIN-PIEZAS R1(a): CAS. Solo una orden AÚN vigente (`pending`) y sin PI recibe este PI. Si otra petición del
+    // mismo cliente la sustituyó mientras Stripe respondía, este PI es huérfano: se cancela y su `clientSecret` ⛔ nunca se entrega.
+    const claimed = await this.prisma.order.updateMany({
+      where: { id: params.orderId, status: 'pending', stripePaymentIntentId: null },
       data: { stripePaymentIntentId: pi.id },
     });
-    return pi;
+    if (claimed.count === 1) return pi;
+    const current = await this.prisma.order.findUnique({ where: { id: params.orderId }, select: { status: true, stripePaymentIntentId: true } });
+    // Reintento idempotente del MISMO PI (misma clave server-side): ya estaba adjunto a una orden vigente.
+    if (current?.status === 'pending' && current.stripePaymentIntentId === pi.id) return pi;
+    const closed = await this.closePaymentIntent(pi.id);
+    if (!closed.closed) {
+      await this.prisma.auditLog
+        .create({ data: { actorUserId: null, actorRole: null, action: 'order.orphan_pi', entityType: 'Order', entityId: params.orderId, after: { paymentIntentId: pi.id, status: closed.status } } })
+        .catch((e: unknown) => this.logger.error(`order.orphan_pi no se pudo auditar: ${(e as Error).message}`));
+    }
+    throw BusinessException.conflict(
+      'ORDER_SUPERSEDED',
+      'This checkout attempt is no longer current (another request replaced it); its payment was cancelled. Reload your cart.',
+      { orderId: params.orderId },
+    );
   }
 
   /**

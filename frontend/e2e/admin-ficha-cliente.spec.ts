@@ -40,7 +40,8 @@ test.describe('admin · ficha del cliente (M6)', () => {
     await page.goto('/es/admin/m6');
     await page.getByRole('button', { name: t('es', 'admin.m6.view') }).first().click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: t('es', 'admin.m6.ficha.phoneEdit') }).click();
+    // Acotado al campo del celular: «Editar» también existe en las notas (strict mode).
+    await dialog.getByTestId('phone-field').getByRole('button', { name: t('es', 'admin.m6.ficha.phoneEdit') }).click();
     await dialog.getByLabel(/Celular de/).fill('55 12');
     await expect(dialog.getByText(t('es', 'admin.m6.ficha.phoneError'))).toBeVisible();
     await dialog.getByLabel(/Celular de/).fill('+52 55-1234-5678');

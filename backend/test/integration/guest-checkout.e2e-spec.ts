@@ -877,7 +877,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const { itemId, orderId: staleId, piId, totalCents } = await makeStaleGuestOrder('C2');
       await h.prisma.inventoryItem.update({
         where: { id: itemId },
-        data: { status: 'in_custody', ownerType: 'platform' },
+        // §BOVEDA-COBRADA-SIN-PIEZAS: la pieza es de idioma `es` para que NO exista una copia equivalente que la reponga
+        // (con copia el pedido se repone solo; aquí se mide el caso «sin copia ⇒ requiere atención», sin quitarle nada a nadie).
+        data: { status: 'in_custody', ownerType: 'platform', language: 'es' },
       });
       const wh = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
@@ -895,7 +897,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
       expect(item!.status).toBe('in_custody'); // intacta
       const audit = await h.prisma.auditLog.findFirst({
-        where: { action: 'order.settle_inventory_anomaly', entityId: staleId },
+        where: { action: 'order.settle_item_not_reserved', entityId: staleId },
       });
       expect(audit).toBeTruthy();
       expect(JSON.stringify(audit!.after)).toContain('"needsHumanReview":true');
@@ -943,7 +945,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const after = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
       expect(after!.status).toBe('picking'); // fuera de venta otra vez
       const anomalies = await h.prisma.auditLog.findMany({
-        where: { action: 'order.settle_inventory_anomaly', entityId: session.body.orderId },
+        where: { action: 'order.settle_item_not_reserved', entityId: session.body.orderId },
       });
       expect(anomalies).toHaveLength(1);
     });

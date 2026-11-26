@@ -79,11 +79,30 @@ export class TestStripeService extends StripeService {
     super(config);
   }
 
+  /**
+   * §BOVEDA-COBRADA-SIN-PIEZAS — Stripe LENTO: la PRÓXIMA creación de PaymentIntent se queda esperando hasta que el test llame al
+   * `release` devuelto (modela la petición 1 detenida «tras crear O1 y antes de adjuntar el PI»). Una sola vez por llamada.
+   */
+  private holdQueue: Promise<void>[] = [];
+  holdNextCreate(): () => void {
+    let release!: () => void;
+    this.holdQueue.push(new Promise<void>((r) => (release = r)));
+    return release;
+  }
+
+  /** §BOVEDA-COBRADA-SIN-PIEZAS (punto 2): el doble no tiene vouchers; el test los guioniza con `voucherUntil`. */
+  public voucherUntil: Date | null = null;
+  async getPendingVoucherExpiry(_paymentIntentId: string): Promise<Date | null> {
+    return this.voucherUntil;
+  }
+
   async createPaymentIntent(params: {
     amountCents: number;
     metadata: Record<string, string>;
     idempotencyKey?: string;
   }): Promise<{ id: string; clientSecret: string }> {
+    const hold = this.holdQueue.shift();
+    if (hold) await hold;
     if (params.idempotencyKey && this.byIdempotencyKey.has(params.idempotencyKey)) {
       const same = this.byIdempotencyKey.get(params.idempotencyKey)!;
       this.callLog.push(`replay:${same.id}`);

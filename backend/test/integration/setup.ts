@@ -30,6 +30,7 @@ require('dotenv').config({ quiet: true });
 // §PRECIO-SIN-ENLACE (I-10): la ruta nativa corre con NODE_ENV=development ⇒ el arranque de la app dispararía la corrida de
 // despliegue de `card-link-repair` contra el catálogo de la BD de pruebas (enlazando cartas de otras suites a productos reales).
 process.env.CARD_LINK_REPAIR_BOOT = 'off';
+process.env.VAULT_ORPHAN_REPAIR_BOOT = 'off';
 
 jest.setTimeout(30000);
 

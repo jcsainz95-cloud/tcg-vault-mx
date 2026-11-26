@@ -39,6 +39,7 @@ import { PasswordAttemptsService } from '../auth/password-attempts.service';
 import { LoginAttemptStoreUnavailableError } from '../auth/login-attempt.store';
 import { ShipmentPrepService } from '../shipments/shipment-prep.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { distinctOrders, findUnassignedLines } from '../payments/vault-orphans';
 import { DashboardShippingService } from './dashboard-shipping.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
@@ -1834,6 +1835,16 @@ export class AdminService {
     };
   }
 
+  /** §BOVEDA-COBRADA-SIN-PIEZAS: pedidos liquidados con ≥1 línea sin asignar (la invariante; misma consulta que la reparación). */
+  private async vaultOrdersWithUnassignedCount(): Promise<number | null> {
+    try {
+      return distinctOrders(await findUnassignedLines(this.prisma)).length;
+    } catch (e) {
+      this.logger.error(`dashboard: no se pudo contar los pedidos con piezas sin asignar (${(e as Error).message}).`);
+      return null; // ⛔ nunca un 0 que diga «todo bien» cuando la consulta falló (BC-6)
+    }
+  }
+
   /**
    * ⭐ v1.80…v1.80.3 (§M4-SHIP.11, .17.5) — `workQueue.toPrepare` (+ `toReplace`, `toReplaceOverdue`, `stuckRefunds`,
    * el MISMO cuerpo que `GET /admin/shipments/picking-list/summary`), y SOLO para `super_admin`: `manualRefunds`
@@ -2280,6 +2291,7 @@ export class AdminService {
       },
     );
 
+    const vaultOrdersWithUnassignedItems = await this.vaultOrdersWithUnassignedCount();
     const card = {
       // ⚠️ **MEDIDO, y se dice porque contradice una frase del contrato.** §M10-IVA.7 afirma que
       // esta tarjeta *«ya es de campos financieros ⇒ `super_admin`; `vault_operator` no la recibe
@@ -2305,6 +2317,8 @@ export class AdminService {
         // 💰 rev BSD-1 (C-3, BSD-1.3 p. 4): los dos contadores del buylist con guía de entrada (para los dos roles).
         ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
         ...(await this.workQueueAdditions(role)),
+        // §BOVEDA-COBRADA-SIN-PIEZAS: pedidos pagados con piezas sin asignar (la invariante; ambos roles, sin dinero).
+        vaultOrdersWithUnassignedItems,
       },
       // §REPORTES-CEO F1 (contrato §2): para el operador todo `*Cents` del periodo va `null` (clave conservada; conteos visibles).
       buylistPeriod: { count: buylistPeriodCount, amountCents: isSuperAdmin ? (buylistPeriodAgg._sum.approvedTotalCents ?? 0) : null },
@@ -2318,6 +2332,8 @@ export class AdminService {
         ...(await this.listingPricesHealth().then((h) => (h ? { listingPrices: h } : {}))),
       },
       launchProgress: { users, salesSettled, buylistPaid, withdrawalsNoDispute: withdrawals },
+      // §BOVEDA-COBRADA-SIN-PIEZAS: el mismo número en la raíz (el front lee `workQueue` o la raíz).
+      vaultOrdersWithUnassignedItems,
     };
 
     // Campos de dinero solo para super_admin (se omiten para vault_operator).

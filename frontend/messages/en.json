@@ -1796,6 +1796,11 @@
       "withdrawals": "Withdrawals no dispute",
       "buylistPaid": "Seller purchases paid",
       "buylistQueue": "Seller purchases",
+      "unassigned": {
+        "title": "Unassigned cards",
+        "detail": "Paid orders with unassigned cards: {n}",
+        "unmeasured": "Paid orders with unassigned cards: could not be measured"
+      },
       "toPrepare": {
         "title": "Orders to prepare",
         "detail": "{ship} shipping · {vault} vault · {toReplace} to replace",
@@ -2192,6 +2197,32 @@
       "searchLabel": "Search order",
       "searchPlaceholder": "Order # or buyer…",
       "empty": "No orders match these filters.",
+      "modeFilter": {
+        "label": "Order type",
+        "all": "All",
+        "vault": "Vault purchase",
+        "direct_ship": "Home delivery"
+      },
+      "unassigned": {
+        "filter": "With unassigned cards",
+        "chip": "{n, plural, one {# card unassigned} other {# cards unassigned}}",
+        "emptyTitle": "No orders with unassigned cards.",
+        "emptyBody": "Every paid order has its cards in the buyer's vault."
+      },
+      "fulfillment": {
+        "inVault": "In their vault",
+        "replaced": "Replaced with an identical copy ({from} → {to})",
+        "replacedNoFolio": "Replaced with an identical copy",
+        "attention": "Needs attention: {reason}",
+        "attentionHelp": "To close this order: get the card and add it to inventory (it is assigned automatically the next day), or refund the order with the Refund button.",
+        "reason": {
+          "no_equivalent_copy": "no identical copy is available",
+          "double_charge": "the customer paid twice for this order: check which one to refund",
+          "item_missing": "the card no longer exists in inventory",
+          "unassigned": "the card is not yet assigned to the customer",
+          "unknown": "the card could not be assigned"
+        }
+      },
       "filters": {
         "dateFrom": "From",
         "dateTo": "To",
@@ -5943,6 +5974,42 @@
         "saved": "Ingest provider saved."
       },
       "audit": {
+        "was": {
+          "in_stock": "in stock, not listed",
+          "listed": "for sale",
+          "reserved": "held by another order",
+          "in_custody": "in a customer's vault",
+          "picking": "being prepared for shipping",
+          "shipped": "shipped",
+          "delivered": "delivered",
+          "lost": "lost",
+          "damaged": "damaged",
+          "withdrawn": "withdrawn"
+        },
+        "outcome": {
+          "recovered": "assigned",
+          "replaced": "replaced",
+          "attention": "needs attention",
+          "needs_attention": "needs attention"
+        },
+        "source": {
+          "settle": "at payment",
+          "repair": "automatic repair"
+        },
+        "keys": {
+          "anomalies": "Anomalies",
+          "inventoryItemId": "Piece",
+          "folio": "Folio",
+          "was": "Was",
+          "outcome": "Result",
+          "source": "Source",
+          "orderId": "Order",
+          "orderNumber": "Order",
+          "status": "Status",
+          "reason": "Reason",
+          "replacedBy": "Replaced by",
+          "count": "Count"
+        },
         "title": "Audit log",
         "subtitle": "Who did what and when. Every back-office action is logged.",
         "date": "Date",
@@ -5950,6 +6017,13 @@
         "action": "Action",
         "entity": "Entity",
         "filterAction": "Filter by action",
+        "showDetail": "Show details",
+        "hideDetail": "Hide details",
+        "noDetail": "No details",
+        "before": "Before",
+        "after": "After",
+        "yes": "Yes",
+        "no": "No",
         "pageInfo": "Page {page} of {totalPages} · {total} records",
         "prev": "Previous",
         "next": "Next"
@@ -7139,6 +7213,7 @@
       "colPieces": "In their name",
       "colValue": "Estimated value",
       "colPending": "No price",
+      "missingPieces": "{orders, plural, one {Paid order} other {# paid orders}}: {pieces, plural, one {# card missing} other {# cards missing}}",
       "pieces": "{count, plural, other {# in their name}}",
       "open": "View vault",
       "back": "Customers",
@@ -9345,6 +9420,7 @@
     "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
     "OFFER_NOT_PENDING": "This offer is no longer waiting for a response.",
     "PHONE_INVALID": "Enter your 10-digit mobile number.",
+    "ORDER_SUPERSEDED": "Your cart changed; review your order and try again",
     "PHONE_REQUIRED": "The account has no mobile number. The carrier needs it to deliver the label and to call about the pickup.",
     "BOUNTY_TARGET_REQUIRED": "Give it a target: how many copies you want to pay that price for. Without one, the bounty never stops the buying. Nothing was saved.",
     "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",

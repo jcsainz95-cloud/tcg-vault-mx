@@ -18,6 +18,7 @@ import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.se
 function build() {
   const rows = [{ id: 'o1', guestEmail: null }];
   const prisma: any = {
+    $queryRaw: jest.fn(async () => []),
     order: {
       findMany: jest.fn(async () => rows),
       count: jest.fn(async () => rows.length),

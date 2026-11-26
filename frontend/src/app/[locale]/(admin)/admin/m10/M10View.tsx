@@ -19,7 +19,9 @@ import {
   gradingCostBasis,
   gradingDailyCreditCap,
 } from '@/lib/grading-hook-cost';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatDateTimeShortMx } from '@/lib/format';
+import { auditDetail } from '@/lib/api/vault-unassigned';
+import { useRole } from '@/lib/role';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
@@ -271,9 +273,13 @@ export function M10View() {
   });
   const totalPages = audit.data ? Math.max(1, Math.ceil(audit.data.total / PAGE_SIZE)) : 1;
 
+  // §BOVEDA-COBRADA-SIN-PIEZAS: renglón desplegable con el detalle (`before`/`after`). Solo súper-admin.
+  const { isSuperAdmin } = useRole();
+  const [openAuditId, setOpenAuditId] = useState<string | null>(null);
+
   const auditColumns: Column<AuditLogDTO>[] = useMemo(
     () => [
-      { key: 'date', header: t('audit.date'), render: (a) => <span className="tabular">{formatDate(a.createdAt, locale)}</span> },
+      { key: 'date', header: t('audit.date'), render: (a) => <span className="tabular">{formatDateTimeShortMx(a.createdAt, locale)}</span> },
       // Eventos del sistema (p. ej. `auth.password_lock` desde el login): `actorUserId` y `actorRole`
       // llegan null a la vez (contrato, errata 2026-10-04). La celda dice «—», nunca un hueco ni un Badge vacío.
       { key: 'actor', header: t('audit.actor'), render: (a) => (a.actorUserId === null || a.actorRole === null ? (
@@ -286,9 +292,55 @@ export function M10View() {
       )) },
       { key: 'action', header: t('audit.action'), render: (a) => <span className="tabular font-medium">{a.action}</span> },
       { key: 'entity', header: t('audit.entity'), render: (a) => <span className="tabular text-muted">{a.entityType} · {a.entityId}</span> },
+      ...(isSuperAdmin
+        ? [{
+            key: 'detail',
+            header: '',
+            align: 'right' as const,
+            render: (a: AuditLogDTO) => (
+              <button
+                type="button"
+                className="min-h-[44px] px-1 text-sm underline underline-offset-4 hover:text-accent focus-visible:shadow-focus focus-visible:outline-none"
+                aria-expanded={openAuditId === a.id}
+                onClick={() => setOpenAuditId((cur) => (cur === a.id ? null : a.id))}
+                data-testid={`audit-toggle-${a.id}`}
+              >
+                {openAuditId === a.id ? t('audit.hideDetail') : t('audit.showDetail')}
+              </button>
+            ),
+          }]
+        : []),
     ],
-    [t, locale],
+    [t, locale, isSuperAdmin, openAuditId],
   );
+  function auditExpanded(a: AuditLogDTO): React.ReactNode {
+    if (!isSuperAdmin || openAuditId !== a.id) return null;
+    const sections = auditDetail(a, locale, t('audit.yes'), t('audit.no'), (k, v) =>
+      ['was', 'outcome', 'source'].includes(k) && t.has(`audit.${k}.${v}`) ? t(`audit.${k}.${v}`) : null,
+    (k) => (t.has(`audit.keys.${k}`) ? t(`audit.keys.${k}`) : null),
+    );
+    return (
+      <div className="flex flex-col gap-3 border-l-2 border-l-border-strong pl-4" data-testid={`audit-detail-${a.id}`}>
+        {sections === null ? (
+          <p className="text-muted">{t('audit.noDetail')}</p>
+        ) : (
+          sections.map((s) => (
+            <section key={s.side} className="flex flex-col gap-1">
+              <h3 className="eyebrow">{t(`audit.${s.side}`)}</h3>
+              <dl className="flex flex-col gap-0.5 font-mono text-xs">
+                {s.rows.map((r, i) => (
+                  <div key={i} className="flex flex-wrap gap-x-2" style={{ paddingLeft: `${r.depth * 16}px` }}>
+                    <dt className="text-muted">{r.key}{r.value === null ? '' : ':'}</dt>
+                    {r.value !== null && <dd className="min-w-0 break-words">{r.value}</dd>}
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-10">
@@ -544,7 +596,7 @@ export function M10View() {
           {audit.data && (
             <div className="flex flex-col gap-3">
               <div className="rounded-lg border border-border bg-surface p-2">
-                <DataTable columns={auditColumns} rows={audit.data.data} rowKey={(a) => a.id} />
+                <DataTable columns={auditColumns} rows={audit.data.data} rowKey={(a) => a.id} expanded={auditExpanded} />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted">

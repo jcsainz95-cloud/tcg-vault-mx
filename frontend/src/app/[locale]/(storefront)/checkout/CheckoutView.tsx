@@ -281,6 +281,11 @@ export function CheckoutView() {
           orderId: typeof d.orderId === 'string' ? d.orderId : undefined,
           orderNumber: typeof d.orderNumber === 'string' ? d.orderNumber : undefined,
         });
+      } else if (e instanceof ApiClientError && e.code === 'ORDER_SUPERSEDED') {
+        // §BOVEDA-COBRADA R1: este intento ya no es el vigente (otra pestaña/petición lo sustituyó) y el servidor NO
+        // entregó `clientSecret`. Mensaje llano, se re-cotiza y el carrito (localStorage) NO se toca.
+        setPayError(getMessage(e));
+        void query.refetch();
       } else if (
         e instanceof ApiClientError &&
         (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')

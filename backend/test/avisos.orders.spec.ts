@@ -46,6 +46,9 @@ function buildPayments(opts: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     inventoryMovement: { create: jest.fn() },
+    // §BOVEDA-COBRADA-SIN-PIEZAS: la pieza inexistente de este doble ⇒ «requiere atención» (marca + auditoría en la misma tx).
+    orderItem: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findFirst: jest.fn().mockResolvedValue(null) },
+    auditLog: { create: jest.fn().mockResolvedValue({}) },
     // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
     // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
     vaultPlacement: {
@@ -56,6 +59,7 @@ function buildPayments(opts: {
     vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma: any = {
+    $queryRaw: jest.fn(async () => []),
     order: {
       findUnique: jest.fn().mockImplementation(async () => (opts.order ? { ...row } : null)),
       update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)),

@@ -63,6 +63,8 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   'src/modules/payments/payments.service.ts tryCaptureStripeFee#updateMany#1': [K, 'CAS por id (§D9: solo FEE_INCLUDED y stripeFeeCents NULL; no toca estado ni importes)'],
   'src/modules/payments/payments.service.ts reconcileStripeFees#findMany#1': [O, 'Conciliación §D9 8.3: solo lee id y PaymentIntent de retiros/envíos cobrados (outbound de pago) sin costo real; escribe por tryCaptureStripeFee'],
   'src/modules/payments/payments.service.ts settleDirectShipOrder#findFirst#1': [K, 'orderId'],
+  'src/jobs/vault-orphan-repair.service.ts syncFulfillmentRows#findFirst#1': [K, 'orderId'],
+  'src/modules/payments/vault-orphans.ts findUnassignedLines#sql#1': [A, 'por pieza: ¿va en el envío vivo de OTRO pedido? (ShipmentItem de esa pieza, cualquier kind: una guía de entrada no lleva piezas de inventario)'],
   'src/modules/payments/payments.service.ts failAndRelease#updateMany#1': [K, 'CAS por id'],
   'src/modules/payments/payments.service.ts onChargeDisputeDirectShip#findFirst#1': [K, 'orderId'],
   'src/modules/payments/payments.service.ts onChargeDisputeDirectShip#updateMany#1': [K, 'CAS por id'],
