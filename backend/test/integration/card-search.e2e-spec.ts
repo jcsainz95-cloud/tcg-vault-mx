@@ -195,6 +195,17 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
     expect(r.all).toEqual([]);
     const ok = await catalog.searchAllCards({ q: 'charizard', page: 1, pageSize: 20 });
     expect(ok.total).toBeGreaterThan(0);
+    // fila 31 en los tres caminos: una palabra simple (atajo), dos palabras y clave+número
+    for (const q of ['a', 'charizard', 'charizard ex', 'PRE 078']) {
+      const spy = jest.spyOn(h.prisma.card, 'findMany');
+      const big = await catalog.searchAllCards({ q, page: 137, pageSize: 100 });
+      expect(big.data).toEqual([]);
+      expect(spy).not.toHaveBeenCalled(); // pasado el tope ni siquiera se consulta la página
+      spy.mockRestore();
+      const edge = await catalog.searchAllCards({ q, page: 10, pageSize: 100 }); // 1000 exacto: permitido
+      expect(edge.total).toBe(big.total);
+      expect((await catalog.searchAllCards({ q, page: 11, pageSize: 100 })).data).toEqual([]);
+    }
     const capped = await catalog.searchAllCards({ q: 'charizard', page: 51, pageSize: 20 });
     expect(capped.data).toEqual([]);
     expect(capped.total).toBe(ok.total);

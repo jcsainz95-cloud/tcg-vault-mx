@@ -292,8 +292,10 @@ export async function searchCardsPage<I extends Prisma.CardInclude>(
   const plan = keys ? buildCardSearchPlan(params.q, keys, { allowFolio: params.allowFolio }) : null;
   if (!plan || plan.sameAsLegacy) {
     const w: Prisma.CardWhereInput = plan ? { AND: [base, legacyCardWhere(params.q as string, 'name_number')] } : base;
+    // Tope de volcado (fila 31): con `q` y sin `setId`, `page × pageSize` ≤ 1000 SIEMPRE (también en este atajo).
+    const capped = !!plan && !params.hasSetId && skip + take > CARD_SEARCH_DEPTH_CAP;
     const [rows, total] = await Promise.all([
-      db.card.findMany({ where: w, include: params.include, orderBy: params.orderBy, skip, take }),
+      capped ? Promise.resolve([]) : db.card.findMany({ where: w, include: params.include, orderBy: params.orderBy, skip, take }),
       db.card.count({ where: w }),
     ]);
     return { rows: rows as Row[], total };
@@ -320,6 +322,8 @@ export async function searchCardsPage<I extends Prisma.CardInclude>(
     }
     return ids;
   };
+  // Tope de volcado: pasado `page × pageSize` > 1000 solo se cuenta (ni siquiera se consulta la página).
+  if (!params.hasSetId && skip + take > CARD_SEARCH_DEPTH_CAP) return { rows: [] as Row[], total: await db.card.count({ where }) };
   // `count` y búsquedas en paralelo (I-4).
   const [total, n0, ids1] = await Promise.all([db.card.count({ where }), db.card.count({ where: legacyWhere }), identityIds()]);
   if (!params.hasSetId && skip + take > CARD_SEARCH_DEPTH_CAP) return { rows: [] as Row[], total };

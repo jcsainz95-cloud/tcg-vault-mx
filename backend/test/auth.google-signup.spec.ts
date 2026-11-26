@@ -83,14 +83,13 @@ describe('Google alta con celular (§CELULAR-ALTA)', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('carrera simultánea: el que pierde el P2002 responde como login (1 sola cuenta)', async () => {
+  it('carrera simultánea: el que pierde el P2002 NO recibe sesión (401 SIGNUP_EXPIRED); solo gana uno', async () => {
     const { svc, prisma } = build();
     const { Prisma } = require('@prisma/client'); // eslint-disable-line @typescript-eslint/no-var-requires
     const winner = { id: 'w', status: 'active', tokenVersion: 0, role: 'customer', googleId: 'g1' };
     prisma.user.create.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }));
     prisma.user.findUnique.mockImplementation(async ({ where }: any) => (where.googleId && prisma.user.create.mock.calls.length ? winner : null));
     const { pendingSignup } = (await svc.google('id')) as any;
-    const res: any = await svc.googleComplete(pendingSignup.signupToken, '5512345678');
-    expect(res.accessToken).toBe('a');
+    await expect(svc.googleComplete(pendingSignup.signupToken, '5512345678')).rejects.toMatchObject({ code: 'SIGNUP_EXPIRED', status: 401 });
   });
 });

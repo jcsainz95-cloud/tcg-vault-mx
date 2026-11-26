@@ -1029,6 +1029,8 @@ export class AuthService {
       } catch (e) {
         // Doble `complete` simultáneo: gana uno; el otro responde como login (idempotente, 1 sola cuenta).
         if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') throw e;
+        // SIGN-1: solo UN ganador recibe sesión; el que pierde la carrera de `complete` (token de un solo uso) ⇒ 401.
+        if (newAccountPhone !== null) throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
         const winner = await this.prisma.user.findUnique({ where: { googleId: identity.sub } });
         if (!winner) throw e;
         user = winner;
