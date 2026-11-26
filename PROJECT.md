@@ -83,16 +83,18 @@ Publica **solo la rama `production`** (Vercel + Railway despliegan al recibir pu
 Stack y estructura en `docs/ARCHITECTURE.md`; endpoints en `docs/API_CONTRACT.md`.
 
 ## 6. Criterios de aceptación vigentes (resumen por área)
-Lista completa en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"`). Criterio nuevo: aquí, corto.
-1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s (Destacadas del día, Joyas para gradear por turnos).
+Lista completa: `docs/archive/PROJECT.md`.
+1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s.
 2. **Checkout**: invitado y con cuenta; destino bóveda/domicilio; desglose de importe; Stripe real; correo de confirmación.
 3. **Bóveda/portafolio**: cartas en custodia con acabado, pestaña Sellado, valuación a mercado y gráfica 5d…Máx.
-4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado. **§ENV3**: solo con CP; Skydropx caído ⇒ tabla, cobro = mostrado; cotización caducada ⇒ 409; ≥ MX$4,000 o código de envío gratis ⇒ 0.
+4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado. **§ENV3**: solo con CP; Skydropx caído ⇒ tabla; cotización caducada ⇒ 409; ≥ MX$4,000 o código gratis ⇒ 0.
 5. **Buylist**: cotizador público con mercado y oferta; ciclo completo hasta SPEI y publicación; KYC con INE.
-6. **Back-office M1–M11**: inventario y Master Set, precios y diales, ventas/reembolsos, pedidos por preparar, buylist, usuarios y staff, finanzas/P&L, analítica, configuración.
+6. **Back-office M1–M11**: inventario, precios, ventas/reembolsos, pedidos, buylist, usuarios, finanzas/P&L, analítica, configuración.
 7. **Cuentas**: verificación de correo, recuperación de contraseña, Google, cuenta con solo el correo («termina tu cuenta»).
 8. **Seguridad**: sin críticos/altos abiertos; dinero idempotente y sin carreras; authz por rol sin IDOR.
 9. **§PERSONA**: botón solo con `preparedAt` y sin guía, con confirmación; 2 pulsaciones ⇒ 1 entrega y 1 correo; fuera de sondeo, «Salida de hoy» y guías por cancelar; P&L sin «costo faltante».
+
+10. **§ORIGEN-VISITA** (HECHOS 2026-11-26; `DECISIONES.md`, `API_CONTRACT_ORIGEN.md`): pedidos y solicitudes guardan su origen sin cookies de analítica, sin compartirlo con Google/Meta; ≥ 90 % con origen (f3, con N); nunca rompe la compra; sale con su línea del aviso aprobada por el dueño.
 
 ## 7. Métrica de «lanzado»
 Tienda en vivo cobrando en real, con los flujos críticos (compra, bóveda, retiro, buylist, reembolso) recorridos de punta a punta en producción.
