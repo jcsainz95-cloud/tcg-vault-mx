@@ -28,6 +28,7 @@ MEDIDO local (BD `tcg_sec_bc2` PG16 :5497, Redis :6397, app :3097, copia `git ar
 | KEY-1b | Sin índice único parcial `lower(ptcgoCode)`: `deck-matcher` y otros lectores de `ptcgoCode` fuera del buscador aún pueden ver claves repetidas (ver arriba) | Baja | backend | 2027-01-15 |
 | BUSC-3 | Una palabra simple (y sin `q`) se pagina sin tope: paridad con production, catálogo público | Info | backend | sin caducidad |
 NO MEDIDO: `orders/claim` y job de relleno en vivo, Google con idToken real, edge real de Railway/XFF (P-RL-1), `npm audit` (sin cambios de package*.json en el delta), producción, frontend 597c4c87 (solo `git diff --stat`).
+GATE 0bb210ac (`updateUserName` escribe `nameSource=user`): APROBADO, 0 hallazgos. Solo `super_admin` (`admin.controller.ts:465` `@Roles(Role.super_admin)`), auditoría `user.name.update` antes/después en la misma tx (`:471-475`), bloquea cuentas anonimizadas (`admin.service.ts:1503`). Marcar `user` es correcto: el dueño teclea el nombre (mismo precedente `users.service.ts:302`); el cotejo KYC (`:214`) solo distingue `derived` y el KYC compara contra `recipientName`, no contra `name`. Prueba `admin.update-user-name.spec.ts` 1/1 verde (jest local). Mantenibilidad: 1 línea + comentario, `NameSource` ya importado (`:15`). NO MEDIDO: ataque HTTP en vivo (no hace falta, diff de 3 líneas).
 ### Vigentes previos (gate 27026f56, §BOVEDA-COBRADA-SIN-PIEZAS: APROBADO CON CONDICIONES; sigue en pie, nada de ese delta cambió)
 | ID | Hallazgo | Sev. | Dueño | Caduca / candado |
 |---|---|---|---|---|
