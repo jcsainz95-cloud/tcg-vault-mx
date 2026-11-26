@@ -130,7 +130,7 @@ describe('M1View · Buscador por folio persistente (§16.1.1)', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Buscar folio' }));
 
-    expect(await screen.findByText('No existe una pieza con ese folio.')).toBeInTheDocument();
+    expect(await screen.findByText('No existe ese folio.')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

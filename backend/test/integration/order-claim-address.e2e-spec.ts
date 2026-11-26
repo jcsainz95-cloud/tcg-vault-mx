@@ -126,7 +126,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     const orderId = await guestOrder(me.email);
     const res = await claim(me.token, [orderId]);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 1 });
+    expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 1, phoneRequired: false });
     const rows = await book(me.id);
     expect(rows).toHaveLength(1);
     const { id, userId, createdAt: _c, updatedAt: _u, ...fields } = rows[0];
@@ -160,7 +160,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     });
     const orderId = await guestOrder(me.email);
     const res = await claim(me.token, [orderId]);
-    expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 0 });
+    expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 0, phoneRequired: false });
     const rows = await book(me.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ recipientName: 'Otro Nombre', phone: '5599999999', isDefault: true });
@@ -202,7 +202,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     const other = `clm.${RUN}.ajeno@example.com`;
     const o2 = await guestOrder(other);
     const r2 = await claim(me.token, [o2]);
-    expect(r2.body).toEqual({ claimed: [], failed: [{ orderId: o2, code: 'CLAIM_EMAIL_MISMATCH' }], addressesSaved: 0 });
+    expect(r2.body).toEqual({ claimed: [], failed: [{ orderId: o2, code: 'CLAIM_EMAIL_MISMATCH' }], addressesSaved: 0, phoneRequired: false });
 
     // (c) ya reclamado por su dueño: el segundo intento (otra cuenta con el MISMO correo no puede existir ⇒ el mismo usuario
     // tras vaciar su libreta) no guarda nada.
@@ -210,7 +210,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     expect((await claim(me.token, [o3])).body.addressesSaved).toBe(1);
     await h.prisma.address.deleteMany({ where: { userId: me.id } });
     const r3 = await claim(me.token, [o3]);
-    expect(r3.body).toEqual({ claimed: [], failed: [{ orderId: o3, code: 'ORDER_ALREADY_CLAIMED' }], addressesSaved: 0 });
+    expect(r3.body).toEqual({ claimed: [], failed: [{ orderId: o3, code: 'ORDER_ALREADY_CLAIMED' }], addressesSaved: 0, phoneRequired: false });
     expect(await book(me.id)).toHaveLength(0);
   });
 
@@ -239,7 +239,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     try {
       const res = await claim(me.token, [orderId]);
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 0 });
+      expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 0, phoneRequired: false });
       const order = await h.prisma.order.findUnique({ where: { id: orderId } });
       expect(order).toMatchObject({ userId: me.id });
       const tokens = await h.prisma.orderAccessToken.findMany({ where: { orderId } });
@@ -278,7 +278,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
       res = await claim(me.token, [planted]);
     });
     expect(res!.status).toBe(200);
-    expect(res!.body).toEqual({ claimed: [planted], failed: [], addressesSaved: 0 });
+    expect(res!.body).toEqual({ claimed: [planted], failed: [], addressesSaved: 0, phoneRequired: false });
     expect(await book(me.id)).toHaveLength(0);
     expect(lines).toEqual([`ORDER_CLAIM_ADDRESS_SKIPPED reason=unsettled orderId=${planted}`]);
     for (const v of [ATTACKER.line1, ATTACKER.postalCode, ATTACKER.phone, ATTACKER.recipientName]) expect(raw).not.toContain(v);
@@ -293,7 +293,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     const real = await guestOrder(me.email, SNAP, { createdAt: new Date(Date.now() - 86_400_000) });
     const planted = await guestOrder(me.email, ATTACKER, { status: 'failed', settledAt: null }); // el más nuevo
     const res = await claim(me.token, [real, planted]);
-    expect(res.body).toEqual({ claimed: [real, planted], failed: [], addressesSaved: 1 });
+    expect(res.body).toEqual({ claimed: [real, planted], failed: [], addressesSaved: 1, phoneRequired: false });
     const rows = await book(me.id);
     expect(rows.map((r) => [r.id === mine.id ? 'mine' : r.line1, r.isDefault])).toEqual([
       ['mine', true],
@@ -312,7 +312,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
       const { lines } = await skippedLines(async () => {
         res = await claim(me.token, [id]);
       });
-      expect([status, res!.body]).toEqual([status, { claimed: [id], failed: [], addressesSaved: 0 }]);
+      expect([status, res!.body]).toEqual([status, { claimed: [id], failed: [], addressesSaved: 0, phoneRequired: false }]);
       expect([status, (await book(me.id)).length]).toEqual([status, 0]);
       expect(lines).toEqual([`ORDER_CLAIM_ADDRESS_SKIPPED reason=unsettled orderId=${id}`]);
     }

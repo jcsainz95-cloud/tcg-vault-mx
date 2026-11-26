@@ -12,6 +12,7 @@ import {
   ChangePasswordDto,
   ForgotPasswordDto,
   GoogleLoginDto,
+  GoogleCompleteDto,
   LoginDto,
   RefreshDto,
   RegisterDto,
@@ -90,6 +91,15 @@ export class AuthController {
   @HttpCode(200)
   google(@Body() dto: GoogleLoginDto) {
     return this.auth.google(dto.idToken);
+  }
+
+  // §CELULAR-ALTA (v2 §6.2): completa el alta de Google con el celular (token firmado de 15 min). Mismo límite que /auth/google.
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Public()
+  @Post('google/complete')
+  @HttpCode(200)
+  googleComplete(@Body() dto: GoogleCompleteDto) {
+    return this.auth.googleComplete(dto.signupToken, dto.phone);
   }
 
   // SEC-C1: refresh también público; límite algo más holgado para clientes legítimos.

@@ -10,7 +10,7 @@ import { Prisma } from '@prisma/client';
  *  - ya está marcada «requiere atención» (`fulfillmentFailedAt`, cualquier motivo, también `double_charge`): sigue sin resolver; o
  *  - bóveda: su pieza NO es HOY del comprador (dueño cliente = comprador y fuera de pool/reserva), en CUALQUIER estado;
  *  - envío directo: su pieza está en pool/reserva, es de un cliente, o va en el envío vivo de OTRO pedido.
- * Se define por dueño/pedido, no por lista de estados: la pieza del propio comprador ya retirada/enviada es legítima. SQL fijo, sin entrada del usuario
+ * Un caso «Por reponer» excluye SOLO la línea que lo originó (`originOrderItemId`), no toda línea que toque la misma pieza. Se define por dueño/pedido, no por lista de estados: la pieza del propio comprador ya retirada/enviada es legítima. SQL fijo, sin entrada del usuario
  * salvo `orderIds` (parametrizado).
  */
 export interface UnassignedLine {
@@ -31,8 +31,9 @@ export interface UnassignedLine {
 
 type RawDb = { $queryRaw: <T = unknown>(query: Prisma.Sql) => Promise<T> };
 
-export async function findUnassignedLines(db: RawDb, opts: { orderIds?: string[]; limit?: number } = {}): Promise<UnassignedLine[]> {
+export async function findUnassignedLines(db: RawDb, opts: { orderIds?: string[]; userId?: string; limit?: number } = {}): Promise<UnassignedLine[]> {
   const onlyOrders = opts.orderIds ? Prisma.sql`AND o.id IN (${Prisma.join(opts.orderIds.length ? opts.orderIds : [''])})` : Prisma.empty;
+  const onlyUser = opts.userId ? Prisma.sql`AND o."userId" = ${opts.userId}` : Prisma.empty;
   const limit = Prisma.sql`LIMIT ${opts.limit ?? 5000}`;
   return db.$queryRaw<UnassignedLine[]>(Prisma.sql`
     SELECT o.id AS "orderId", o."orderNumber" AS "orderNumber", o."userId" AS "userId",
@@ -46,7 +47,7 @@ export async function findUnassignedLines(db: RawDb, opts: { orderIds?: string[]
      WHERE o.status = 'settled'
        AND o."fulfillmentMode" IN ('vault', 'direct_ship')
        AND NOT EXISTS (SELECT 1 FROM "PaymentRefund" r WHERE r."orderItemId" = oi.id AND r.status <> 'failed')
-       AND NOT EXISTS (SELECT 1 FROM "ReplacementCase" rc WHERE rc."originOrderItemId" = oi.id OR rc."originalInventoryItemId" = oi."inventoryItemId")
+       AND NOT EXISTS (SELECT 1 FROM "ReplacementCase" rc WHERE rc."originOrderItemId" = oi.id)
        AND (
             oi."fulfillmentFailedAt" IS NOT NULL
          OR (
@@ -62,6 +63,7 @@ export async function findUnassignedLines(db: RawDb, opts: { orderIds?: string[]
             )
        )
        ${onlyOrders}
+       ${onlyUser}
      ORDER BY o."settledAt" ASC NULLS LAST, o.id ASC, ii.folio ASC, oi.id ASC
      ${limit}`);
 }

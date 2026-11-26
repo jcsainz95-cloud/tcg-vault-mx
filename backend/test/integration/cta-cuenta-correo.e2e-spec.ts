@@ -111,7 +111,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
   const nextEmail = (tag = 'u') => `cta.${RUN}.${tag}${(seq += 1)}@example.com`;
   const emailOnly = (email: string, extra: Record<string, unknown> = {}) =>
-    h.api('POST', '/auth/register/email-only', { json: { email, ...extra } });
+    h.api('POST', '/auth/register/email-only', { json: { phone: '5512345678', email, ...extra } });
   const accountSetup = (json: Record<string, unknown>) => h.api('POST', '/auth/account-setup', { json });
   const me = (token: string) => h.api('GET', '/users/me', { token });
   const userBy = (email: string) => h.prisma.user.findUniqueOrThrow({ where: { email } });

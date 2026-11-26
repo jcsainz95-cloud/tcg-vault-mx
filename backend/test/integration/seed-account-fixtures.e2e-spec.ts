@@ -133,7 +133,7 @@ describe('E2E — seed: los tres actores de cuenta de §4.47.10.4 (v1.67.1)', ()
       expect(claim.status).toBe(200);
       // v1.116 (§4-G.9c): el snapshot del pedido sembrado es el MISMO lugar (`E2E_PICKUP_ADDRESS`) que la dirección sembrada
       // del customer ⇒ duplicado ⇒ 0 filas (la libreta del fixture no crece al reclamar).
-      expect(claim.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 0 });
+      expect(claim.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 0, phoneRequired: false });
 
       const after = await h.api('GET', '/orders', { token });
       expect((after.body.data as any[]).some((o) => o.id === orderId)).toBe(true);

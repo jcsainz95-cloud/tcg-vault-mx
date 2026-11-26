@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { buildCardSearchWhere } from '../../common/card-search';
 import { Card, CardSet, Finish, Prisma, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { variantKey } from '../../common/variant-key';
@@ -147,7 +148,7 @@ export class AdminBountiesService {
   async list(params: AdminBountyListParams): Promise<AdminBountyListResponse> {
     // ---- 1. SELECCIONAR: alcance + identidad. El techo se aplica aquí y SOLO aquí. -------------
     const selected = await this.prisma.variantPriceOverride.findMany({
-      where: this.buildWhere(params),
+      where: await this.buildWhere(params),
       // Orden del CORTE (no es el orden de la respuesta, que se decide tras clasificar). Cuando el
       // conjunto rebasa el techo, lo que sobrevive es lo que **sigue encendido** —lo que puede estar
       // costando dinero— y no la historia ya apagada. Determinista (`id` desempata) para que dos
@@ -205,16 +206,13 @@ export class AdminBountiesService {
    * (`variant-controls`, §4.26a) y el DTO del contrato los declara literales. Es defensa en
    * profundidad, igual que en la vitrina pública, no un predicado nuevo.
    */
-  private buildWhere(params: AdminBountyListParams): Prisma.VariantPriceOverrideWhereInput {
+  private async buildWhere(params: AdminBountyListParams): Promise<Prisma.VariantPriceOverrideWhereInput> {
     const card: Prisma.CardWhereInput = {};
     if (params.setId !== undefined) card.setId = params.setId;
     if (params.q !== undefined) {
-      // Convención transversal de filtros de lista admin: `contains`, case-insensitive, OR entre los
-      // campos que el endpoint declara — aquí **nombre o número** de la carta (§M2-B.1).
-      card.OR = [
-        { name: { contains: params.q, mode: 'insensitive' } },
-        { number: { contains: params.q, mode: 'insensitive' } },
-      ];
+      // §BUSCADOR-CARTAS: una sola función (nombre, número, clave de set, código impreso).
+      const qWhere = await buildCardSearchWhere(this.prisma, params.q, { allowFolio: true });
+      if (qWhere) card.AND = [qWhere];
     }
     return {
       productType: 'raw',

@@ -3,10 +3,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthProvider, AuthTokenType, NameSource, Prisma, Role, User, UserStatus } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { assertValidPhone, isValidMxPhone, normalizeMxPhone } from '../users/phone-mx';
+import { assertValidPhone, isValidMxPhone } from '../users/phone-mx';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import {
@@ -240,6 +240,9 @@ export class AuthService {
    */
   async registerEmailOnly(dto: RegisterEmailOnlyDto, requestIp?: string | null) {
     const email = dto.email;
+    // §CELULAR-ALTA (v2 §6.3): ninguna cuenta nueva sin celular válido. Inválido/ausente ⇒ 422 PHONE_INVALID y no se crea cuenta
+    // (la compra como invitado sigue en el front).
+    const phone = assertValidPhone(dto.phone);
     let user: User;
     try {
       user = await this.prisma.user.create({
@@ -248,7 +251,7 @@ export class AuthService {
           passwordHash: null,
           name: email.split('@')[0],
           nameSource: NameSource.derived,
-          phone: normalizeMxPhone(dto.phone), // §CELULAR: el del domicilio si es válido; si no, null (no se pierde la compra)
+          phone,
           authProvider: AuthProvider.local,
           role: Role.customer,
           emailVerified: false,
@@ -884,6 +887,60 @@ export class AuthService {
     if (!identity.emailVerified) {
       throw BusinessException.forbidden('GOOGLE_EMAIL_UNVERIFIED', 'Google email not verified');
     }
+    return this.googleCore(identity, null);
+  }
+
+  /** §CELULAR-ALTA (v2 §6.2): clave propia del token de alta (derivada; ⛔ no sirve como access/refresh/device). */
+  private signupSecret(): string {
+    return createHmac('sha256', this.config.get<string>('JWT_ACCESS_SECRET') ?? '').update('google_signup').digest('hex');
+  }
+
+  private async signSignup(identity: { sub: string; email: string; name?: string | null; picture?: string | null }): Promise<string> {
+    return this.jwt.signAsync(
+      { purpose: 'google_signup', sub: identity.sub, email: identity.email.toLowerCase(), name: identity.name?.trim() || null, picture: identity.picture ?? null },
+      { secret: this.signupSecret(), algorithm: 'HS256', expiresIn: 15 * 60, jwtid: randomUUID() },
+    );
+  }
+
+  /**
+   * §CELULAR-ALTA (v2 §6.2) — `POST /auth/google/complete {signupToken, phone}`: crea la cuenta Google con celular y da sesión.
+   * Token vencido/inválido/de otro propósito ⇒ 401 `SIGNUP_EXPIRED`; celular inválido ⇒ 422 `PHONE_INVALID`. Idempotente: si la
+   * cuenta ya existe por ese googleId (doble envío) responde como login; un correo ya registrado sigue el ligado de siempre.
+   */
+  async googleComplete(signupToken: string, phoneRaw: unknown) {
+    let payload: { purpose?: unknown; sub?: unknown; email?: unknown; name?: unknown; picture?: unknown };
+    try {
+      payload = await this.jwt.verifyAsync(signupToken, { secret: this.signupSecret(), algorithms: ['HS256'] });
+    } catch {
+      throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
+    }
+    if (payload.purpose !== 'google_signup' || typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
+      throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
+    }
+    const phone = assertValidPhone(phoneRaw);
+    // SIGN-1: el token es de UN solo uso. Si la cuenta de ese Google ya existe, el token ya sirvió (o la cuenta es anterior):
+    // ⛔ no da sesión. La idempotencia queda SOLO para la carrera simultánea (P2002 en la alta, más abajo).
+    if (await this.prisma.user.findUnique({ where: { googleId: payload.sub }, select: { id: true } })) {
+      throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
+    }
+    const res = await this.googleCore(
+      {
+        sub: payload.sub,
+        email: payload.email,
+        emailVerified: true,
+        name: typeof payload.name === 'string' ? payload.name : null,
+        picture: typeof payload.picture === 'string' ? payload.picture : null,
+      },
+      phone,
+    );
+    if ('pendingSignup' in res) throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
+    return res;
+  }
+
+  private async googleCore(
+    identity: { sub: string; email: string; emailVerified: boolean; name?: string | null; picture?: string | null },
+    newAccountPhone: string | null,
+  ) {
     const email = identity.email.toLowerCase();
 
     // 1) Por googleId (ya enlazada anteriormente).
@@ -944,24 +1001,40 @@ export class AuthService {
     }
 
     // 3) Alta nueva (solo-Google): passwordHash null, emailVerified true, role SIEMPRE customer.
+    if (!user && newAccountPhone === null) {
+      // §CELULAR-ALTA (v2 §6.2): Google nuevo NO crea cuenta: devuelve un token firmado (15 min) y la cuenta nace en `complete`.
+      const gName = identity.name?.trim() || email.split('@')[0];
+      return { pendingSignup: { signupToken: await this.signSignup(identity), email, name: gName } };
+    }
     if (!user) {
       // v1.67 (D-CTA-4, §4.47.5): si Google no mandó nombre, se sigue derivando del correo (un `name`
       // vacío rompe copys) pero se MARCA `nameSource='derived'` para que no parezca tecleado. Un `name`
       // en blanco del token cuenta como ausente (no se guarda "" ni se marca `google`).
       const googleName = identity.name?.trim() || null;
-      user = await this.prisma.user.create({
-        data: {
-          email,
-          passwordHash: null,
-          name: googleName ?? email.split('@')[0],
-          nameSource: googleName ? NameSource.google : NameSource.derived,
-          role: Role.customer,
-          authProvider: AuthProvider.google,
-          googleId: identity.sub,
-          emailVerified: true,
-          avatarUrl: identity.picture ?? null,
-        },
-      });
+      try {
+        user = await this.prisma.user.create({
+          data: {
+            email,
+            passwordHash: null,
+            name: googleName ?? email.split('@')[0],
+            nameSource: googleName ? NameSource.google : NameSource.derived,
+            role: Role.customer,
+            authProvider: AuthProvider.google,
+            googleId: identity.sub,
+            emailVerified: true,
+            avatarUrl: identity.picture ?? null,
+            phone: newAccountPhone,
+          },
+        });
+      } catch (e) {
+        // Doble `complete` simultáneo: gana uno; el otro responde como login (idempotente, 1 sola cuenta).
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') throw e;
+        // SIGN-1: solo UN ganador recibe sesión; el que pierde la carrera de `complete` (token de un solo uso) ⇒ 401.
+        if (newAccountPhone !== null) throw new BusinessException('SIGNUP_EXPIRED', 401, 'Signup token expired or invalid');
+        const winner = await this.prisma.user.findUnique({ where: { googleId: identity.sub } });
+        if (!winner) throw e;
+        user = winner;
+      }
     }
 
     if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {

@@ -165,7 +165,7 @@ describe('ClaimableOrdersNotice · aparece, reclama y desaparece (F7)', () => {
     renderWithProviders(<ClaimableOrdersNotice surface="vault" />, 'es');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Vincular a mi cuenta' }));
-    await waitFor(() => expect(claim).toHaveBeenCalledWith(['ord-g-1', 'ord-g-2']));
+    await waitFor(() => expect(claim).toHaveBeenCalledWith(['ord-g-1', 'ord-g-2'], undefined));
 
     // Éxito: mono verde + «Ver mis compras» (solo en bóveda) → /orders. El aviso ya no está.
     expect(await screen.findByText('PEDIDOS EN TU HISTORIAL')).toBeInTheDocument();

@@ -1,4 +1,5 @@
 import { CardLanguage, Finish, StampType } from '@prisma/client';
+import { assertValidPhone } from '../users/phone-mx';
 import { orderLineVersionOf } from '../../common/card-version';
 import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -488,6 +489,8 @@ export class GuestCheckoutService {
       );
     }
     this.assertMxAddress(dto.shippingAddress.country);
+    // §CELULAR-ALTA (v2 §6.6): celular del invitado con el helper estricto; se guarda el normalizado.
+    const guestPhone = assertValidPhone(dto.shippingAddress.phone);
 
     // Anti-enumeración (criterio 56): NO se consulta `User` por este correo. Que tenga cuenta o no
     // es indistinguible desde fuera (mismo status, mismo shape, mismos tiempos).
@@ -501,7 +504,7 @@ export class GuestCheckoutService {
       dto.shippingAddress.city,
       dto.shippingAddress.state,
     );
-    const addressSnapshot = this.toAddressSnapshot({ ...dto.shippingAddress, ...geo });
+    const addressSnapshot = this.toAddressSnapshot({ ...dto.shippingAddress, ...geo, phone: guestPhone });
 
     // v1.68 (§4-R.3): la reserva PROPIA existe SOLO si el body trae `retryOfCheckoutToken` válido
     // que resuelve a una orden `pending` de ESTE correo. Sin reclamo ⇒ conducta de hoy, literal.

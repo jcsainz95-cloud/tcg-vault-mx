@@ -6,6 +6,7 @@ import { IneRetentionJobService } from './ine-retention.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { OrderReservationSweepJobService } from './order-reservation-sweep.service';
 import { VaultOrphanRepairService } from './vault-orphan-repair.service';
+import { UsersPhoneBackfillService } from './users-phone-backfill.service';
 import { SchedulerService } from './scheduler.service';
 import { AdminJobsController } from './admin-jobs.controller';
 import { PricingModule } from '../modules/pricing/pricing.module';
@@ -52,6 +53,7 @@ import { DemandModule } from '../modules/demand/demand.module';
     AuthTokenSweepJobService,
     OrderReservationSweepJobService,
     VaultOrphanRepairService,
+    UsersPhoneBackfillService,
     SchedulerService,
   ],
   controllers: [AdminJobsController],
@@ -62,6 +64,7 @@ import { DemandModule } from '../modules/demand/demand.module';
     AuthTokenSweepJobService,
     OrderReservationSweepJobService,
     VaultOrphanRepairService,
+    UsersPhoneBackfillService,
     PricingModule,
   ],
 })

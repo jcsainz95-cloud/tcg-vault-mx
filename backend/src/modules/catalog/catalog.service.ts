@@ -27,6 +27,7 @@ import {
 } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
+import { buildCardSearchWhere, searchCardsPage } from '../../common/card-search';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes, FINISH_ORDER, orderFinishes } from '../../common/card-order';
 import {
   DEFAULT_VERSION,
@@ -1408,7 +1409,11 @@ export class CatalogService {
     // `fetchSellable` sigue listando SOLO lo `sellable` (agrupar no publica cartas sin precio).
     if (q.setId) cardWhere.setId = await this.expandSetIdFilter(q.setId);
     if (q.rarity) cardWhere.rarity = q.rarity;
-    if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
+    if (q.q) {
+      // §BUSCADOR-CARTAS: una sola función de búsqueda (nombre, número, clave de set).
+      const qWhere = await buildCardSearchWhere(this.prisma, q.q, { legacy: 'name' });
+      if (qWhere) cardWhere.AND = [qWhere];
+    }
     if (Object.keys(cardWhere).length) extra.card = cardWhere;
 
     // H9 / SB-D5: la vista de SINGLES excluye el sellado (guardarraíl interino) — ver singlesPublishedWhere.
@@ -2169,32 +2174,22 @@ export class CatalogService {
     page: number;
     pageSize: number;
   }) {
-    const where: Prisma.CardWhereInput = {};
-    if (params.setId) where.setId = params.setId;
-    if (params.rarity) where.rarity = params.rarity;
-    if (params.q) {
-      // Coincide con nombre (contains, case-insensitive) y/o número de carta.
-      where.OR = [
-        { name: { contains: params.q, mode: 'insensitive' } },
-        { number: { contains: params.q, mode: 'insensitive' } },
-      ];
-    }
-    const skip = (params.page - 1) * params.pageSize;
-    const [rows, total] = await Promise.all([
-      this.prisma.card.findMany({
-        where,
-        include: { set: true },
-        // ORDEN NORMATIVO v1.22 (API_CONTRACT §6 / ARCHITECTURE §4.22b). Se aplica EN LA BASE DE
-        // DATOS, antes de paginar: ordenar tras el skip/take reordenaría la PÁGINA, no el conjunto
-        // (orden global incorrecto + filas repetidas/saltadas). Con `setId` (binder del cotizador)
-        // el orden es natural puro; sin él, nombre primero. Antes de v1.22 era
-        // `[{name},{number}]` con `number` como String ("10" antes que "2") — defecto ORD-1.
-        orderBy: params.setId ? CARD_ORDER_BY_IN_SET : CARD_ORDER_BY_GLOBAL,
-        skip,
-        take: params.pageSize,
-      }),
-      this.prisma.card.count({ where }),
-    ]);
+    const baseWhere: Prisma.CardWhereInput = {};
+    if (params.setId) baseWhere.setId = params.setId;
+    if (params.rarity) baseWhere.rarity = params.rarity;
+    // §BUSCADOR-CARTAS (`common/card-search.ts`): palabras en cualquier orden, clave de set + número, código impreso.
+    // ORDEN NORMATIVO v1.22 (API_CONTRACT §6 / ARCHITECTURE §4.22b) EN LA BASE DE DATOS, antes de paginar
+    // (ordenar tras skip/take reordenaría la PÁGINA). Con `setId` (binder) orden natural puro; sin él, nombre
+    // primero y, con q, coincidencia de identidad (clave+número) antes.
+    const { rows, total } = await searchCardsPage(this.prisma, {
+      q: params.q,
+      baseWhere,
+      hasSetId: !!params.setId,
+      orderBy: params.setId ? CARD_ORDER_BY_IN_SET : CARD_ORDER_BY_GLOBAL,
+      page: params.page,
+      pageSize: params.pageSize,
+      include: { set: true },
+    });
     // v1.22-2 / N-15 (§4.22a-6): picker del cotizador — acabados priceados EN LOTE (sin N+1) para
     // displayFinishes; el front pinta una tarjeta por acabado de displayFinishes (oculta el espurio).
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(rows.map((c) => c.id));

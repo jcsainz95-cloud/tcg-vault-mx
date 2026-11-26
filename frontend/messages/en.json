@@ -7,7 +7,7 @@
       "body": "We use it to keep you posted on your orders, pickups and sales. Only TCG HUNT sees it.",
       "cart": "Your cart ({count}) is kept.",
       "label": "Mobile number (10 digits)",
-      "invalid": "Enter your 10-digit mobile number",
+      "invalid": "Enter a valid 10-digit mobile number",
       "failed": "Could not save. Check your connection and try again",
       "save": "Save and continue",
       "logout": "Log out"
@@ -30,6 +30,11 @@
     "back": "Back",
     "search": "Search",
     "clearFilters": "Clear filters",
+    "cardSearch": {
+      "placeholder": "Name, number or printed code (PRE 078)",
+      "lead": "We couldn't find that card.",
+      "tip": "Try the name, the number (078) or the printed code (PRE 078)."
+    },
     "noResults": "No results",
     "all": "All",
     "withoutIva": "before VAT",
@@ -271,7 +276,6 @@
       "title": "How much is your binder worth?",
       "subtitle": "Build your list and see what we pay today. Free, no account, no commitment.",
       "searchLabel": "Search a card to quote",
-      "searchPlaceholder": "Search a card…",
       "add": "Add",
       "empty": "Search your first card and we'll tell you what we pay for it.",
       "pending": "Pending",
@@ -349,7 +353,6 @@
     "filterRarity": "Rarity",
     "filterCondition": "Condition",
     "filterType": "Type",
-    "searchPlaceholder": "Search card…",
     "emptyTitle": "No card matches",
     "emptyBody": "Try other filters or clear the search.",
     "pageOutOfRange": {
@@ -1408,6 +1411,19 @@
     "name": "Name",
     "phone": "Mobile number (10 digits)",
     "phoneInvalid": "Enter your 10-digit mobile number",
+    "phoneSignup": {
+      "title": "Complete your account",
+      "help": "We need your mobile number to finish. We use it to notify you about orders, withdrawals and sales.",
+      "label": "Mobile (10 digits)",
+      "error": "Enter a valid 10-digit mobile number",
+      "button": "Create my account",
+      "cancel": "Cancel",
+      "failed": "We couldn't save it. Check your connection and try again.",
+      "expired": "Time ran out. Sign in with Google again.",
+      "restart": "Start over",
+      "claimHelp": "To notify you about your order we need your mobile number.",
+      "claimButton": "Save and link my order"
+    },
     "loginCta": "Sign in",
     "registerCta": "Create account",
     "toRegister": "No account? Sign up",
@@ -1520,6 +1536,10 @@
     "backToLogin": "Back to sign in"
   },
   "admin": {
+    "folioHint": {
+      "text": "To look up a piece by its folio use “Search by folio”.",
+      "open": "Open {folio} in Inventory"
+    },
     "suppliers": {
       "lead": "Buying from partner stores: requests, offers, pickup, review and payment. We never pay more than the market price of the day.",
       "tabsLabel": "Supplier sections",
@@ -2210,6 +2230,7 @@
         "emptyBody": "Every paid order has its cards in the buyer's vault."
       },
       "fulfillment": {
+        "searchInventory": "Search inventory",
         "inVault": "In their vault",
         "replaced": "Replaced with an identical copy ({from} → {to})",
         "replacedNoFolio": "Replaced with an identical copy",
@@ -5095,6 +5116,14 @@
     },
     "m6": {
       "ficha": {
+        "nameEdit": "Edit",
+        "nameEditAria": "Edit the name of {name}",
+        "nameEditLabel": "Customer name",
+        "nameSave": "Save",
+        "nameError": "Enter a name of {min} to {max} characters, with at least one letter and no < or >",
+        "nameSaveError": "The name could not be saved. Try again.",
+        "nameMissing": "No name",
+        "nameMissingAdd": "No name — add",
         "usernameLine": "Username: {username}",
         "crumbUsers": "Users",
         "clientLabel": "Customer",
@@ -5129,8 +5158,8 @@
         "openSell": "Open request {n}",
         "stripLabel": "Customer summary",
         "purchases": "Purchases",
-        "purchasesSub": "{count} paid orders · last {date}",
-        "purchasesSubNone": "{count} paid orders",
+        "purchasesSub": "{count, plural, one {# paid order} other {# paid orders}} · last {date}",
+        "purchasesSubNone": "{count, plural, one {# paid order} other {# paid orders}}",
         "refundedSub": "{amount} refunded",
         "sales": "Sales to the store",
         "salesSub": "{count} paid · {inProgress} in progress",
@@ -7228,6 +7257,12 @@
         "physical": "What should be there"
       },
       "physical": {
+        "paidUnassigned": {
+          "count": "{count, plural, one {# paid, unassigned} other {# paid, unassigned}}",
+          "title": "Paid but unassigned ({count})",
+          "help": "The customer already paid for these cards and no identical copy could be assigned. Get the card and add it: it is assigned automatically.",
+          "order": "View order {n}"
+        },
         "tab": "What should be there",
         "drawer": {
           "own": "Their drawer",
@@ -7276,11 +7311,28 @@
         "sealed": "Sealed",
         "graded": "Graded"
       },
+      "pieceDetail": {
+        "title": "Piece detail",
+        "set": "Set",
+        "number": "Number",
+        "finish": "Finish",
+        "language": "Language",
+        "condition": "Condition",
+        "status": "Status",
+        "owner": "Belongs to",
+        "ownerCustomer": "A customer's",
+        "ownerStore": "The store's",
+        "location": "Location",
+        "noLocation": "No location",
+        "close": "Close"
+      },
       "folioSearch": {
         "label": "Search by folio",
         "placeholder": "Search folio (INV-000123)",
         "cta": "Search folio",
-        "notFound": "No piece exists with that folio."
+        "notFound": "That folio does not exist.",
+        "invalid": "Enter a folio like INV-000123",
+        "failed": "The folio could not be searched. Try again."
       },
       "value": {
         "total": "Total value",
@@ -9475,6 +9527,7 @@
     "required": "Required field",
     "postalCodeInvalid": "The postal code is 5 digits.",
     "phoneInvalid": "The phone number is 10 digits.",
+    "guestPhoneInvalid": "Enter a valid 10-digit mobile number",
     "line1": "Street and number",
     "line2": "Unit or apt. number (optional)",
     "neighborhood": "Neighborhood",

@@ -19,7 +19,7 @@ import {
 } from 'class-validator';
 import { GUEST_MAX_ITEMS } from '../guest-checkout.constants';
 import { DISCOUNT_CODE_MAX } from './orders.dto';
-import { ADDRESS_LIMITS, PHONE_PATTERN, POSTAL_CODE_PATTERN } from '../../users/address-rules';
+import { ADDRESS_LIMITS, POSTAL_CODE_PATTERN } from '../../users/address-rules';
 import { AccessoryLineInput, AccessoryLinesField, CartNotEmpty, DeckPullInput, DeckPullsField } from './accessory-cart.dto';
 
 /**
@@ -67,8 +67,8 @@ export class GuestAddressInput {
    * `400 VALIDATION_ERROR` genérico. Solo nacional (PROJECT §D).
    */
   @IsString() @MaxLength(2) country!: string;
-  /** Teléfono MX de contacto de paquetería: 10 dígitos. */
-  @Matches(PHONE_PATTERN) phone!: string;
+  /** §CELULAR-ALTA (v2 §6.6): lo valida el servicio con `normalizeMxPhone` ⇒ 422 PHONE_INVALID (no 400). Se guarda normalizado. */
+  @IsOptional() phone!: unknown;
   /** Quien recibe (el invitado no tiene `User.name`). */
   @IsString() @MaxLength(ADDRESS_LIMITS.recipientName) recipientName!: string;
   /** ⭐ v1.81 (§M4-SHIP.19.5): referencias para el repartidor, opcional, ≤ 70 (va a la guía). */
@@ -195,6 +195,10 @@ export class GuestResendLinkDto {
 }
 
 export class ClaimOrdersDto {
+  /** §CELULAR-ALTA: opcional; solo se pide cuando ni la cuenta ni los pedidos tienen celular válido (422 PHONE_REQUIRED). */
+  @IsOptional()
+  phone?: unknown;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(50)

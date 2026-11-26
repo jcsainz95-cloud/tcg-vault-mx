@@ -1,10 +1,13 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Search } from 'lucide-react';
 import { createInventoryItem, searchBuylistCards } from '@/lib/api';
+import { CARD_SEARCH_MAX } from '@/lib/card-search';
+
 import type { GradingCompany } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
@@ -37,6 +40,7 @@ export interface AddGradedModalProps {
 export function AddGradedModal({ open, onClose, card, onCreated, onToast }: AddGradedModalProps) {
   const t = useTranslations('admin.inventory.addGraded');
   const tc = useTranslations('common');
+  const tcs = useTranslations('common.cardSearch');
   const tM1 = useTranslations('admin.m1');
   const errorMessage = useErrorMessage('operator');
 
@@ -130,6 +134,8 @@ export function AddGradedModal({ open, onClose, card, onCreated, onToast }: AddG
               <Input
                 label={t('searchCard')}
                 className="flex-1"
+                placeholder={tcs('placeholder')}
+                maxLength={CARD_SEARCH_MAX}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -143,10 +149,14 @@ export function AddGradedModal({ open, onClose, card, onCreated, onToast }: AddG
                 <Search size={18} /> {tc('search')}
               </Button>
             </div>
+            <FolioHint query={query} />
             {picked && (
               <p className="text-sm">
                 {t('cardLabel')}: <span lang="en" className="font-semibold">{picked.name}</span>
               </p>
+            )}
+            {results.data && results.data.data.length === 0 && (
+              <p className="text-sm text-muted" data-testid="graded-search-empty">{tcs('lead')} {tcs('tip')}</p>
             )}
             {results.data && (
               <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto" role="listbox" aria-label={t('searchCard')}>

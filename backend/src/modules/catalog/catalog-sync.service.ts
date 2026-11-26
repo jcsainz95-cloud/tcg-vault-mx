@@ -1682,7 +1682,7 @@ export class CatalogSyncService implements OnModuleInit {
     const symbolUrl = this.sanitizeSetImageUrl(rs.images?.symbol, rs.id, 'symbol');
     // PROJECTION-EXEMPT: helper PRIVADO del sync (`upsertSet`); su resultado se consume dentro del
     // propio job para llavear las cartas. No lo devuelve ningún controller.
-    return this.prisma.cardSet.upsert({
+    const saved = await this.prisma.cardSet.upsert({
       where: { externalId: rs.id },
       create: {
         externalId: rs.id,
@@ -1707,6 +1707,17 @@ export class CatalogSyncService implements OnModuleInit {
         ...(symbolUrl !== null ? { symbolUrl } : {}),
       },
     });
+    // KEY-1 (§BUSCADOR-CARTAS): dos sets con la misma clave impresa quedan MARCADOS (log); la búsqueda no usa una clave ambigua.
+    if (saved.ptcgoCode) {
+      let others = 0;
+      try {
+        others = await this.prisma.cardSet.count({ where: { ptcgoCode: { equals: saved.ptcgoCode, mode: 'insensitive' }, id: { not: saved.id } } });
+      } catch {
+        /* medición best-effort */
+      }
+      if (others > 0) this.logger.warn(`catalog: la clave de set «${saved.ptcgoCode}» la comparten ${others + 1} sets (ambigua; no se usa para buscar).`);
+    }
+    return saved;
   }
 
   /**

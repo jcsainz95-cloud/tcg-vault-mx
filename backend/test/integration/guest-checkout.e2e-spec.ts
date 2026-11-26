@@ -222,6 +222,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.body.error.details).toMatchObject({ upsell: true });
     });
 
+    it.each(['0000000000', '1234567890', 'abc', '55'])('celular del invitado %j ⇒ 422 PHONE_INVALID (§CELULAR-ALTA v2 §6.6), sin crear pedido', async (phone) => {
+      const res = await h.api('POST', '/checkout/guest/session', {
+        json: { inventoryItemIds: [itemId], email: GUEST_EMAIL, shippingAddress: { ...ADDRESS, phone }, acceptedTerms: true },
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('PHONE_INVALID');
+      expect(res.body.error.details).toMatchObject({ field: 'phone' });
+    });
+
     it('correo con formato inválido bloquea el pago (criterio 47)', async () => {
       const res = await h.api('POST', '/checkout/guest/session', {
         json: {
@@ -662,7 +671,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const res = await h.api('POST', '/orders/claim', { token: userToken, json: { orderIds: [orderId] } });
       expect(res.status).toBe(200);
       // v1.116 (§4-G.9c): cuenta nueva ⇒ libreta vacía ⇒ la dirección del pedido pasa a ella (1 fila).
-      expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 1 });
+      expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 1, phoneRequired: false });
 
       const list = await h.api('GET', '/orders', { token: userToken });
       expect((list.body.data as any[]).some((o) => o.id === orderId)).toBe(true);

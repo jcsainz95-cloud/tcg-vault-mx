@@ -80,7 +80,7 @@ function row(spec: RowSpec) {
 /** Servicio con prisma/pricing dobles: `findMany` devuelve las filas dadas; el mercado sale de `__priced`. */
 function svcOf(rows: ReturnType<typeof row>[]) {
   const findMany = jest.fn(async (_args: any) => rows);
-  const prisma = { variantPriceOverride: { findMany } } as unknown as PrismaService;
+  const prisma = { variantPriceOverride: { findMany }, cardSet: { findMany: jest.fn(async () => []) } } as unknown as PrismaService;
   const pricing = {
     loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
@@ -203,7 +203,8 @@ describe('§M2-B.1 — el ORDEN DE OPERACIONES: clasificar ANTES de filtrar, con
       { bountyUnpublishedAt: { not: null } },
     ]);
     // `q` busca por nombre O número de la carta; el `state` NO viaja al motor (no es SQL-calculable).
-    expect(args.where.card.OR).toHaveLength(2);
+    // §BUSCADOR-CARTAS: el filtro de `q` sale de la función compartida (`common/card-search.ts`), en `card.AND`.
+    expect(args.where.card.AND).toHaveLength(1);
     expect(JSON.stringify(args.where)).not.toContain('rebasada');
   });
 

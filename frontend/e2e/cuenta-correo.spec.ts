@@ -64,10 +64,18 @@ async function linkFromMail(email: string, pagePath: 'account-setup' | 'verify-e
 }
 
 /** Abre el alta con solo el correo desde la línea T4 del carrito (criterio 46) y la envía. */
+/** §CELULAR-ALTA §6.3: el alta solo-correo usa el celular del comprador, así que el domicilio del checkout lo trae ya escrito. */
+async function fillBuyerPhone(page: Page) {
+  await page.getByLabel(t('es', 'addresses.phone'), { exact: true }).first().fill('55 1234 5678');
+}
+
 async function signUpEmailOnlyFromT4(page: Page, email: string) {
+  await fillBuyerPhone(page);
   await page.getByRole('button', { name: 'crea una cuenta', exact: true }).click();
   const panel = page.locator('#identity-panel');
   await expect(panel.locator('input[type="password"]')).toHaveCount(0);
+  // Con el celular del comprador ya capturado, el panel sigue siendo de UN solo campo (el correo).
+  await expect(panel.locator('form input:not([type="hidden"])')).toHaveCount(1);
   await panel.getByLabel(t('es', 'auth.email'), { exact: true }).fill(email);
   await panel.getByRole('button', { name: t('es', 'auth.registerCta') }).click();
 }
@@ -80,6 +88,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
     await page.goto('/es/checkout');
     const email = uniqueEmail('e1');
     await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill(email);
+    await fillBuyerPhone(page);
     await page
       .getByRole('region', { name: t('es', 'checkout.destination.eyebrow') })
       .getByRole('button', { name: `${t('es', 'checkout.destination.vault')} ${t('es', 'checkout.destination.vaultRequiresAccount')}` })

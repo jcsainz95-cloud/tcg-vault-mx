@@ -158,7 +158,7 @@ type OrderRow = {
 function buildClaim(orders: OrderRow[], users: { createAddressFromClaim: jest.Mock }, opts: { email?: string } = {}) {
   const trace: string[] = [];
   const prisma = {
-    user: { findUnique: jest.fn(async () => ({ email: opts.email ?? 'juan@example.com', emailVerified: true })) },
+    user: { findUnique: jest.fn(async () => ({ email: opts.email ?? 'juan@example.com', emailVerified: true, phone: '5512345678' })) },
     order: {
       updateMany: jest.fn(async ({ where, data }: { where: { id: string; guestEmail: string }; data: { userId: string } }) => {
         trace.push(`update:${where.id}`);
@@ -208,7 +208,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
     const users = { createAddressFromClaim: jest.fn() };
     const { svc, trace } = buildClaim([order('o1', 1)], users);
     const res = await svc.claim(ME, ['o1']);
-    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 1 });
+    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 1, phoneRequired: false });
     expect(trace).toEqual(['update:o1', 'revoke:o1', 'audit:o1', 'save:o1']);
     expect(users.createAddressFromClaim).toHaveBeenCalledWith(ME, 'o1', SNAP);
   });
@@ -262,7 +262,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
       throw Object.assign(new Error(`fallo con ${SNAP.line1} ${SNAP.postalCode}`), { code: 'P2002' });
     });
     const res = await svc.claim(ME, ['o1']);
-    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0 });
+    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0, phoneRequired: false });
     expect(tokens.revokeAll).toHaveBeenCalledWith('o1', expect.any(Date));
     expect(warn).toHaveBeenCalledWith('ORDER_CLAIM_ADDRESS_SKIPPED reason=error orderId=o1 error=P2002');
     const logged = JSON.stringify(warn.mock.calls);
@@ -274,7 +274,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
     const { svc } = buildClaim([order('o1', 1)], users);
     users.createAddressFromClaim.mockResolvedValue({ created: false, reason: 'invalid' });
     const res = await svc.claim(ME, ['o1']);
-    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0 });
+    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0, phoneRequired: false });
     expect(warn).toHaveBeenCalledWith('ORDER_CLAIM_ADDRESS_SKIPPED reason=invalid orderId=o1');
   });
 
@@ -283,7 +283,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
     const { svc, prisma } = buildClaim([order('o1', 1)], users);
     prisma.order.findMany.mockRejectedValueOnce(new Error('db down'));
     const res = await svc.claim(ME, ['o1']);
-    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0 });
+    expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0, phoneRequired: false });
     expect(warn).toHaveBeenCalledWith('ORDER_CLAIM_ADDRESS_SKIPPED reason=error orderId=o1 error=Error');
   });
 
@@ -293,7 +293,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
       const users = { createAddressFromClaim: jest.fn() };
       const { svc, tokens } = buildClaim([order('o1', 1, SNAP, { status })], users);
       const res = await svc.claim(ME, ['o1']);
-      expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0 });
+      expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0, phoneRequired: false });
       expect(tokens.revokeAll).toHaveBeenCalledWith('o1', expect.any(Date));
       expect(users.createAddressFromClaim).not.toHaveBeenCalled();
       expect(warn.mock.calls).toEqual([['ORDER_CLAIM_ADDRESS_SKIPPED reason=unsettled orderId=o1']]);
@@ -304,7 +304,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
     const users = { createAddressFromClaim: jest.fn() };
     const { svc } = buildClaim([order('real', 1), order('plantado', 20, { ...SNAP, line1: 'Bodega' }, { status: 'failed' })], users);
     const res = await svc.claim(ME, ['real', 'plantado']);
-    expect(res).toEqual({ claimed: ['real', 'plantado'], failed: [], addressesSaved: 1 });
+    expect(res).toEqual({ claimed: ['real', 'plantado'], failed: [], addressesSaved: 1, phoneRequired: false });
     expect(users.createAddressFromClaim.mock.calls.map((c) => c[1])).toEqual(['real']);
   });
 });

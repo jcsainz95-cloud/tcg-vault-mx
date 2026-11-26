@@ -1,5 +1,6 @@
 'use client';
 
+import { CARD_SEARCH_MAX } from '@/lib/card-search';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
@@ -102,6 +103,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   const t = useTranslations('catalog');
   const tc = useTranslations('common');
   const tShop = useTranslations('shop');
+  const tcs = useTranslations('common.cardSearch');
   const cart = useCart();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -324,8 +326,9 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   const searchField = (
     <input
       type="search"
-      aria-label={t('searchPlaceholder')}
-      placeholder={t('searchPlaceholder')}
+      aria-label={tcs('placeholder')}
+      placeholder={tcs('placeholder')}
+      maxLength={CARD_SEARCH_MAX}
       value={searchTerm}
       // R5: solo actualiza el estado inmediato; el fetch lo dispara el valor debounced.
       onChange={(e) => setSearchTerm(e.target.value)}
@@ -505,8 +508,8 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
               />
             ) : (catalogQuery.data?.data.length ?? 0) === 0 ? (
               <EmptyState
-                title={t('emptyTitle')}
-                body={t('emptyBody')}
+                title={searchTerm.trim() ? tcs('lead') : t('emptyTitle')}
+                body={searchTerm.trim() ? tcs('tip') : t('emptyBody')}
                 action={
                   hasFilters && (
                     <Button variant="secondary" onClick={clearFilters}>

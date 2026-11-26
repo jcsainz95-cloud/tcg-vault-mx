@@ -241,6 +241,7 @@ describe('sealedSetDetail (P-25)', () => {
 describe('gradedIndex (P-20)', () => {
   function buildHarness(grouped: any[], refs: Record<string, { cents: number; capturedDate?: string }>) {
     const prisma: any = {
+      cardSet: { findMany: jest.fn(async () => []) },
       inventoryItem: { groupBy: jest.fn(async () => grouped) },
       card: {
         findMany: jest.fn(async () => [
@@ -317,7 +318,8 @@ describe('gradedIndex (P-20)', () => {
     expect(h.prisma.inventoryItem.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          card: { name: { contains: 'chari', mode: 'insensitive' } },
+          // §BUSCADOR-CARTAS: filtro de la función compartida (nombre OR número contiene, una palabra).
+          card: { OR: expect.arrayContaining([{ name: { contains: 'chari', mode: 'insensitive' } }]) },
         }),
       }),
     );

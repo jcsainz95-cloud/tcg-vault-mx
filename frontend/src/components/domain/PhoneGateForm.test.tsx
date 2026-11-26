@@ -125,7 +125,7 @@ describe('PhoneGate — puerta del celular (modal B)', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Celular (10 dígitos)'), { target: { value: '5512345678' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar y continuar' }));
-    expect(await within(dialog).findByText('Escribe tu celular de 10 dígitos')).toBeInTheDocument();
+    expect(await within(dialog).findByText('Escribe un celular de 10 dígitos válido')).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
@@ -138,7 +138,7 @@ describe('PhoneGate — puerta del celular (modal B)', () => {
     fireEvent.change(within(dialog).getByLabelText('Celular (10 dígitos)'), { target: { value: '5512345678' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar y continuar' }));
     expect(await within(dialog).findByText(/No se pudo guardar/)).toBeInTheDocument();
-    expect(within(dialog).queryByText('Escribe tu celular de 10 dígitos')).toBeNull();
+    expect(within(dialog).queryByText('Escribe un celular de 10 dígitos válido')).toBeNull();
   });
 
   it.each([

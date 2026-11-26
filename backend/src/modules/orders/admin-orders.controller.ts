@@ -209,8 +209,14 @@ export class AdminOrdersController {
     // §BOVEDA-COBRADA-SIN-PIEZAS: estado de cumplimiento POR LÍNEA (asignada / repuesta X→Y / requiere atención / sin asignar).
     const lineRows = await this.prisma.orderItem.findMany({
       where: { orderId: id },
-      select: { inventoryItemId: true, replacedInventoryItemId: true, fulfillmentFailedAt: true, fulfillmentFailedReason: true, inventoryItem: { select: { folio: true } } },
+      select: { inventoryItemId: true, replacedInventoryItemId: true, fulfillmentFailedAt: true, fulfillmentFailedReason: true, finish: true, language: true, inventoryItem: { select: { folio: true, cardId: true } } },
     });
+    // §BOVEDA-COBRADA-SIN-PIEZAS (aditivo): clave impresa del set e imagen grande de catálogo, para identificar la carta a reponer.
+    const cardRows = await this.prisma.card.findMany({
+      where: { id: { in: [...new Set(lineRows.map((l) => l.inventoryItem.cardId).filter((x): x is string => !!x))] } },
+      select: { id: true, imageSmallUrl: true, imageLargeUrl: true, set: { select: { ptcgoCode: true } } },
+    });
+    const cardById = new Map(cardRows.map((c) => [c.id, c]));
     const replacedFolios = new Map(
       (await this.prisma.inventoryItem.findMany({ where: { id: { in: lineRows.map((l) => l.replacedInventoryItemId).filter((x): x is string => !!x) } }, select: { id: true, folio: true } })).map((r) => [r.id, r.folio]),
     );
@@ -271,6 +277,10 @@ export class AdminOrdersController {
           fulfillmentFailedReason: ln?.fulfillmentFailedReason ?? null,
           replacedInventoryItemId: ln?.replacedInventoryItemId ?? null,
           folio: ln?.inventoryItem.folio ?? null,
+          // Aditivo (identificación de la carta a reponer): `finish` crudo, `setKey` (ptcgoCode), `imageUrl` (grande, si no la chica).
+          finish: ln?.finish ?? null,
+          setKey: (ln?.inventoryItem.cardId ? cardById.get(ln.inventoryItem.cardId)?.set.ptcgoCode : null) ?? null,
+          imageUrl: (ln?.inventoryItem.cardId ? (cardById.get(ln.inventoryItem.cardId)?.imageLargeUrl ?? cardById.get(ln.inventoryItem.cardId)?.imageSmallUrl) : null) ?? null,
           replacedFolio: ln?.replacedInventoryItemId ? (replacedFolios.get(ln.replacedInventoryItemId) ?? null) : null,
         };
       }),

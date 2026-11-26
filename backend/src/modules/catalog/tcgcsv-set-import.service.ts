@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { candidateSetKey } from './set-search-key.service';
 import { Finish, Role, StampType } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { ManualVersionMergeService } from '../pricing/manual-version-merge.service';
@@ -256,9 +257,15 @@ export class TcgcsvSetImportService {
     }
 
     const releaseDate = group.publishedOn ? group.publishedOn.slice(0, 10).replace(/-/g, '/') : null;
+    // §BUSCADOR-CARTAS §3: clave impresa = `abbreviation` del grupo, solo si ningún otro set ya la usa (sin repetidas).
+    const abbrKey = candidateSetKey(group.abbreviation);
+    const keyTaken = abbrKey
+      ? (await tx.cardSet.findFirst({ where: { ptcgoCode: { equals: abbrKey, mode: 'insensitive' }, NOT: { externalId: tcgcsvSetExternalId(groupId) } }, select: { id: true } })) != null
+      : true;
     const set = await tx.cardSet.upsert({
       where: { externalId: tcgcsvSetExternalId(groupId) },
       create: {
+        ...(abbrKey && !keyTaken ? { ptcgoCode: abbrKey } : {}),
         externalId: tcgcsvSetExternalId(groupId),
         name: group.name,
         releaseDate,

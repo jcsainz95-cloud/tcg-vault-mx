@@ -26,6 +26,7 @@ import { CardProductResolverService } from './card-product-resolver.service';
 import { CardLinkRepairService } from './card-link-repair.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
+import { SetSearchKeyService } from './set-search-key.service';
 import { CatalogAutoStateService } from './catalog-auto-state.service';
 import { CatalogContentKeyBackfillService } from './catalog-content-key-backfill.service';
 import { CatalogStaleAlertService } from './catalog-stale-alert.service';
@@ -57,6 +58,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV que pokemontcg.io no tiene.
     TcgcsvSetImportService,
     TcgcsvGroupDiscoveryService,
+    SetSearchKeyService,
     PromoCollectionLinkService,
     CatalogAutoStateService,
     CatalogContentKeyBackfillService,

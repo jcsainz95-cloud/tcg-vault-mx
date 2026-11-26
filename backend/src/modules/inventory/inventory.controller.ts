@@ -742,6 +742,12 @@ export class InventoryController {
     return this.versions;
   }
 
+  /** §BUSCADOR-CARTAS (folio): pieza por folio exacto (`INV-000123`). Ver `InventoryService.getItemByFolio`. */
+  @Get('inventory/by-folio/:folio')
+  byFolio(@Param('folio') folio: string, @CurrentUser() user: { id: string; role: Role }) {
+    return this.inventory.getItemByFolio(folio, user.role);
+  }
+
   @Get('inventory/items/:id')
   get(@Param('id') id: string) {
     return this.inventory.getItem(id);

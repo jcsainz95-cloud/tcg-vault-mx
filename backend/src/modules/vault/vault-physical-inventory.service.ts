@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import { MissingReason, PreparationItemStatus, ReplacementCaseSource, VaultZone } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { findUnassignedLines } from '../payments/vault-orphans';
+import { readFrozenCardFacts } from '../orders/order-item-card';
 import { BusinessException } from '../../common/business.exception';
 import {
   LocationView,
@@ -39,7 +41,33 @@ export interface PhysicalInventoryItemDTO {
   physical: PhysicalState;
 }
 
+/** §BOVEDA-COBRADA-SIN-PIEZAS (aditivo): línea PAGADA del cliente sin pieza suya («requiere atención» o aún sin asignar). Sin importes. */
+export interface UnassignedPaidLineDTO {
+  orderId: string;
+  orderNumber: string | null;
+  orderItemId: string;
+  folio: string;
+  state: 'needs_attention' | 'unassigned';
+  card: {
+    name: string | null;
+    setName: string | null;
+    setKey: string | null;
+    number: string | null;
+    productType: string | null;
+    rawCondition: string | null;
+    gradingCompany: string | null;
+    gradeValue: string | null;
+  };
+  finish: string | null;
+  language: string | null;
+  imageUrl: string | null;
+  fulfillmentFailedReason: string | null;
+  fulfillmentFailedAt: string | null;
+}
+
 export interface CustomerPhysicalInventoryDTO {
+  /** Líneas pagadas sin asignar de ESTE cliente (misma consulta que el contador del panel). */
+  unassignedLines: UnassignedPaidLineDTO[];
   owner: { userId: string; name: string | null; email: string };
   drawer:
     | { kind: 'none' }
@@ -189,7 +217,7 @@ export class VaultPhysicalInventoryService {
       return codeUnits(a.card.name, b.card.name) || codeUnits(a.folio, b.folio);
     });
 
-    const counts = { total: pieces.length, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0, toReplace: 0 };
+    const counts = { total: pieces.length, needsAttention: 0, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0, toReplace: 0 };
     for (const it of items) {
       if (it.physical.state === 'to_replace') counts.toReplace += 1;
       else if (it.physical.state === 'in_drawer') counts.inDrawer += 1;
@@ -199,7 +227,52 @@ export class VaultPhysicalInventoryService {
       else counts.unlocated += 1;
     }
 
+    const unassigned = await findUnassignedLines(this.prisma, { userId });
+    let unassignedLines: UnassignedPaidLineDTO[] = [];
+    if (unassigned.length > 0) {
+      const oiRows = await this.prisma.orderItem.findMany({
+        where: { id: { in: unassigned.map((l) => l.orderItemId) } },
+        select: { id: true, finish: true, language: true, cardSnapshot: true, inventoryItem: { select: { cardId: true, productType: true, rawCondition: true, gradingCompany: true, gradeValue: true } } },
+      });
+      const oiById = new Map(oiRows.map((r) => [r.id, r]));
+      const cards = await this.prisma.card.findMany({
+        where: { id: { in: [...new Set(oiRows.map((r) => r.inventoryItem?.cardId).filter((x): x is string => !!x))] } },
+        select: { id: true, name: true, number: true, imageLargeUrl: true, imageSmallUrl: true, set: { select: { name: true, ptcgoCode: true } } },
+      });
+      const cardById = new Map(cards.map((c) => [c.id, c]));
+      unassignedLines = unassigned.map((l) => {
+        const oi = oiById.get(l.orderItemId);
+        const f = readFrozenCardFacts(oi?.cardSnapshot ?? null);
+        const c = oi?.inventoryItem?.cardId ? cardById.get(oi.inventoryItem.cardId) : undefined;
+        return {
+          orderId: l.orderId,
+          orderNumber: l.orderNumber,
+          orderItemId: l.orderItemId,
+          folio: l.folio,
+          state: l.fulfillmentFailedAt ? 'needs_attention' : 'unassigned',
+          card: {
+            name: f.name ?? c?.name ?? null,
+            setName: f.setName ?? c?.set.name ?? null,
+            setKey: c?.set.ptcgoCode ?? null,
+            number: f.number ?? c?.number ?? null,
+            productType: f.productType ?? oi?.inventoryItem?.productType ?? null,
+            rawCondition: f.rawCondition ?? oi?.inventoryItem?.rawCondition ?? null,
+            gradingCompany: f.gradingCompany ?? oi?.inventoryItem?.gradingCompany ?? null,
+            gradeValue: f.gradeValue ?? oi?.inventoryItem?.gradeValue ?? null,
+          },
+          finish: oi?.finish ?? null,
+          language: oi?.language ?? null,
+          imageUrl: c?.imageLargeUrl ?? c?.imageSmallUrl ?? null,
+          fulfillmentFailedReason: l.fulfillmentFailedReason,
+          fulfillmentFailedAt: l.fulfillmentFailedAt ? l.fulfillmentFailedAt.toISOString() : null,
+        };
+      });
+    }
+
+    counts.needsAttention = unassigned.length; // TODAS las líneas pagadas sin asignar (fallidas + `unassigned`)
+
     return {
+      unassignedLines,
       owner: { userId: user.id, name: customerDisplayName(user), email: customerEmailOrBlank(user.email, 'VaultPhysical.owner', user.id) },
       drawer:
         drawers.length === 0

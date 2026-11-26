@@ -423,6 +423,8 @@ export const ErrorCode = {
   PHONE_REQUIRED: 'PHONE_REQUIRED',
   // §CELULAR — celular vacío/inválido al escribirlo (registro, PATCH /users/me, M6). `details: { field: "phone" }`. 422.
   PHONE_INVALID: 'PHONE_INVALID',
+  // §CELULAR-ALTA (v2 §6.2) — `POST /auth/google/complete` con `signupToken` vencido/inválido. 401; el front reinicia Google.
+  SIGNUP_EXPIRED: 'SIGNUP_EXPIRED',
   // v1.51 (D9/D30, criterios 119/124/150) — `PATCH /admin/buylist/items/:itemId/decision` con
   // `approvedPriceCents` en el body sobre una solicitud del CICLO DE OFERTA
   // (`offerSentAt IS NOT NULL`). **El monto no se toma del cliente ni del admin**: `approve` lo fija

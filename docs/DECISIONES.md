@@ -700,6 +700,9 @@ Hecho medido: al cerrar por regla 2, `closeWithGuideTask` (`buylist-sweep.servic
 | 31 | `q=a`, `page=60 pageSize=20` con q | página vacía (tope 1000), `total` real |
 | 32 | sin `q` con `setId` | orden y paginación idénticos a hoy |
 Tiempo: p95 ≤ 300 ms en servidor sobre el catálogo de producción (30 corridas de las filas 1, 10, 14; medir antes/después, hoy **NO MEDIDO**); no peor que +20 % frente a hoy en la fila 14. Cobertura de claves: se reporta k/N sets (§3).
+**Resolución de la tabla (2026-11-26, construido):** «78» (una palabra) = igual que hoy (78/178/278); «078» y «078/131» suben el número exacto (y el total) sin filtrar; «charizard 4» = Y estricto (nombre Y número 4).
+**Folio:** `q` con forma `INV-\d+` resuelve la carta de esa pieza de inventario (y `GET /admin/inventory/by-folio/:folio`, ver `API_CONTRACT_PANEL_NOV26.md`).
+**Gradeadas:** la búsqueda de cartas graduadas ahora casa también por número y clave impresa (misma función `card-search.ts`).
 
 **Reparto.** `backend`: `backend/src/common/card-search.ts` (+spec), cambios en `catalog.service.ts` (`searchAllCards`, `listCards`), `admin-bounties.service.ts`, `master-set.service.ts`, `sealed-graded.service.ts`, `tcgcsv-set-import.service.ts` y `tcgcsv-group-discovery.service.ts` (clave) + job de relleno/medición en el sync existente; tope de `q` en `buylist-catalog.controller.ts`. `frontend`: textos es/en en `messages/*` y placeholders/ayuda/sin-resultados en `AddItemModal.tsx`, `AddGradedModal.tsx`, `HomeQuoter.tsx`, `WishlistSearch.tsx`, `GradedEstimateCaptureSection.tsx`, `BountiesView.tsx` (y buscador de Compra si lo hay); sin cambio de `api.ts`. **Gates:** `qa` (tabla de 32 filas, regresión del deck-matcher, tiempos) y `seguridad-lead` (límites de `q`, tope de volcado, sin comodines) antes de publicar; `/buylist/cards` es del cotizador de buylist. Sin migración ⇒ revertir = revert del commit; las claves rellenadas se quedan (inocuas).
 

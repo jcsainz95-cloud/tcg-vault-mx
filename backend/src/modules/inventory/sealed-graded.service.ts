@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { buildCardSearchWhere } from '../../common/card-search';
 import { Finish, GradingCompany, ProductType, SealedCondition } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -372,13 +373,14 @@ export class SealedGradedInventoryService {
    * `items?cardId=&productType=graded` (P-17).
    */
   async gradedIndex(q: { q?: string; page: number; pageSize: number }): Promise<GradedIndexResponse> {
+    const cardQ = q.q ? await buildCardSearchWhere(this.prisma, q.q, { legacy: 'name', allowFolio: true }) : null;
     const grouped = await this.prisma.inventoryItem.groupBy({
       by: ['cardId', 'gradingCompany', 'gradeValue'],
       where: {
         productType: 'graded' as ProductType,
         ownerType: 'platform',
         status: { notIn: NOT_ON_HAND },
-        ...(q.q ? { card: { name: { contains: q.q, mode: 'insensitive' as const } } } : {}),
+        ...(cardQ ? { card: cardQ } : {}),
       },
       _count: { _all: true, acquisitionCostCents: true },
       _sum: { acquisitionCostCents: true },

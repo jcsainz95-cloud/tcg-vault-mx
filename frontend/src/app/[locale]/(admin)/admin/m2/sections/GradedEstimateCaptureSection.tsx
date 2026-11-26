@@ -1,10 +1,12 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { FINISH_ORDER, primaryFinishOf } from '@/lib/finish';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Search } from 'lucide-react';
+import { CARD_SEARCH_MAX } from '@/lib/card-search';
 import {
   getGradedEstimateConfig,
   getGradedEstimatePreview,
@@ -54,6 +56,7 @@ import { pesosToCentsOrNull } from '@/lib/money-input';
 
 export function GradedEstimateCaptureSection() {
   const t = useTranslations('admin.m2.gradedEstimateCapture');
+  const tcs = useTranslations('common.cardSearch');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
@@ -172,12 +175,14 @@ export function GradedEstimateCaptureSection() {
             <Input
               label={t('searchLabel')}
               hint={t('searchHint')}
-              placeholder={t('searchPlaceholder')}
+              placeholder={tcs('placeholder')}
+              maxLength={CARD_SEARCH_MAX}
               prefix="⌕"
               className="max-w-md"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
+            <FolioHint query={query} />
             {trimmed.length >= 2 && (
               <QueryState
                 isLoading={search.isLoading}
@@ -187,7 +192,7 @@ export function GradedEstimateCaptureSection() {
               >
                 {search.data &&
                   (search.data.data.length === 0 ? (
-                    <p className="text-sm text-muted">{t('searchEmpty')}</p>
+                    <p className="text-sm text-muted">{tcs('lead')} {tcs('tip')}</p>
                   ) : (
                     <ul className="flex flex-col divide-y divide-border">
                       {search.data.data.map((c) => (

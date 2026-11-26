@@ -118,7 +118,7 @@ export class OrdersController {
   @Post('orders/claim')
   @HttpCode(200)
   claim(@CurrentUser() user: { id: string; role: Role }, @Body() dto: ClaimOrdersDto) {
-    return this.claims.claim(user, dto.orderIds);
+    return this.claims.claim(user, dto.orderIds, new Date(), dto.phone);
   }
 
   @Get('orders/:orderId')

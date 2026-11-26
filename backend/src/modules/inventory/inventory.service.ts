@@ -1,4 +1,5 @@
 import { CardLanguage, StampType } from '@prisma/client';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import { hypotheticalRawSaleItem, isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
 import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { isDefaultVersion, PieceVersion, pieceVersionOf, StampRef, versionDtoOf } from '../../common/card-version';
@@ -3106,6 +3107,46 @@ export class InventoryService {
       // Contrato §M1: null si no mapeado o sin ingest (pending NO se expone como PriceInfo).
       return { ...r, sealedMarketRef: ref && ref.status === 'priced' ? ref : null };
     });
+  }
+
+  /**
+   * §BUSCADOR-CARTAS (folio): `GET /admin/inventory/by-folio/:folio` — pieza por FOLIO exacto (`INV-000123`, sin distinguir
+   * mayúsculas). Lectura, sin precios. Dueño = `ownerType` (+ `ownerUserId` solo súper-admin: es id, no dato personal); la
+   * ubicación y la carta (con set y clave) viajan para identificarla. 400 si no tiene forma de folio; 404 si no existe.
+   */
+  async getItemByFolio(raw: string, role: Role) {
+    const m = /^inv-(\d{1,12})$/i.exec((raw ?? '').trim());
+    if (!m) throw BusinessException.badRequest('VALIDATION_ERROR', 'folio must look like INV-000123', { field: 'folio' });
+    const item = await this.prisma.inventoryItem.findFirst({
+      where: { folio: { equals: `INV-${m[1]}`, mode: 'insensitive' } },
+      include: { card: { include: { set: true } }, location: true, sealedProduct: true },
+    });
+    if (!item) throw BusinessException.notFound();
+    const display = pieceDisplayIdentityOf(item); // sellado ⇒ su nombre/imagen reales, nunca el del ancla (§4.34a.2)
+    const stamps = item.cardProductId != null ? await this.pricing.findStampedProducts([item.cardProductId]) : new Map<number, StampRef>();
+    return {
+      id: item.id,
+      folio: item.folio,
+      status: item.status,
+      productType: item.productType,
+      finish: item.finish,
+      language: item.language,
+      rawCondition: item.rawCondition,
+      gradingCompany: item.gradingCompany,
+      gradeValue: item.gradeValue,
+      owner: { type: item.ownerType, ...(role === Role.super_admin ? { userId: item.ownerUserId } : {}) },
+      location: item.location ? { id: item.location.id, label: item.location.label, zone: item.location.zone } : null,
+      version: versionDtoOf(pieceVersionOf(item, stamps)),
+      card: {
+        id: item.card.id,
+        name: display.name,
+        number: display.isSealed ? null : item.card.number,
+        setName: item.card.set.name,
+        setKey: item.card.set.ptcgoCode ?? null,
+        imageSmallUrl: display.imageSmallUrl ?? null,
+        imageUrl: display.isSealed ? (display.imageSmallUrl ?? null) : (item.card.imageLargeUrl ?? display.imageSmallUrl ?? null),
+      },
+    };
   }
 
   async getItem(id: string) {

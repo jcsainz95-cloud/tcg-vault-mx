@@ -38,6 +38,7 @@ function buildService(opts: { emailVerified?: boolean; email?: string; orders?: 
       findUnique: jest.fn(async () => ({
         email: opts.email ?? 'Juan@Example.com',
         emailVerified: opts.emailVerified ?? true,
+        phone: '5512345678',
       })),
     },
     order: {
@@ -133,7 +134,7 @@ describe('POST /orders/claim', () => {
   it('vincula el pedido (userId + claimedAt), revoca sus tokens y audita', async () => {
     const { svc, audit, tokens, orders } = buildService();
     const res = await svc.claim(ME, ['order-A']);
-    expect(res).toEqual({ claimed: ['order-A'], failed: [], addressesSaved: 0 });
+    expect(res).toEqual({ claimed: ['order-A'], failed: [], addressesSaved: 0, phoneRequired: false });
     expect(orders[0].userId).toBe(ME.id);
     expect(orders[0].claimedAt).toBeInstanceOf(Date);
     expect(tokens.revokeAll).toHaveBeenCalledWith('order-A', expect.any(Date));

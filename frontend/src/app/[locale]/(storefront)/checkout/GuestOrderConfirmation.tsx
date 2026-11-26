@@ -8,6 +8,7 @@ import { claimGuestOrders } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { InlineAuthPanel } from './InlineAuthPanel';
+import { ClaimPhonePrompt } from '@/components/domain/claimable/ClaimPhonePrompt';
 import { useSupportContact } from '@/hooks/useSupportContact';
 
 export interface GuestOrderConfirmationProps {
@@ -16,6 +17,8 @@ export interface GuestOrderConfirmationProps {
   orderId: string;
   /** correo capturado: aquí SÍ se muestra completo (§15.5, asimetría deliberada). */
   email: string;
+  /** §CELULAR-ALTA §6.3: celular del comprador (el del domicilio capturado): el alta solo-correo lo usa sin pedirlo. */
+  phone?: string;
 }
 
 type ClaimState =
@@ -25,7 +28,9 @@ type ClaimState =
   | { kind: 'needsVerification' }
   /** ⭐ v1.80.9 (DESIGN_SYSTEM §42.7): `403 ACCOUNT_WITHOUT_EMAIL` — una cuenta del equipo no reclama pedidos. */
   | { kind: 'accountWithoutEmail' }
-  | { kind: 'neutral' };
+  | { kind: 'neutral' }
+  // §CELULAR-ALTA §6.5: `422 PHONE_REQUIRED` ⇒ se pide el celular aquí mismo y se reintenta.
+  | { kind: 'needsPhone'; failed?: boolean };
 
 /**
  * Confirmación de compra de invitado + reclamo post-compra (DESIGN_SYSTEM §15.5,
@@ -39,7 +44,7 @@ type ClaimState =
  * —la ve solo quien acaba de pagar, en su propio dispositivo, y es la última oportunidad de
  * detectar una errata—; en la página de seguimiento no se muestra en absoluto.
  */
-export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrderConfirmationProps) {
+export function GuestOrderConfirmation({ orderNumber, orderId, email, phone }: GuestOrderConfirmationProps) {
   const t = useTranslations('checkout.confirmation');
   const tn = useTranslations('nav');
   const tErr = useTranslations('error');
@@ -68,16 +73,20 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
    * vinculado devuelve `ORDER_ALREADY_CLAIMED` y se responde con copy NEUTRO, sin decir a
    * quién pertenece (criterio 55).
    */
-  async function claimOrder() {
+  async function claimOrder(phone?: string) {
     setClaim({ kind: 'claiming' });
     try {
-      const res = await claimGuestOrders([orderId]);
+      const res = await claimGuestOrders([orderId], phone);
       // CLM-F1 (§4-G.9c): la dirección del pedido pasó a la libreta ⇒ `GET /users/me/addresses` está viejo.
       if (res.addressesSaved > 0) void queryClient.invalidateQueries({ queryKey: ['addresses'] });
       setClaim(res.claimed.includes(orderId) ? { kind: 'claimed' } : { kind: 'neutral' });
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setClaim({ kind: 'needsVerification' });
+      } else if (e instanceof ApiClientError && e.code === 'PHONE_REQUIRED') {
+        setClaim({ kind: 'needsPhone', failed: phone !== undefined && e.status !== 422 });
+      } else if (e instanceof ApiClientError && e.code === 'PHONE_INVALID') {
+        setClaim({ kind: 'needsPhone' });
       } else if (e instanceof ApiClientError && e.code === 'ACCOUNT_WITHOUT_EMAIL') {
         // ⛔ No es «ya reclamado» ni «verifica tu correo»: no hay correo que verificar (§42.7).
         setClaim({ kind: 'accountWithoutEmail' });
@@ -127,6 +136,10 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
               {t('claim.successLink')}
             </Link>
           </div>
+        ) : claim.kind === 'needsPhone' ? (
+          <div className="mt-6">
+            <ClaimPhonePrompt onSubmit={(p) => void claimOrder(p)} failed={claim.failed} />
+          </div>
         ) : claim.kind === 'needsVerification' || claim.kind === 'neutral' || claim.kind === 'accountWithoutEmail' ? (
           <p role="status" className="mt-6 max-w-[560px] text-sm leading-relaxed text-muted">
             {claim.kind === 'needsVerification'
@@ -144,8 +157,9 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
               <InlineAuthPanel
                 variant="register"
                 defaultEmail={email}
+                phone={phone}
                 submitLabel={t('claim.cta')}
-                onSuccess={claimOrder}
+                onSuccess={() => void claimOrder()}
               />
             </div>
           </>

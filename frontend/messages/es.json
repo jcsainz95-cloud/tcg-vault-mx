@@ -7,7 +7,7 @@
       "body": "Lo usamos para avisarte de tus pedidos, retiros y ventas. Solo lo ve TCG HUNT.",
       "cart": "Tu carrito ({count}) se conserva.",
       "label": "Celular (10 dígitos)",
-      "invalid": "Escribe tu celular de 10 dígitos",
+      "invalid": "Escribe un celular de 10 dígitos válido",
       "failed": "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo",
       "save": "Guardar y continuar",
       "logout": "Cerrar sesión"
@@ -30,6 +30,11 @@
     "back": "Volver",
     "search": "Buscar",
     "clearFilters": "Limpiar filtros",
+    "cardSearch": {
+      "placeholder": "Nombre, número o código impreso (PRE 078)",
+      "lead": "No encontramos esa carta.",
+      "tip": "Prueba con el nombre, el número (078) o el código impreso (PRE 078)."
+    },
     "noResults": "Sin resultados",
     "all": "Todos",
     "withoutIva": "sin IVA",
@@ -271,7 +276,6 @@
       "title": "¿Cuánto vale tu carpeta?",
       "subtitle": "Arma tu lista y mira lo que te pagamos hoy. Gratis, sin cuenta y sin compromiso.",
       "searchLabel": "Busca una carta para cotizar",
-      "searchPlaceholder": "Busca una carta…",
       "add": "Añadir",
       "empty": "Busca tu primera carta y te decimos lo que pagamos por ella.",
       "pending": "Pendiente",
@@ -349,7 +353,6 @@
     "filterRarity": "Rareza",
     "filterCondition": "Condición",
     "filterType": "Tipo",
-    "searchPlaceholder": "Buscar carta…",
     "emptyTitle": "Ninguna carta coincide",
     "emptyBody": "Prueba con otros filtros o limpia la búsqueda.",
     "pageOutOfRange": {
@@ -1408,6 +1411,19 @@
     "name": "Nombre",
     "phone": "Celular (10 dígitos)",
     "phoneInvalid": "Escribe tu celular de 10 dígitos",
+    "phoneSignup": {
+      "title": "Completa tu cuenta",
+      "help": "Falta tu celular para terminar. Lo usamos para avisarte de tus pedidos, retiros y ventas.",
+      "label": "Celular (10 dígitos)",
+      "error": "Escribe un celular de 10 dígitos válido",
+      "button": "Crear mi cuenta",
+      "cancel": "Cancelar",
+      "failed": "No pudimos guardarlo. Revisa tu conexión e inténtalo de nuevo.",
+      "expired": "Se acabó el tiempo. Vuelve a entrar con Google.",
+      "restart": "Volver a empezar",
+      "claimHelp": "Para avisarte de tu pedido necesitamos tu celular.",
+      "claimButton": "Guardar y vincular mi pedido"
+    },
     "loginCta": "Entrar",
     "registerCta": "Crear cuenta",
     "toRegister": "¿No tienes cuenta? Regístrate",
@@ -1520,6 +1536,10 @@
     "backToLogin": "Volver a iniciar sesión"
   },
   "admin": {
+    "folioHint": {
+      "text": "Para buscar una pieza por su folio usa «Buscar por folio».",
+      "open": "Abrir {folio} en Inventario"
+    },
     "suppliers": {
       "lead": "Compra a tiendas aliadas: solicitudes, ofertas, recogida, revisión y pago. Nunca se paga más del precio de mercado del día.",
       "tabsLabel": "Secciones de proveedores",
@@ -2210,6 +2230,7 @@
         "emptyBody": "Todos los pedidos pagados tienen sus cartas en la bóveda de quien compró."
       },
       "fulfillment": {
+        "searchInventory": "Buscar en inventario",
         "inVault": "En su bóveda",
         "replaced": "Se repuso por otra copia igual ({from} → {to})",
         "replacedNoFolio": "Se repuso por otra copia igual",
@@ -5095,6 +5116,14 @@
     },
     "m6": {
       "ficha": {
+        "nameEdit": "Editar",
+        "nameEditAria": "Editar el nombre de {name}",
+        "nameEditLabel": "Nombre del cliente",
+        "nameSave": "Guardar",
+        "nameError": "Escribe un nombre de {min} a {max} caracteres, con al menos una letra y sin < ni >",
+        "nameSaveError": "No se pudo guardar el nombre. Inténtalo de nuevo.",
+        "nameMissing": "Sin nombre",
+        "nameMissingAdd": "Sin nombre — agregar",
         "usernameLine": "Usuario: {username}",
         "crumbUsers": "Usuarios",
         "clientLabel": "Cliente",
@@ -5129,8 +5158,8 @@
         "openSell": "Abrir solicitud {n}",
         "stripLabel": "Resumen del cliente",
         "purchases": "Compras",
-        "purchasesSub": "{count} pedidos pagados · último {date}",
-        "purchasesSubNone": "{count} pedidos pagados",
+        "purchasesSub": "{count, plural, one {# pedido pagado} other {# pedidos pagados}} · último {date}",
+        "purchasesSubNone": "{count, plural, one {# pedido pagado} other {# pedidos pagados}}",
         "refundedSub": "{amount} reembolsado",
         "sales": "Ventas a la tienda",
         "salesSub": "{count} pagadas · {inProgress} en curso",
@@ -7228,6 +7257,12 @@
         "physical": "Qué debe haber"
       },
       "physical": {
+        "paidUnassigned": {
+          "count": "{count, plural, one {# pagada sin asignar} other {# pagadas sin asignar}}",
+          "title": "Pagadas sin asignar ({count})",
+          "help": "El cliente ya pagó estas cartas y no se le pudo asignar una copia igual. Consigue la carta y dala de alta: se asigna sola.",
+          "order": "Ver pedido {n}"
+        },
         "tab": "Qué debe haber",
         "drawer": {
           "own": "Su cajón",
@@ -7276,11 +7311,28 @@
         "sealed": "Sellado",
         "graded": "Gradeadas"
       },
+      "pieceDetail": {
+        "title": "Detalle de pieza",
+        "set": "Set",
+        "number": "Número",
+        "finish": "Acabado",
+        "language": "Idioma",
+        "condition": "Condición",
+        "status": "Estado",
+        "owner": "Pertenece a",
+        "ownerCustomer": "De un cliente",
+        "ownerStore": "De la tienda",
+        "location": "Ubicación",
+        "noLocation": "Sin ubicación",
+        "close": "Cerrar"
+      },
       "folioSearch": {
         "label": "Buscar por folio",
         "placeholder": "Buscar folio (INV-000123)",
         "cta": "Buscar folio",
-        "notFound": "No existe una pieza con ese folio."
+        "notFound": "No existe ese folio.",
+        "invalid": "Escribe un folio como INV-000123",
+        "failed": "No se pudo buscar el folio. Inténtalo de nuevo."
       },
       "value": {
         "total": "Valor total",
@@ -9475,6 +9527,7 @@
     "required": "Campo requerido",
     "postalCodeInvalid": "El código postal son 5 dígitos.",
     "phoneInvalid": "El teléfono son 10 dígitos.",
+    "guestPhoneInvalid": "Escribe un celular de 10 dígitos válido",
     "line1": "Calle y número",
     "line2": "Número interior o depto. (opcional)",
     "neighborhood": "Colonia",

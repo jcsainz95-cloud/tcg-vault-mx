@@ -112,7 +112,7 @@ describe('AuthService.google — verificación del ID token', () => {
       mail,
       ...c7Args(),
     );
-    const res = await svc.google('t');
+    const res: any = await svc.google('t');
     expect(res.user.id).toBe('u1');
     expect(prisma.user.create).not.toHaveBeenCalled(); // NO duplica
     expect(prisma.user.update).toHaveBeenCalledTimes(1);
@@ -120,12 +120,12 @@ describe('AuthService.google — verificación del ID token', () => {
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.google_link' }));
   });
 
-  it('alta nueva: role SIEMPRE customer, passwordHash null, emailVerified true (nunca del token)', async () => {
+  it('alta nueva (§CELULAR-ALTA): NO crea cuenta ni sesión; devuelve pendingSignup {signupToken,email,name}', async () => {
     const prisma: any = {
       user: {
         findUnique: jest.fn().mockResolvedValue(null), // ni por googleId ni por email
         update: jest.fn(),
-        create: jest.fn(async ({ data }: any) => ({ id: 'new', ...data })),
+        create: jest.fn(),
       },
     };
     const svc = new AuthService(
@@ -138,15 +138,10 @@ describe('AuthService.google — verificación del ID token', () => {
       mail,
       ...c7Args(),
     );
-    const res = await svc.google('t');
-    const created = prisma.user.create.mock.calls[0][0].data;
-    expect(created.role).toBe('customer');
-    expect(created.authProvider).toBe('google');
-    expect(created.passwordHash).toBeNull();
-    expect(created.emailVerified).toBe(true);
-    expect(created.email).toBe('new@x.com'); // normalizado a minúsculas
-    expect(res.accessToken).toBeDefined();
-    expect(res.refreshToken).toBeDefined();
+    const res: any = await svc.google('t');
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(res).toEqual({ pendingSignup: { signupToken: 'token', email: 'new@x.com', name: 'New' } });
+    expect(res.accessToken).toBeUndefined();
   });
 
   it('cuenta bloqueada → 403 USER_BLOCKED al enlazar', async () => {

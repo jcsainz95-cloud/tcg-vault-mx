@@ -699,7 +699,7 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
       expect(st[inDrawer.id]).toEqual({ state: 'in_drawer', drawer: { id: x.id, label: x.label, zone: 'customer_custody' } });
       expect(st[sinUbicar.id]).toEqual({ state: 'unlocated', reason: 'no_location' });
       expect(st[enTienda.id]).toEqual({ state: 'unlocated', reason: 'not_in_customer_drawer' });
-      expect(res.body.counts).toEqual({ total: 7, inDrawer: 2, pendingPlacement: 1, missing: 1, inWithdrawal: 1, unlocated: 2, toReplace: 0 });
+      expect(res.body.counts).toEqual({ total: 7, inDrawer: 2, pendingPlacement: 1, missing: 1, inWithdrawal: 1, unlocated: 2, toReplace: 0, needsAttention: 0 });
       // orden: missing, unlocated, in_drawer, pending_placement, in_withdrawal
       const states = res.body.items.map((i: any) => i.physical.state);
       expect(states).toEqual(['missing', 'unlocated', 'unlocated', 'in_drawer', 'in_drawer', 'pending_placement', 'in_withdrawal']);

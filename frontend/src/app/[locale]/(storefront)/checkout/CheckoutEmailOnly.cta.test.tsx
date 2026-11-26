@@ -88,7 +88,7 @@ describe('CTA-F3 · alta en el upsell y pago sin aviso de verificación', () => 
   it('upsell: solo el correo ⇒ registerEmailOnly, sesión guardada sin verificar y el checkout continúa con bóveda', async () => {
     const usr = userEvent.setup();
     const onAccountReady = vi.fn();
-    renderWithProviders(<VaultUpsellPanel defaultEmail="ana@x.mx" onDismiss={vi.fn()} onAccountReady={onAccountReady} />, 'es');
+    renderWithProviders(<VaultUpsellPanel defaultEmail="ana@x.mx" phone="5512345678" onDismiss={vi.fn()} onAccountReady={onAccountReady} />, 'es');
     expect(screen.queryByLabelText('Contraseña')).toBeNull();
     expect(screen.queryByLabelText('Nombre')).toBeNull();
     await usr.click(screen.getByRole('button', { name: 'Crear cuenta y guardar en bóveda' }));

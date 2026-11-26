@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { assertValidPhone, isValidMxPhone, maskPhone, normalizeMxPhone } from '../users/phone-mx';
+import { BusinessException } from '../../common/business.exception';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { normalizeEmail } from './guest-privacy';
 import { UsersService } from '../users/users.service';
@@ -92,17 +94,44 @@ export class OrderClaimService {
     actor: { id: string; role: Role },
     orderIds: string[],
     now = new Date(),
-  ): Promise<{ claimed: string[]; failed: { orderId: string; code: ClaimFailureCode }[]; addressesSaved: number }> {
+    bodyPhone?: unknown,
+  ): Promise<{ claimed: string[]; failed: { orderId: string; code: ClaimFailureCode }[]; addressesSaved: number; phoneRequired: false }> {
     const email = await this.sessionEmail(actor.id);
     const claimed: string[] = [];
     const failed: { orderId: string; code: ClaimFailureCode }[] = [];
 
+    // §CELULAR-ALTA (v2 §6.5): una cuenta sin celular válido toma el del pedido que reclama; si ni cuenta ni pedidos lo
+    // tienen válido, el cuerpo debe traer `phone` (si no ⇒ 422 PHONE_REQUIRED antes de ligar NADA).
+    const me = await this.prisma.user.findUnique({ where: { id: actor.id }, select: { phone: true } });
+    const needsPhone = !!me && !isValidMxPhone(me.phone);
+    const fallbackPhone = bodyPhone === undefined || bodyPhone === null || bodyPhone === '' ? null : assertValidPhone(bodyPhone);
+    if (needsPhone && email) {
+      const claimable = await this.prisma.order.findMany({
+        where: { id: { in: [...new Set(orderIds)] }, userId: null, guestEmail: email },
+        select: { shippingAddressSnapshot: true },
+      });
+      const hasOrderPhone = claimable.some((o) => normalizeMxPhone((o.shippingAddressSnapshot as { phone?: unknown } | null)?.phone) !== null);
+      if (claimable.length > 0 && !hasOrderPhone && fallbackPhone === null) {
+        throw BusinessException.validation('PHONE_REQUIRED', 'A valid mobile number is required to claim orders', { field: 'phone' });
+      }
+    }
+
     for (const orderId of [...new Set(orderIds)]) {
       const res = email
-        ? await this.prisma.order.updateMany({
-            where: { id: orderId, userId: null, guestEmail: email },
-            data: { userId: actor.id, claimedAt: now },
-          })
+        ? needsPhone
+          ? // La copia del celular va en la MISMA transacción que liga el pedido.
+            await this.prisma.$transaction(async (tx) => {
+              const r = await tx.order.updateMany({
+                where: { id: orderId, userId: null, guestEmail: email },
+                data: { userId: actor.id, claimedAt: now },
+              });
+              if (r.count === 1) await this.copyPhoneInTx(tx, actor, orderId, fallbackPhone);
+              return r;
+            })
+          : await this.prisma.order.updateMany({
+              where: { id: orderId, userId: null, guestEmail: email },
+              data: { userId: actor.id, claimedAt: now },
+            })
         : { count: 0 };
 
       if (res.count === 1) {
@@ -124,7 +153,35 @@ export class OrderClaimService {
     }
     // ⭐ v1.116 (§4-G.9c): SOLO los ganados, y después de revocar y auditar cada uno.
     const addressesSaved = await this.saveAddresses(actor, claimed);
-    return { claimed, failed, addressesSaved };
+    return { claimed, failed, addressesSaved, phoneRequired: false };
+  }
+
+  /** §CELULAR-ALTA: copia el celular válido del pedido (o el del cuerpo) a la cuenta SOLO si sigue inválido; auditado, enmascarado. */
+  private async copyPhoneInTx(
+    tx: Prisma.TransactionClient,
+    actor: { id: string; role: Role },
+    orderId: string,
+    fallback: string | null,
+  ): Promise<void> {
+    const cur = await tx.user.findUnique({ where: { id: actor.id }, select: { phone: true } });
+    if (!cur || isValidMxPhone(cur.phone)) return;
+    const o = await tx.order.findUnique({ where: { id: orderId }, select: { shippingAddressSnapshot: true } });
+    const fromOrder = normalizeMxPhone((o?.shippingAddressSnapshot as { phone?: unknown } | null)?.phone);
+    const phone = fromOrder ?? fallback;
+    if (!phone) return;
+    const r = await tx.user.updateMany({ where: { id: actor.id, phone: cur.phone }, data: { phone } });
+    if (r.count !== 1) return;
+    await this.audit.log(
+      {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'user.phone.backfill',
+        entityType: 'User',
+        entityId: actor.id,
+        after: { source: fromOrder ? 'claim' : 'claim_body', masked: maskPhone(phone), previousMasked: cur.phone ? maskPhone(cur.phone) : null },
+      },
+      tx,
+    );
   }
 
   /**

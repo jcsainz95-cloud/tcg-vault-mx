@@ -15,6 +15,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { NotesPanel } from './NotesPanel';
 import { PhoneField, whatsappHref } from './PhoneField';
+import { NameField } from './NameField';
 import { normalizeMxPhone, formatMxPhone } from '@/lib/phone';
 import { safeHttpUrl } from '@/lib/safe-href';
 
@@ -122,7 +123,17 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
       <div className="flex min-w-0 flex-col gap-2">
         <span className="eyebrow">{t('clientLabel')}</span>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-serif text-2xl text-text">{d.name}</span>
+          <NameField
+            userId={d.id}
+            name={d.name}
+            missing={!d.name?.trim() || d.nameSource === 'derived'}
+            canEdit={isSuperAdmin}
+            onSaved={() => {
+              void qc.invalidateQueries({ queryKey: ['admin-user', d.id] });
+              // La lista de usuarios (M6) también muestra el nombre: se refresca.
+              void qc.invalidateQueries({ queryKey: ['admin-users'] });
+            }}
+          />
           {badges}
           {pinned && <Badge tone="accent" shape="outline">{t('pinnedBadge')}</Badge>}
         </div>
@@ -355,7 +366,11 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
               <tbody>
                 {rowsOf('orders', orders).map((o) => (
                   <tr key={o.id} className="border-t border-border">
-                    <td className={cn(td, 'tabular font-mono')}>{o.orderNumber ?? o.id}</td>
+                    <td className={cn(td, 'tabular font-mono')}>
+                      <Link href={`/admin/m3/${o.id}`} className="underline underline-offset-4 hover:text-accent focus-visible:shadow-focus focus-visible:outline-none" data-testid={`ficha-order-link-${o.id}`}>
+                        {o.orderNumber ?? o.id}
+                      </Link>
+                    </td>
                     <td className={td}><StatusBadge domain="order" value={o.status} /></td>
                     <td className={td}>{formatDate(o.createdAt, locale)}</td>
                     <td className={cn(td, 'tabular text-right')}>{money(o.totalCents)}</td>
@@ -397,7 +412,13 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
             {ov.shipments.items.slice(0, ROWS).map((s) => (
               <li key={s.id} className="grid gap-2 border-t border-border py-3 first:border-t-0 md:grid-cols-[1.4fr_auto_auto_1.6fr_auto] md:items-start">
                 <div className="flex flex-col">
-                  <span>{s.mode === 'withdrawal' ? t('shipment.withdrawal') : t('shipment.direct', { order: s.orderNumber ?? s.orderId ?? '—' })}</span>
+                  {s.mode === 'withdrawal' || !s.orderId ? (
+                    <span>{s.mode === 'withdrawal' ? t('shipment.withdrawal') : t('shipment.direct', { order: s.orderNumber ?? s.orderId ?? '—' })}</span>
+                  ) : (
+                    <Link href={`/admin/m3/${s.orderId}`} className="underline underline-offset-4 hover:text-accent focus-visible:shadow-focus focus-visible:outline-none" data-testid={`ficha-shipment-order-link-${s.id}`}>
+                      {t('shipment.direct', { order: s.orderNumber ?? s.orderId })}
+                    </Link>
+                  )}
                   <span className="text-xs text-muted">{t('shipment.requestedOn', { date: formatDate(s.requestedAt, locale) })}</span>
                 </div>
                 <Badge tone={SHIP_TONE[s.status]} shape="outline">{t(`shipment.status.${s.status}`)}</Badge>
