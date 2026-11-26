@@ -666,6 +666,10 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
         );
         expect(hooked).toBe(1);
         expect(r.status).toBe(200);
+        // §CELULAR-ALTA: «alta aparte» ya no crea la cuenta: devuelve `pendingSignup`, y `google/complete` (con celular) la crea.
+        expect(r.body.pendingSignup).toBeDefined();
+        const done = await post('/auth/google/complete', { signupToken: r.body.pendingSignup.signupToken, phone: '5512345678' });
+        expect(done.status).toBe(200);
       } finally {
         google.identity = null;
       }
