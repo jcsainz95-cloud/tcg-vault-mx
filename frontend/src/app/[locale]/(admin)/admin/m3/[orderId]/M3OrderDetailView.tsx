@@ -24,7 +24,8 @@ import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO,
 import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail, shippedRefundKey } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
-import { lineFulfillment, piecesExceptUnassigned } from '@/lib/api/vault-unassigned';
+import { inventorySearchHref, lineCardFacts, lineFulfillment, piecesExceptUnassigned } from '@/lib/api/vault-unassigned';
+import { CardImage } from '@/components/ui/CardImage';
 import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
 import { RefundAccessoryLineDialog, type AccessoryRefundTarget } from '../RefundAccessoryLineDialog';
 import { energyBreakdown } from '@/lib/accessories';
@@ -327,6 +328,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                       const { text: name } = historicalCardName(it.card, tOrders('item.unknownCard'));
                       const dr = it.deliveredRefund ?? null;
                       const fulfillment = lineFulfillment(it, isVault && o.status === 'settled');
+                      const facts = lineCardFacts(it as unknown as { card?: Record<string, unknown> | null; folio?: string | null; replacedFolio?: string | null });
                       // §60.3 a: botón SOLO con `refundable` ∧ súper-admin ∧ la llave del verbo. ⛔ Al operador, nada.
                       const canRefund = isSuperAdmin && dr?.kind === 'refundable' && !!it.orderItemId;
                       const notRefundableText =
@@ -334,9 +336,37 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                           ? tdr(`notRefundable.${dr.reason}`)
                           : null;
                       return (
-                        <li key={it.inventoryItemId} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
-                          <span className="flex flex-col gap-1">
-                            <span lang="en">{name}</span>
+                        <li
+                          key={it.inventoryItemId}
+                          className={cn(
+                            'flex flex-wrap items-start justify-between gap-2 py-3 text-sm text-text',
+                            fulfillment?.kind === 'attention' && 'border-l-2 border-l-accent bg-accent/5 pl-3',
+                          )}
+                        >
+                          <span className="flex min-w-0 items-start gap-3">
+                            {/* Dueño 2026-11-26: miniatura, set (nombre y clave), número, condición y folio para saber QUÉ reponer. */}
+                            <CardImage src={facts.imageUrl} alt="" className="w-12 shrink-0" />
+                            <span className="flex min-w-0 flex-col gap-1">
+                            <span lang="en" className="font-medium">{name}</span>
+                            <span className="font-mono text-xs text-muted" data-testid={`m3-item-facts-${it.inventoryItemId}`}>
+                              {[
+                                facts.setName ? (facts.setCode ? `${facts.setName} (${facts.setCode})` : facts.setName) : null,
+                                facts.number ? `#${facts.number}` : null,
+                                facts.condition,
+                                facts.folio,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                            {fulfillment?.kind === 'attention' && inventorySearchHref(facts.name) && (
+                              <Link
+                                href={inventorySearchHref(facts.name)!}
+                                className="inline-flex min-h-[44px] items-center self-start text-xs text-text underline underline-offset-4 hover:text-accent focus-visible:shadow-focus focus-visible:outline-none"
+                                data-testid={`m3-item-search-inventory-${it.inventoryItemId}`}
+                              >
+                                {tfu('searchInventory')}
+                              </Link>
+                            )}
                             {/* §IDS.5: versión congelada del `OrderItem` (insignias; el detalle del proveedor en admin). */}
                             <VersionChips version={it.version} size="tile" testId={`m3-item-version-${it.inventoryItemId}`} />
                             {fulfillment && (
@@ -354,6 +384,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                                   tfu('attention', { reason: tfu(`reason.${fulfillment.reasonKey}`) })}
                               </span>
                             )}
+                            </span>
                           </span>
                           <span className="flex flex-wrap items-baseline gap-3">
                             {/* 💰 §DSC I-3 (914): el exhibido del servidor (v1.110.3, DCO-F6), como el checkout; lo COBRADO va debajo. */}

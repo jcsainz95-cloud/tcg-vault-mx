@@ -1,5 +1,6 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
@@ -148,6 +149,7 @@ export function AddGradedModal({ open, onClose, card, onCreated, onToast }: AddG
                 <Search size={18} /> {tc('search')}
               </Button>
             </div>
+            <FolioHint query={query} />
             {picked && (
               <p className="text-sm">
                 {t('cardLabel')}: <span lang="en" className="font-semibold">{picked.name}</span>

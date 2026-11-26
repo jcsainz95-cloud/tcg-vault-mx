@@ -2424,6 +2424,8 @@ export interface CustomerPhysicalInventoryDTO {
     unlocated: number;
   };
   items: PhysicalInventoryItemDTO[];
+  /** §BOVEDA (dueño 2026-11-26, ASSUMED; por confirmar con backend): líneas pagadas sin asignar de este cliente. Se leen por `paidUnassignedLines`. */
+  paidUnassigned?: { orderItemId: string; orderId: string; orderNumber: string | null; folio: string | null; reason: string | null; card: Record<string, unknown> | null }[];
 }
 export interface PhysicalInventoryItemDTO {
   inventoryItemId: string;

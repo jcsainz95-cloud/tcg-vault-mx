@@ -226,3 +226,51 @@ export function piecesExceptUnassigned<P extends { inventoryItemId: string }>(
   );
   return bad.size === 0 ? pieces : pieces.filter((p) => !bad.has(p.inventoryItemId));
 }
+
+// ---------- Datos de la carta en la línea / bloque «Pagadas sin asignar» (dueño, producción 2026-11-26) ----------
+
+/** Lo que se sabe de la carta de una línea. Todo opcional: lo que falte se omite (⛔ nada inventado). Un solo punto de mapeo. */
+export interface LineCardFacts {
+  name: string | null;
+  setName: string | null;
+  /** Clave corta del set (ASSUMED `card.setPtcgoCode`; por confirmar con backend). */
+  setCode: string | null;
+  number: string | null;
+  condition: string | null;
+  folio: string | null;
+  imageUrl: string | null;
+}
+const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+
+export function lineCardFacts(it: { card?: Record<string, unknown> | null; folio?: string | null; replacedFolio?: string | null }): LineCardFacts {
+  const c = (it.card ?? {}) as Record<string, unknown>;
+  const cond = s(c.rawCondition) ?? ([s(c.gradingCompany), s(c.gradeValue)].filter(Boolean).join(' ') || null) ?? s(c.conditionLabel);
+  return {
+    name: s(c.name),
+    setName: s(c.setName),
+    setCode: s(c.setPtcgoCode),
+    number: s(c.number),
+    condition: cond,
+    // Folio ORIGINAL pagado: el de la pieza que se repuso, si la hubo.
+    folio: s(it.replacedFolio) ?? s(it.folio),
+    imageUrl: s(c.imageSmallUrl),
+  };
+}
+
+/** `/admin/m1?addQ=<nombre>`: abre el alta de M1 con la búsqueda ya hecha por esa carta. */
+export function inventorySearchHref(name: string | null): string | null {
+  return name ? `/admin/m1?addQ=${encodeURIComponent(name)}` : null;
+}
+
+/** Línea pagada sin asignar de la bóveda de un cliente (ASSUMED `physical-inventory.paidUnassigned[]`; por confirmar). */
+export interface PaidUnassignedLine {
+  orderItemId: string;
+  orderId: string;
+  orderNumber: string | null;
+  folio: string | null;
+  reason: string | null;
+  card: Record<string, unknown> | null;
+}
+export function paidUnassignedLines(d: { paidUnassigned?: PaidUnassignedLine[] | null } | null | undefined): PaidUnassignedLine[] {
+  return (d?.paidUnassigned ?? []).filter((l) => l && typeof l.orderId === 'string');
+}

@@ -1,5 +1,6 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { useState } from 'react';
 import { CARD_SEARCH_MAX } from '@/lib/card-search';
 
@@ -144,6 +145,7 @@ function CreateRequestForm({ onDone }: { onDone: () => void }) {
         ) : (
           <>
             <Input label={t('searchCard')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('searchHint')} placeholder={tcs('placeholder')} maxLength={CARD_SEARCH_MAX} />
+            <FolioHint query={q} />
             <ul className="flex flex-col">
               {hits.data?.map((h) => (
                 <li key={h.cardId}>

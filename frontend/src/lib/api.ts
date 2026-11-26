@@ -2202,7 +2202,26 @@ export async function getAdminVaultPhysicalInventory(userId: string): Promise<Cu
     return apiRequest<CustomerPhysicalInventoryDTO>(`/admin/vaults/${userId}/physical-inventory`);
   }
   try {
-    return await delay(fx.mockPhysicalInventory(userId));
+    const res = fx.mockPhysicalInventory(userId);
+    // MOCK (dueño 2026-11-26): la línea pagada de `ord-9005` que quedó «Requiere atención» aparece en «Qué debe haber».
+    const first = fx.mockOrderDetail.items[0];
+    return await delay(
+      userId === 'u-777' && first
+        ? {
+            ...res,
+            paidUnassigned: [
+              {
+                orderItemId: 'oi-ord-9005-inv-9053',
+                orderId: fx.MOCK_UNASSIGNED_ORDER_ID,
+                orderNumber: 'TCG-9005',
+                folio: 'INV-009053',
+                reason: 'no_equivalent_copy',
+                card: { ...(first.card as unknown as Record<string, unknown>), setPtcgoCode: 'BS' },
+              },
+            ],
+          }
+        : res,
+    );
   } catch (e) {
     throw translateFixtureError(e);
   }

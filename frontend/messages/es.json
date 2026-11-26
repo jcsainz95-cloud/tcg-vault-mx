@@ -1536,6 +1536,10 @@
     "backToLogin": "Volver a iniciar sesión"
   },
   "admin": {
+    "folioHint": {
+      "text": "Para buscar una pieza por su folio usa «Buscar por folio».",
+      "open": "Abrir {folio} en Inventario"
+    },
     "suppliers": {
       "lead": "Compra a tiendas aliadas: solicitudes, ofertas, recogida, revisión y pago. Nunca se paga más del precio de mercado del día.",
       "tabsLabel": "Secciones de proveedores",
@@ -2226,6 +2230,7 @@
         "emptyBody": "Todos los pedidos pagados tienen sus cartas en la bóveda de quien compró."
       },
       "fulfillment": {
+        "searchInventory": "Buscar en inventario",
         "inVault": "En su bóveda",
         "replaced": "Se repuso por otra copia igual ({from} → {to})",
         "replacedNoFolio": "Se repuso por otra copia igual",
@@ -5111,6 +5116,14 @@
     },
     "m6": {
       "ficha": {
+        "nameEdit": "Editar",
+        "nameEditAria": "Editar el nombre de {name}",
+        "nameEditLabel": "Nombre del cliente",
+        "nameSave": "Guardar",
+        "nameError": "Escribe un nombre de {min} a {max} caracteres, con al menos una letra",
+        "nameSaveError": "No se pudo guardar el nombre. Inténtalo de nuevo.",
+        "nameMissing": "Sin nombre",
+        "nameMissingAdd": "Sin nombre — agregar",
         "usernameLine": "Usuario: {username}",
         "crumbUsers": "Usuarios",
         "clientLabel": "Cliente",
@@ -5145,8 +5158,8 @@
         "openSell": "Abrir solicitud {n}",
         "stripLabel": "Resumen del cliente",
         "purchases": "Compras",
-        "purchasesSub": "{count} pedidos pagados · último {date}",
-        "purchasesSubNone": "{count} pedidos pagados",
+        "purchasesSub": "{count, plural, one {# pedido pagado} other {# pedidos pagados}} · último {date}",
+        "purchasesSubNone": "{count, plural, one {# pedido pagado} other {# pedidos pagados}}",
         "refundedSub": "{amount} reembolsado",
         "sales": "Ventas a la tienda",
         "salesSub": "{count} pagadas · {inProgress} en curso",
@@ -7244,6 +7257,12 @@
         "physical": "Qué debe haber"
       },
       "physical": {
+        "paidUnassigned": {
+          "count": "{count, plural, one {# pagada sin asignar} other {# pagadas sin asignar}}",
+          "title": "Pagadas sin asignar ({count})",
+          "help": "El cliente ya pagó estas cartas y no se le pudo asignar una copia igual. Consigue la carta y dala de alta: se asigna sola.",
+          "order": "Ver pedido {n}"
+        },
         "tab": "Qué debe haber",
         "drawer": {
           "own": "Su cajón",

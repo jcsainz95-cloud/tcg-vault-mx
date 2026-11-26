@@ -9,6 +9,7 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { mockUserPhones } from '../mock-user-phones';
+import { mockUserNames } from '../mock-user-names';
 import { brandEmail } from '../brand';
 import { EN_DEFAULT_VERSION, mockCardVersions, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
 import { setMatchesQuery } from '../setCode';
@@ -5014,6 +5015,7 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
   return {
     ...base,
+    ...(mockUserNames[id] ? { name: mockUserNames[id], nameSource: 'user' as const } : {}),
     // ⭐ v1.80.9.1 A-1: la ficha trae su `lockState` (el servidor falso siempre contesta).
     lockState: 'ok',
     locale: 'es',

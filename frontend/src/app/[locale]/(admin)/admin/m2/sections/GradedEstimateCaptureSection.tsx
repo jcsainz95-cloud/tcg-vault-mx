@@ -1,5 +1,6 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { FINISH_ORDER, primaryFinishOf } from '@/lib/finish';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -181,6 +182,7 @@ export function GradedEstimateCaptureSection() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
+            <FolioHint query={query} />
             {trimmed.length >= 2 && (
               <QueryState
                 isLoading={search.isLoading}

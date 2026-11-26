@@ -14,6 +14,8 @@ import type { AppLocale } from '@/i18n/routing';
 import type { CustomerPhysicalInventoryDTO, PhysicalInventoryItemDTO, PhysicalState } from '@/types/contract';
 import { CardInfo, LABEL, TAG, ZonedLocationColumn, useZonedLabel } from '../../m4/prep-shared';
 import { CustomerNameBlock } from '../CustomerNameBlock';
+import { PaidUnassignedBlock } from './PaidUnassignedBlock';
+import { paidUnassignedLines } from '@/lib/api/vault-unassigned';
 
 export const physicalInventoryQueryKey = (userId: string) => ['admin-vault-physical', userId] as const;
 
@@ -94,6 +96,7 @@ function PhysicalInventoryBody({
 }) {
   const zoned = useZonedLabel();
   const { drawer, counts } = data;
+  const paid = paidUnassignedLines(data);
 
   return (
     <div className="flex flex-col gap-5" data-testid="physical-inventory">
@@ -131,6 +134,14 @@ function PhysicalInventoryBody({
           </>
         )}
       </div>
+
+      {/* «k pagadas sin asignar» junto a faltantes: se dice aunque el cliente no tenga piezas a su nombre. */}
+      {paid.length > 0 && (
+        <p className="text-sm font-medium text-accent" data-testid="physical-paid-unassigned-count">
+          {t('paidUnassigned.count', { count: paid.length })}
+        </p>
+      )}
+      <PaidUnassignedBlock lines={paid} />
 
       {data.items.length === 0 ? (
         <EmptyState title={t('empty.title')} body={t('empty.body')} />

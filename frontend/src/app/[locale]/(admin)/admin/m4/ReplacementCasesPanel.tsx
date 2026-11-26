@@ -1,5 +1,6 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -127,6 +128,7 @@ export function ReplacementCasesPanel() {
               setPage(1);
             }}
           />
+          <FolioHint query={search} />
         </div>
       </div>
 

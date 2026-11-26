@@ -1,5 +1,6 @@
 'use client';
 
+import { FolioHint } from '@/components/domain/FolioHint';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -430,6 +431,7 @@ export function BountiesView() {
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
           />
+          <FolioHint query={qInput} />
         </div>
         <div className="min-w-[14rem]">
           <Select

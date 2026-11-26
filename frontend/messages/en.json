@@ -1536,6 +1536,10 @@
     "backToLogin": "Back to sign in"
   },
   "admin": {
+    "folioHint": {
+      "text": "To look up a piece by its folio use “Search by folio”.",
+      "open": "Open {folio} in Inventory"
+    },
     "suppliers": {
       "lead": "Buying from partner stores: requests, offers, pickup, review and payment. We never pay more than the market price of the day.",
       "tabsLabel": "Supplier sections",
@@ -2226,6 +2230,7 @@
         "emptyBody": "Every paid order has its cards in the buyer's vault."
       },
       "fulfillment": {
+        "searchInventory": "Search inventory",
         "inVault": "In their vault",
         "replaced": "Replaced with an identical copy ({from} → {to})",
         "replacedNoFolio": "Replaced with an identical copy",
@@ -5111,6 +5116,14 @@
     },
     "m6": {
       "ficha": {
+        "nameEdit": "Edit",
+        "nameEditAria": "Edit the name of {name}",
+        "nameEditLabel": "Customer name",
+        "nameSave": "Save",
+        "nameError": "Enter a name of {min} to {max} characters with at least one letter",
+        "nameSaveError": "The name could not be saved. Try again.",
+        "nameMissing": "No name",
+        "nameMissingAdd": "No name — add",
         "usernameLine": "Username: {username}",
         "crumbUsers": "Users",
         "clientLabel": "Customer",
@@ -5145,8 +5158,8 @@
         "openSell": "Open request {n}",
         "stripLabel": "Customer summary",
         "purchases": "Purchases",
-        "purchasesSub": "{count} paid orders · last {date}",
-        "purchasesSubNone": "{count} paid orders",
+        "purchasesSub": "{count, plural, one {# paid order} other {# paid orders}} · last {date}",
+        "purchasesSubNone": "{count, plural, one {# paid order} other {# paid orders}}",
         "refundedSub": "{amount} refunded",
         "sales": "Sales to the store",
         "salesSub": "{count} paid · {inProgress} in progress",
@@ -7244,6 +7257,12 @@
         "physical": "What should be there"
       },
       "physical": {
+        "paidUnassigned": {
+          "count": "{count, plural, one {# paid, unassigned} other {# paid, unassigned}}",
+          "title": "Paid but unassigned ({count})",
+          "help": "The customer already paid for these cards and no identical copy could be assigned. Get the card and add it: it is assigned automatically.",
+          "order": "View order {n}"
+        },
         "tab": "What should be there",
         "drawer": {
           "own": "Their drawer",

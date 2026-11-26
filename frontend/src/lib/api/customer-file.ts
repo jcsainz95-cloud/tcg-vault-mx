@@ -6,6 +6,7 @@
 import { apiRequest } from '../api-client';
 import { config } from '../config';
 import { mockUserPhones } from '../mock-user-phones';
+import { mockUserNames } from '../mock-user-names';
 
 const MOCKS_BUILD = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
 const isMock = () => MOCKS_BUILD && config.useMocks;
@@ -163,6 +164,22 @@ export async function updateAdminUserPhone(id: string, phone: string): Promise<{
   if (!isMock()) return apiRequest<{ id: string; phone: string; phoneRequired?: boolean }>(`/admin/users/${enc(id)}/phone`, { method: 'PATCH', body: { phone } });
   mockUserPhones[id] = phone.replace(/\D/g, '').slice(-10);
   return wait({ id, phone: mockUserPhones[id] });
+}
+
+/**
+ * Dueño 2026-11-26 · `PATCH /admin/users/:id/name` (super_admin) — ASSUMED (por confirmar con backend): cuerpo `{ name }`,
+ * `422 VALIDATION_ERROR` si el nombre es inválido. Un solo punto de mapeo; `NAME_MIN/NAME_MAX` espejan la regla de la ficha.
+ */
+export const NAME_MIN = 2;
+export const NAME_MAX = 80;
+export function validNameInput(raw: string): string | null {
+  const n = raw.replace(/\s+/g, ' ').trim();
+  return n.length >= NAME_MIN && n.length <= NAME_MAX && /\p{L}/u.test(n) ? n : null;
+}
+export async function updateAdminUserName(id: string, name: string): Promise<{ id: string; name: string }> {
+  if (!isMock()) return apiRequest<{ id: string; name: string }>(`/admin/users/${enc(id)}/name`, { method: 'PATCH', body: { name } });
+  mockUserNames[id] = name;
+  return wait({ id, name });
 }
 
 // ---------------- Mocks (siguen el contrato al pie de la letra) ----------------

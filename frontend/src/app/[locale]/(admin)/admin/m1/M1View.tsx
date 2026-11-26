@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
@@ -114,6 +114,8 @@ export function M1View() {
   }
 
   const [addOpen, setAddOpen] = useState(false);
+  // Enlace «Buscar en inventario» (detalle de pedido): `?addQ=<carta>` abre el alta con esa búsqueda ya hecha.
+  const [addQuery, setAddQuery] = useState<string | undefined>(undefined);
   const [locationsOpen, setLocationsOpen] = useState(false);
   /**
    * §SU-UX.3 (b): `?locations=open` (enlace «Ir a Ubicaciones» de la ficha sin destino) abre «Ubicaciones» y se quita
@@ -169,6 +171,24 @@ export function M1View() {
       pushToast({ variant: 'danger', title: t('title'), message: tInv('exportXlsx.error') });
     },
   });
+
+  // Enlaces entrantes: `?folio=INV-…` abre directo el «Detalle de pieza» (o «No existe…») y `?addQ=` el alta con búsqueda.
+  const incoming = useRef(false);
+  useEffect(() => {
+    if (incoming.current || typeof window === 'undefined') return;
+    incoming.current = true;
+    const p = new URLSearchParams(window.location.search);
+    const folio = p.get('folio')?.trim();
+    const addQ = p.get('addQ')?.trim();
+    if (folio) {
+      setFolioInput(folio);
+      folioSearch.mutate(folio);
+    } else if (addQ) {
+      setAddQuery(addQ.slice(0, 60));
+      setAddOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function submitFolio() {
     const folio = folioInput.trim();
@@ -392,7 +412,7 @@ export function M1View() {
       />
 
       {/* «Alta por lote» — modal de alta masiva existente (P-5), sin cambios. */}
-      {addOpen && <AddItemModal onClose={() => setAddOpen(false)} onToast={pushToast} />}
+      {addOpen && <AddItemModal initialQuery={addQuery} onClose={() => { setAddOpen(false); setAddQuery(undefined); }} onToast={pushToast} />}
 
       {/* «Agregar gradeada» (P-20). */}
       {addGraded.open && (

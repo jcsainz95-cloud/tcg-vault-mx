@@ -5,6 +5,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useTranslations } from 'next-intl';
 import { Search, Check, Trash2, AlertTriangle } from 'lucide-react';
 import { CARD_SEARCH_MAX } from '@/lib/card-search';
+import { FolioHint } from '@/components/domain/FolioHint';
 import {
   getLocations,
   listBuylistSets,
@@ -40,6 +41,8 @@ const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
 
 export interface AddItemModalProps {
+  /** Búsqueda ya hecha al abrir (enlace «Buscar en inventario» del detalle de pedido). */
+  initialQuery?: string;
   onClose: () => void;
   onToast: (t: { variant: 'success' | 'danger' | 'info'; title: string; message: string; duration?: number }) => void;
 }
@@ -54,7 +57,7 @@ export interface AddItemModalProps {
  * El componente se monta AL ABRIR y se desmonta al cerrar: cada apertura arranca limpia (FIX 2 —
  * la adquisición/% /tipo no se heredan de la tanda anterior).
  */
-export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
+export function AddItemModal({ onClose, onToast, initialQuery }: AddItemModalProps) {
   const t = useTranslations('admin.m1');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
@@ -64,8 +67,8 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
 
   // Picker sobre el catálogo REAL (patrón del cotizador): set + búsqueda + carta elegida.
   const [setId, setSetId] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState(initialQuery ?? '');
+  const [searchQuery, setSearchQuery] = useState(initialQuery?.trim() ?? '');
   const [selectedCard, setSelectedCard] = useState<CardDTO | null>(null);
   const [productType, setProductType] = useState<ProductType>('raw');
   const [finish, setFinish] = useState<Finish>('normal');
@@ -410,6 +413,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
           </Button>
         </div>
 
+        <FolioHint query={searchInput} />
         {hasSearch && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">{t('searchResults')}</p>
