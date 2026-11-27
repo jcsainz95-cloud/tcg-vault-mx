@@ -4485,7 +4485,7 @@
         },
         "unlinkedPrice": {
           "title": "{cards, plural, one {# card without a linked price} other {# cards without a linked price}} in {sets, plural, one {# set} other {# sets}}",
-          "lead": "These cards have no market price linked, which is why they show «No market». «Update this set» links the missing ones and updates their prices in one step; already linked ones do not change.",
+          "lead": "These cards have no market price linked, which is why they show «No market». «Update this set» links the missing ones and updates their prices in one step",
           "row": "{unlinked} of {total} not linked",
           "collisions": "{n} doubtful matches",
           "omitted": "{n} skipped",
@@ -4496,6 +4496,10 @@
           "none": "No card could be linked in {name}: {reason}.",
           "cardsCount": "{n, plural, one {# card} other {# cards}}",
           "err": "Could not retry the link for {name}.",
+          "errImport": "Importing the cards of {name} failed; linking prices was not attempted.",
+          "resolvedTitle": "Result of the last update",
+          "groupPromos": "promos group",
+          "groupId": "group {id}",
           "notLinkableTitle": "{count, plural, one {# card cannot be linked} other {# cards cannot be linked}}",
           "reason": {
             "collisions": "repeated numbers, cannot tell which is which",
@@ -4505,10 +4509,11 @@
             "notInProvider": "the price source does not have this set",
             "nameMismatch": "the name does not match",
             "noLocalCard": "the product has no card in your catalog",
+            "finishNotInProduct": "the product lacks that finish; it stays unpriced in it",
             "alreadyLinked": "the card was already linked",
             "other": "no clear match"
           },
-          "reasonCount": {"ownerConflict": "{n} with a different owner", "nameMismatch": "{n} with a different name", "alreadyLinked": "{n} already linked", "collisions": "{n} with a repeated number", "noLocalCard": "{n} with no card in your catalog"},
+          "reasonCount": {"ownerConflict": "{n} with a different owner", "nameMismatch": "{n} with a different name", "alreadyLinked": "{n} already linked", "collisions": "{n} with a repeated number", "noLocalCard": "{n} with no card in your catalog", "finishNotInProduct": "{n} with a finish the product lacks (unpriced in that finish)"},
           "piecesCorrected": "{n, plural, one {The finish of # piece was corrected} other {The finishes of # pieces were corrected}}.",
           "piecesExcluded": "Not touched: {list}.",
           "excl": {
@@ -4534,7 +4539,7 @@
           "groupUsed": "Price group: {name}.",
           "groupLine": "Price group: {name} ({via})",
           "groupNone": "Price group: none assigned",
-          "nextAttempt": "retries on its own on {when}",
+          "nextAttempt": "Available again at {when}",
           "via": {"auto": "automatic", "confirmed": "confirmed", "promo_table": "promo table"},
           "setReason": {
             "group_ambiguous": "several price groups are possible and it is unclear which one",
@@ -4543,7 +4548,7 @@
             "name_mismatch": "card names do not match",
             "promo_route": "it is a promo set and follows its own route",
             "wotc_pending": "waiting for your decision on the old editions",
-            "provider_failing": "the price source is failing; it retries on its own",
+            "provider_failing": "the price source is failing; try again later",
             "tcgcsv_source": "its price source does not allow linking",
             "not_in_provider": "the price source does not have this set"
           }

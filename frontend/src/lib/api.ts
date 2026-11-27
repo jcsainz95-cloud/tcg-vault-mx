@@ -17,6 +17,7 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
+import { mockUnlinkedPrice } from './mock/link-repair';
 import * as flujoMock from './mock/buylist-flujo';
 import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
@@ -7193,15 +7194,8 @@ export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
     startedAt: null,
     finishedAt: null,
     summary: null,
-    // §PRECIO-SIN-ENLACE: ejemplo para la pantalla (UUID locales).
-    unlinkedPrice: {
-      totalCards: 14,
-      sets: [
-        { setId: '3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b', name: '30th Celebration Classic Collection', unlinked: 11, total: 30, collisions: 2, omittedProducts: 5 },
-        { setId: '8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d', name: 'Scarlet & Violet', unlinked: 3, total: 258, collisions: null, omittedProducts: null },
-      ],
-      notLinkable: { totalCards: 4, sets: [{ setId: 'c1', name: 'Promos antiguas', unlinked: 4, reason: 'no_group' }] },
-    },
+    // §PRECIO-SIN-ENLACE / §AUTO-ENLACE: ejemplo con groupUsed/reason (ver `lib/mock/link-repair.ts`).
+    unlinkedPrice: mockUnlinkedPrice,
   });
 }
 

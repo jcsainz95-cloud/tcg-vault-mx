@@ -143,8 +143,66 @@ describe('§AUTO-ENLACE · F1/F2/F4', () => {
     renderWithProviders(<UnlinkedPriceNotice report={REPORT} />);
     fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
     expect((await screen.findByTestId('unlinked-result')).textContent).toBe(
-      'No se pudo ligar ninguna carta en Scarlet: la fuente de precios está fallando; se reintenta sola.',
+      'No se pudo ligar ninguna carta en Scarlet: la fuente de precios está fallando; vuelve a intentarlo más tarde.',
     );
+  });
+});
+
+describe('§AUTO-ENLACE fase 1 · correcciones tras gate', () => {
+  const REPORT_G: UnlinkedPriceReport = {
+    totalCards: 5,
+    sets: [
+      { setId: UUID1, name: 'Scarlet', unlinked: 3, total: 100, collisions: null, omittedProducts: null, groupUsed: { groupId: 7, name: null, via: 'auto' }, reason: 'collisions' },
+      { setId: UUID2, name: 'Violet', unlinked: 2, total: 50, collisions: null, omittedProducts: null, groupUsed: { groupId: 8, name: null, via: 'promo_table' }, reason: null },
+    ],
+    notLinkable: { totalCards: 4, sets: [{ setId: 'p', name: 'SV Promos', unlinked: 4, reason: 'no_group', exceptionReason: 'promo_route', groupUsed: { groupId: 9, name: 'Promos SV', via: 'promo_table' } }] },
+  };
+  it('B-3/M-1: sin link-exceptions pinta grupo y motivo; name null cae a id o «grupo de promos»; promo_route con texto propio', () => {
+    renderWithProviders(<UnlinkedPriceNotice report={REPORT_G} />);
+    expect(screen.getByText(/hay números repetidos/)).toBeTruthy();
+    expect(screen.getByText(/Grupo de precios: grupo 7 \(automático\)/)).toBeTruthy();
+    expect(screen.getByText(/Grupo de precios: grupo de promos \(tabla de promos\)/)).toBeTruthy();
+    const nl = screen.getByTestId('unlinked-not-linkable').textContent ?? '';
+    expect(nl).toMatch(/SV Promos.*es un set de promos y sigue su propia ruta/);
+    expect(nl).not.toMatch(/sin coincidencia clara/);
+    expect(nl).toMatch(/Promos SV/);
+  });
+  it('I-4: si la fila desaparece al refrescar, el resultado sigue visible arriba de la lista', async () => {
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(R({ linked: 3, priced: 3 }));
+    function Host() {
+      const [done, setDone] = useState(false);
+      return (
+        <>
+          <button onClick={() => setDone(true)}>refrescar</button>
+          <UnlinkedPriceNotice report={done ? { ...REPORT_G, sets: [REPORT_G.sets[1]!] } : REPORT_G} />
+        </>
+      );
+    }
+    renderWithProviders(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    await screen.findByTestId('unlinked-result');
+    fireEvent.click(screen.getByText('refrescar'));
+    const res = await screen.findByTestId('unlinked-result');
+    expect(res.textContent).toContain('Se ligaron 3 cartas en Scarlet');
+    expect(res.closest('[data-testid="unlinked-resolved"]')).not.toBeNull();
+  });
+  it('I-1: availableAgainAt/nextAttemptAt se lee como enfriamiento, nunca «se reintenta solo»', async () => {
+    expect(repair.readLinkRepair({ linked: 1, availableAgainAt: '2026-11-27T12:00:00Z' }).nextAttemptAt).toBe('2026-11-27T12:00:00Z');
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(R({ linked: 1, nextAttemptAt: '2026-11-27T12:00:00Z' }));
+    renderWithProviders(<UnlinkedPriceNotice report={REPORT_G} />);
+    fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    const txt = (await screen.findByTestId('unlinked-result')).textContent ?? '';
+    expect(txt).toMatch(/Disponible de nuevo a las/);
+    expect(txt).not.toMatch(/reintenta solo/);
+  });
+  it('M-3: mientras un botón corre, el de la otra fila también se deshabilita', async () => {
+    let done: (v: repair.LinkRepairResult) => void = () => {};
+    vi.spyOn(repair, 'repairCatalogLinks').mockReturnValue(new Promise((r) => { done = r; }));
+    renderWithProviders(<UnlinkedPriceNotice report={REPORT_G} />);
+    fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    await waitFor(() => expect((screen.getByRole('button', { name: /Actualizar este set: Violet/ }) as HTMLButtonElement).disabled).toBe(true));
+    done(R({ linked: 1 }));
+    await screen.findByTestId('unlinked-result');
   });
 });
 

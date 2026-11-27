@@ -192,6 +192,19 @@ describe('§AUTO-ENLACE 4b · «Actualizar este set» = sync (si falta) → link
     expect(err.getAttribute('role')).toBe('alert');
     expect(repair).not.toHaveBeenCalled();
     expect(screen.queryAllByTestId('unlinked-result')).toHaveLength(0);
+    // M-2: dice que falló la IMPORTACIÓN de cartas, no «la fuente de precios».
+    expect(err.textContent).toMatch(/Falló la importación de cartas de Temporal Forces/);
+    expect(err.textContent).not.toMatch(/fuente de precios/);
+  });
+
+  it('M-2: sync ok y link-repair 429: conserva «Se importaron N» y muestra la espera', async () => {
+    vi.spyOn(api, 'syncCatalog').mockResolvedValue({ jobId: 'j', cardsUpserted: 12, localSetId: 'loc-sv05' } as never);
+    vi.spyOn(linkRepair, 'repairCatalogLinks').mockRejectedValue(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x', details: { retryAfterSeconds: 300 } }));
+    renderWithProviders(<Harness />, 'es');
+    await updateTemporalForces();
+    const err = (await screen.findAllByTestId('unlinked-error'))[0]!;
+    expect(err.textContent).toMatch(/Se importaron 12 cartas/);
+    expect(err.textContent).toMatch(/Espera 5 minutos/);
   });
 
   it('sync sin localSetId (backend previo): avisa y NO inventa un id para link-repair', async () => {

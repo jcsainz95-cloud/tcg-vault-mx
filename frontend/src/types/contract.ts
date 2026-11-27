@@ -6258,8 +6258,9 @@ export interface RemoteSetDTO {
   cardCount: number;
   /** §AUTO-ENLACE 4b: UUID local del set (null = aún sin importar). Ausente en backends previos. */
   localSetId?: string | null;
-  groupUsed?: { groupId: number; name: string; via: string } | null;
+  groupUsed?: { groupId: number; name: string | null; via: string } | null;
   reason?: string | null;
+  availableAgainAt?: string | null;
   nextAttemptAt?: string | null;
 }
 
@@ -6473,6 +6474,9 @@ export interface UnlinkedPriceSet {
   collisions: number | null;
   omittedProducts: number | null;
   conflicts?: number | null;
+  /** §AUTO-ENLACE fase 1: grupo de precios usado y motivo (solo lectura; `name` puede ser null). */
+  groupUsed?: { groupId: number; name: string | null; via: string } | null;
+  reason?: string | null;
 }
 export interface UnlinkedPriceReport {
   totalCards: number;
@@ -6480,7 +6484,12 @@ export interface UnlinkedPriceReport {
   /** Sets que no se pueden ligar (sin grupo de precios o fuente distinta): se muestran aparte, sin botón. */
   notLinkable?: {
     totalCards: number;
-    sets: Array<{ setId: string; name: string; unlinked: number; reason: 'no_group' | 'tcgcsv_source' }>;
+    sets: Array<{
+      setId: string; name: string; unlinked: number; reason: 'no_group' | 'tcgcsv_source';
+      /** Motivo del contrato §2 (`group_none|promo_route|tcgcsv_source`); lectura tolerante. */
+      exceptionReason?: string | null;
+      groupUsed?: { groupId: number; name: string | null; via: string } | null;
+    }>;
   } | null;
 }
 

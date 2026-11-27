@@ -50,6 +50,9 @@ export interface RepairSetResult {
   link: LinkRepairResult | null;
 }
 
+/** Clave común de las dos entradas al botón «Actualizar este set» (tabla general y lista de sin ligar): una a la vez (M-3). */
+export const LINK_REPAIR_KEY = ['link-repair'] as const;
+
 /** Fase en curso de una acción de dos fases (para el rótulo del progreso, §32.5b/§32.5c). */
 export type SyncPhase = 'catalog' | 'variants';
 
@@ -304,21 +307,40 @@ export function useCatalogSync() {
 
   // --- ACCIÓN 3 · «Sincronizar este set» (reparación, sin confirmación, SIEMPRE las dos fases) ---
   const [repairPhase, setRepairPhase] = useState<SyncPhase | null>(null);
+  /** M-2: en qué fase falló la acción y cuántas cartas había traído ya `sync` (se conservan si `link-repair` falla). */
+  const [repairFailedPhase, setRepairFailedPhase] = useState<SyncPhase | null>(null);
+  const [repairImported, setRepairImported] = useState<number | null>(null);
   const repairSetMutation = useMutation({
+    mutationKey: LINK_REPAIR_KEY,
     mutationFn: async (set: RemoteSetDTO): Promise<RepairSetResult> => {
+      setRepairFailedPhase(null);
+      setRepairImported(null);
       // §AUTO-ENLACE 4b: `sync` SOLO si el set no está importado; si falla, se corta (sin link-repair).
       let localSetId = set.localSetId ?? null;
       let imported: number | null = null;
       if (localSetId == null) {
         setRepairPhase('catalog');
-        const synced = await syncCatalog({ setId: set.id, force: true });
+        let synced;
+        try {
+          synced = await syncCatalog({ setId: set.id, force: true });
+        } catch (e) {
+          setRepairFailedPhase('catalog');
+          throw e;
+        }
         imported = synced.cardsUpserted ?? 0;
+        setRepairImported(imported);
         localSetId = synced.localSetId ?? null;
         qc.invalidateQueries({ queryKey: ['remote-sets'] });
       }
       if (localSetId == null) return { set, imported, link: null };
       setRepairPhase('variants');
-      const link = await repairCatalogLinks(localSetId);
+      let link: LinkRepairResult;
+      try {
+        link = await repairCatalogLinks(localSetId);
+      } catch (e) {
+        setRepairFailedPhase('variants');
+        throw e;
+      }
       return { set, imported, link };
     },
     onSettled: () => {
@@ -364,6 +386,8 @@ export function useCatalogSync() {
     dismissPendingPhase1,
     repairSetMutation,
     repairPhase,
+    repairFailedPhase,
+    repairImported,
   } as const;
 }
 

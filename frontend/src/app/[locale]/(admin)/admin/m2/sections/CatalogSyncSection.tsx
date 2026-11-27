@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { useIsMutating } from '@tanstack/react-query';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDateTimeMx, formatTimeMx } from '@/lib/format';
@@ -33,7 +34,8 @@ import {
 } from '@/lib/verdict';
 import { SyncProgress } from './shared';
 import { UnlinkedPriceNotice } from './UnlinkedPriceNotice';
-import { LINK_SET_REASONS, readGroupUsed } from '@/lib/api/catalog-link-repair';
+import { LINK_REPAIR_KEY } from './useCatalogSync';
+import { LINK_SET_REASONS, groupLabel, readGroupUsed } from '@/lib/api/catalog-link-repair';
 import { LinkRepairResultNotice } from './LinkRepairResultNotice';
 import type { CatalogSync } from './useCatalogSync';
 
@@ -566,6 +568,8 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
     finishSecondHalf,
     repairSetMutation,
     repairPhase,
+    repairFailedPhase,
+    repairImported,
   } = catalog;
 
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
@@ -587,7 +591,9 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   };
 
   /** §32.7.5 — una operación de catálogo a la vez; las demás `disabled` con el motivo anunciado. */
-  const busy = catalogBusy || repairSetMutation.isPending;
+  // M-3: también ocupado si el botón de la lista de «sin ligar» (misma clave de mutación) está corriendo.
+  const otherRepairRunning = useIsMutating({ mutationKey: LINK_REPAIR_KEY }) > 0;
+  const busy = catalogBusy || repairSetMutation.isPending || otherRepairRunning;
   const busyProps = (mine: boolean) =>
     ({
       disabled: busy && !mine,
@@ -677,13 +683,14 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
             // Lectura tolerante (§AUTO-ENLACE 4b): sin campos ⇒ nada; motivo desconocido ⇒ no se pinta.
             const group = readGroupUsed(s.groupUsed);
             const reason = (LINK_SET_REASONS as readonly string[]).includes(s.reason ?? '') ? s.reason : null;
-            if (!group && !reason && !s.nextAttemptAt) return null;
+            const again = s.availableAgainAt ?? s.nextAttemptAt ?? null;
+            if (!group && !reason && !again) return null;
             return (
               <p className="text-xs font-normal text-muted" data-testid={`set-group-${s.id}`}>
-                {group ? tu('groupLine', { name: group.name, via: tuf(`via.${group.via}`) }) : tu('groupNone')}
+                {group ? tu('groupLine', { name: groupLabel(group, tuf), via: tuf(`via.${group.via}`) }) : tu('groupNone')}
                 {reason && ` · ${tuf(`setReason.${reason}`)}`}
-                {s.nextAttemptAt &&
-                  ` · ${tu('nextAttempt', { when: format.dateTime(new Date(s.nextAttemptAt), { dateStyle: 'short', timeStyle: 'short' }) })}`}
+                {again &&
+                  ` · ${tu('nextAttempt', { when: format.dateTime(new Date(again), { timeStyle: 'short' }) })}`}
               </p>
             );
           })()}
@@ -698,7 +705,8 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
                 <LinkRepairResultNotice
                   name={s.name}
                   result={repairSetMutation.data?.link}
-                  imported={repairSetMutation.data?.imported}
+                  imported={repairSetMutation.data?.imported ?? repairImported}
+                  failedPhase={repairSetMutation.isError ? repairFailedPhase : null}
                   linkSkipped={repairSetMutation.isSuccess && repairSetMutation.data?.link == null}
                   error={repairSetMutation.isError ? repairSetMutation.error : undefined}
                 />

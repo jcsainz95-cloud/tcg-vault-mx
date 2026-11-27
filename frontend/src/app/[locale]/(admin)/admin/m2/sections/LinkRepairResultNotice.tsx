@@ -1,7 +1,7 @@
 'use client';
 
 import { useFormatter, useTranslations } from 'next-intl';
-import type { LinkRepairResult, LinkSetReason } from '@/lib/api/catalog-link-repair';
+import { groupLabel, type LinkRepairResult, type LinkSetReason } from '@/lib/api/catalog-link-repair';
 import { asApiError } from '@/lib/api-client';
 import { useErrorMessage } from '@/components/ui/QueryState';
 
@@ -11,7 +11,7 @@ import { useErrorMessage } from '@/components/ui/QueryState';
  * `imported` = cartas traídas por `sync` en la misma acción (null/undefined = no hubo sync).
  */
 export function LinkRepairResultNotice({
-  name, result, error, imported, linkSkipped,
+  name, result, error, imported, linkSkipped, failedPhase,
 }: {
   name: string;
   result?: LinkRepairResult | null;
@@ -19,24 +19,28 @@ export function LinkRepairResultNotice({
   imported?: number | null;
   /** `sync` respondió sin `localSetId` (backend previo): no se pudo ligar. */
   linkSkipped?: boolean;
+  /** Fase en la que falló la acción de la tabla: `catalog` = la importación de cartas (`sync`); `variants` = `link-repair`. */
+  failedPhase?: 'catalog' | 'variants' | null;
 }) {
   const t = useTranslations('admin.m2.catalog.unlinkedPrice');
   const format = useFormatter();
   const getError = useErrorMessage('operator');
   const tf = t as unknown as (k: string, v?: Record<string, unknown>) => string;
-  const dateOf = (iso: string) => format.dateTime(new Date(iso), { dateStyle: 'short', timeStyle: 'short' });
+  const timeOf = (iso: string) => format.dateTime(new Date(iso), { timeStyle: 'short' });
   const reasonText = (k: string) => tf(`reason.${k}`);
   const countText = (k: string, n: number) => tf(`reasonCount.${k}`, { n });
   const setReasonText = (r: LinkSetReason) => tf(`setReason.${r}`);
 
   const hasError = error != null;
   const apiErr = hasError ? asApiError(error) : null;
+  const importFailed = failedPhase === 'catalog';
   const errorText = (() => {
     if (!apiErr) return null;
     if (apiErr.status === 429) {
       const secs = Number((apiErr.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds);
       return Number.isFinite(secs) && secs > 0 ? t('rate', { minutes: Math.max(1, Math.ceil(secs / 60)) }) : t('rateGeneric');
     }
+    if (importFailed) return null;
     if (apiErr.status === 503 || apiErr.code === 'UPSTREAM_ERROR') return t('upstream');
     return null;
   })();
@@ -66,13 +70,14 @@ export function LinkRepairResultNotice({
           {result.piecesCorrected > 0 && ` ${t('piecesCorrected', { n: result.piecesCorrected })}`}
           {result.piecesExcluded.length > 0 &&
             ` ${t('piecesExcluded', { list: result.piecesExcluded.map((e) => tf(`excl.${e.key}`, { n: e.count })).join(', ') })}`}
-          {result.groupUsed && ` ${t('groupUsed', { name: result.groupUsed.name })}`}
-          {result.nextAttemptAt && ` ${t('nextAttempt', { when: dateOf(result.nextAttemptAt) })}`}
+          {result.groupUsed && ` ${t('groupUsed', { name: groupLabel(result.groupUsed, tf) })}`}
+          {result.nextAttemptAt && ` ${t('nextAttempt', { when: timeOf(result.nextAttemptAt) })}`}
         </p>
       )}
       {hasError && (
         <p role="alert" className="mt-2 border-l-2 border-danger pl-2 text-sm text-danger" data-testid="unlinked-error">
-          {errorText ?? `${t('err', { name })} ${getError(error)}`}
+          {!importFailed && imported != null && `${t('imported', { n: imported })} `}
+          {errorText ?? `${importFailed ? t('errImport', { name }) : t('err', { name })} ${getError(error)}`}
         </p>
       )}
     </>
