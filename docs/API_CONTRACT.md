@@ -127,7 +127,7 @@
 
 ### catalog
 - GET `/admin/catalog/remote-sets` · admin
-- GET `/admin/catalog/sync-status` · admin — enlaces/precio automáticos y excepciones ⇒ `API_CONTRACT_AUTOENLACE.md`
+- GET `/admin/catalog/sync-status` · admin — enlaces/precio automáticos, `link-repair`, `sync`, `link-exceptions`, `confirm` ⇒ `API_CONTRACT_AUTOENLACE.md` (vigente ahí)
 - POST `/admin/catalog/unify-rarities` · admin
 - POST `/admin/catalog/sync` · admin — `shadowed: string[]`
 - POST `/admin/catalog/refresh-variants` · admin
@@ -136,7 +136,7 @@
 - POST `/admin/catalog/sync-all` · admin
 - POST `/admin/catalog/backfill` · admin
 - GET `/admin/catalog/tcgcsv-groups` · admin — solo grupos de `TCGCSV_IMPORTABLE_GROUPS`: `[{groupId,name,publishedOn,imported,productCount,cardCount}]`, orden `publishedOn` desc; solo `super_admin`
-- POST `/admin/catalog/import-tcgcsv-set` · solo `super_admin` — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`, `reason` ∈ `no_number|number_mismatch|unknown_stamp|empty_name|no_base|ambiguous_base|product_already_linked|field_too_long`; errores 400, 404 `TCGCSV_GROUP_UNKNOWN` (fuera de la lista), 409 `TCGCSV_GROUP_COVERED` (pokemontcg.io ya publica el set), 409 `TCGCSV_IMPORT_IN_PROGRESS` (mismo grupo; sin espera), 502 `UPSTREAM_ERROR` (TCGCSV caído o > 5 MB), 503 `POKEMONTCG_UNAVAILABLE` (0 filas), 503 `TCGCSV_IMPORT_FAILED` (rollback total); todo-o-nada e idempotente; `AuditLog catalog.tcgcsv_import`
+- POST `/admin/catalog/import-tcgcsv-set` · solo `super_admin` — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`; errores 400, 404 `TCGCSV_GROUP_UNKNOWN`, 409 `TCGCSV_GROUP_COVERED`/`TCGCSV_IMPORT_IN_PROGRESS`, 502 `UPSTREAM_ERROR`, 503 `POKEMONTCG_UNAVAILABLE`/`TCGCSV_IMPORT_FAILED` (rollback total); todo-o-nada e idempotente; auditoría `catalog.tcgcsv_import`. Enum de `reason` de `skipped`: DECISIONES §AUTO-ENLACE, apéndice
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
 - GET `/catalog/facets` · cuenta
@@ -404,13 +404,13 @@
 - **Siempre activa (HECHOS 2026-11-08; ARCHITECTURE §5.14).** Desaparecen `wishlistEnabled` (de `GET/PUT /admin/settings`, PUT con ella ⇒ 422, y de `GET /catalog/cards/:cardId`) y el `404 FEATURE_DISABLED` de las seis rutas de cuenta. Quedan `401`, `403`, `404` por `:id` ajeno y `400`.
 
 ## 2. Reglas vigentes: alta rápida y cajón del binder (UX-ALTA-LIGA, opción A + A2; HECHOS 2026-11-05)
-- **Acabado del alta y cajón:** `items/batch` suma `language?`, `cardProductId?` y lleva el `finish` de la liga elegida, nunca el de la casilla; el cajón lee `GET /admin/inventory/items` (tope 100). Candados: `docs/specs/IDS_COMPRA_SUGERIDA.md`.
-- **Compra sugerida por versión (HECHOS 2026-11-06):** `GET /admin/inventory/cards/:cardId/versions` suma por combo `buySuggestedCents: number | null` (centavos; no se guarda solo). Regla: mismo spec.
+- **Acabado del alta y cajón:** `items/batch` suma `language?`, `cardProductId?` y lleva el `finish` de la liga elegida; el cajón lee `GET /admin/inventory/items` (tope 100). Spec: `docs/specs/IDS_COMPRA_SUGERIDA.md`.
+- **Compra sugerida:** `GET /admin/inventory/cards/:cardId/versions` suma por combo `buySuggestedCents: number | null`. Regla: mismo spec.
 - **P-PROMOS (ARCH §5.12/§5.13):** `StampType` suma `event_promo`; `GroupedListingDetailResponse.pricePending`; `sync`/`refresh-variants` suman `promoSkipped?`, `pendingCards?`. Detalle: `docs/specs/P_PROMOS.md`.
 - **TL-A2-5 (decidido):** `removableCount` cuenta SIN filtros de Idioma/Liga (`bulk-remove` opera sobre toda la casilla).
 
 ## 3. D9 — comisión de plataforma dentro del precio (HECHOS:201 y :272 «A en todo»; DECIDIDO; tras publicar §DYN)
-Sin rutas nuevas. `displayPriceCents` = `P = ceilPeso(M/(1−pct×(1+IVA)))` por unidad; filas nuevas `totalCents = subtotalCents + shippingFeeCents`, `processingFeeCents = 0`, `feeConvention = FEE_INCLUDED` (`OrderDTO` la expone; filas viejas `FEE_ON_TOP`); `freeFromCents` se compara con el subtotal exhibido; retiro de bóveda = dial sin gross-up. Esquema, textos, criterios y pruebas: `docs/specs/D9_COMISION.md`.
+Sin rutas nuevas. `displayPriceCents` incluye la comisión por unidad; filas nuevas `totalCents = subtotalCents + shippingFeeCents`, `processingFeeCents = 0`, `feeConvention = FEE_INCLUDED` (`OrderDTO`; filas viejas `FEE_ON_TOP`); `freeFromCents` vs subtotal exhibido. Fórmula, esquema y pruebas: `docs/specs/D9_COMISION.md`.
 
 ## 4. PSA-ACABADO — estimado «si se gradea» por acabado (HECHOS 2026-11-09; dinero; `docs/specs/PSA_ACABADO.md`)
 Sin rutas nuevas; aditivo salvo lo marcado:
@@ -419,7 +419,7 @@ Sin rutas nuevas; aditivo salvo lo marcado:
 - **Cambio rompiente:** `POST /admin/pricing/override` con `intent:'graded_estimate'` exige `finish` (sin él ⇒ 400 `VALIDATION_ERROR`, `details.field='finish'`); `DELETE …/graded-estimates/:cardId/:gradeValue` exige query `finish` (igual 400; C-EQ-1: clase SELECTOR, dominio `Finish`) y borra solo ese acabado.
 - Barrido graded: resultado de carta nuevo `no_finish_split` (proveedor sin separación y carta de 2+ acabados ⇒ sin estimado). Esquema: `PriceReference.estimateFinishScoped` (ARCH §5.15).
 ## 5. PROMOS-MASTERSET — descarga automática (HECHOS 2026-11-09; `docs/specs/PROMOS_MASTERSET.md`)
-Sin rutas nuevas. `POST /admin/catalog/sync-all` incluye las 6 promos de `PTCG_PROMO_GROUPS` y los grupos TCGCSV (§6; HTTP solo `super_admin`, si no `skipped_needs_super_admin`). `202` y `sync-status.summary` suman `promos:{sets:[{setId,status}],tcgcsv:[{groupId,status,created,updated,errorCode?}]}`; pokemontcg.io sin respuesta ⇒ ni promos ni TCGCSV (fail-closed). «Promos de la colección» (liga INFERIDA, AUTO): las respuestas de Master Set (tienda, `/vault/master-sets/:setId`, `/admin/vaults/:userId/master-sets/:setId`) suman `collectionPromos?:{items:MasterSetCardCellDTO[],owned,total}` aditivo (sin sesión solo `total`); `completedCount/totalCount/valor` no cambian. Forma de la celda, `promos.gate` y pruebas PMS-B1…B17: spec §4–5.
+Sin rutas nuevas. `POST /admin/catalog/sync-all` incluye las 6 promos de `PTCG_PROMO_GROUPS` y los grupos TCGCSV (§6; HTTP solo `super_admin`, si no `skipped_needs_super_admin`). `202` y `sync-status.summary` suman `promos:{sets:[{setId,status}],tcgcsv:[{groupId,status,created,updated,errorCode?}]}`; pokemontcg.io sin respuesta ⇒ ni promos ni TCGCSV (fail-closed). Las respuestas de Master Set suman `collectionPromos?:{items,owned,total}` aditivo (sin sesión solo `total`); `completedCount/totalCount/valor` no cambian. Detalle y pruebas PMS-B1…B17: spec §4–5.
 
 ## 6. AUTO — catálogo, promos, PSA y cuarentena sin dueño (HECHOS 2026-11-09; `docs/specs/AUTO_CATALOGO.md`)
 Sin rutas nuevas. **ADITIVO:** `sync-status` suma `lastSuccessAt`, `lastTrigger`, `attempt`; `sync-all`/`summary.promos` suma `links` y `promos.discovery`; `promos.tcgcsv[]` suma `source` y `status:'quarantined'`; `graded-estimates/review` suma `quarantined`/`quarantinedCount`; `PromoCollectionLink` (ARCHITECTURE §5.17). **CAMBIO:** job con backoff; `syncAll` actor `user|system`; PSA fuera de cota ⇒ cuarentena; grupo TCGCSV desconocido ⇒ 404 `TCGCSV_GROUP_UNKNOWN`. Mesa: `API_CONTRACT_BUYLIST_MESA.md`.
