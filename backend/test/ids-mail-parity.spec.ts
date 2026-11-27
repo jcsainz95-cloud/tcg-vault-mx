@@ -31,6 +31,7 @@ function lineFor(stampType: StampType | null, label: FinishLabel, language: 'en'
     holo: 'holofoil',
     reverse_holo: 'reverse_holo',
     first_edition_holo: 'first_edition_holofoil',
+    first_edition: 'first_edition',
     cosmos_holo: 'holofoil',
   };
   return { language, stampType, stampLabel: label === 'cosmos_holo' ? 'Cosmos Holo' : null, finish: finish[label] };
@@ -48,10 +49,10 @@ function storeText(cat: Catalog, stampType: StampType | null, label: FinishLabel
 describe('TL-IDS-1 · el correo dice EXACTAMENTE lo que la tienda (frontend/messages/{es,en}.json)', () => {
   const cases = LOCALES.flatMap((l) => STAMPS.flatMap((s) => FINISH_LABEL_VALUES.map((f) => [l, s, f] as const)));
 
-  it('las combinaciones son 6 × 5 × 2', () => {
+  it('las combinaciones son 6 × 6 × 2', () => {
     expect(STAMPS).toHaveLength(6);
-    expect(FINISH_LABEL_VALUES).toHaveLength(5);
-    expect(cases).toHaveLength(60);
+    expect(FINISH_LABEL_VALUES).toHaveLength(6);
+    expect(cases).toHaveLength(72);
   });
 
   it.each(cases)('%s · %s · %s (español de liga)', (l, s, f) => {

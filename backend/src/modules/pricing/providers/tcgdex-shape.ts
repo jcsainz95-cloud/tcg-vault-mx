@@ -33,7 +33,7 @@ export const TCGDEX_TCGPLAYER_VARIANTS = [TPV_NORMAL, TPV_HOLO, TPV_REVERSE] as 
 export type TcgdexTcgplayerVariant = (typeof TCGDEX_TCGPLAYER_VARIANTS)[number];
 
 /** Nuestro `Finish` como string (evita import de @prisma en un módulo puro de parseo). */
-export type FinishStr = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+export type FinishStr = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil' | 'first_edition';
 
 /** Error de FORMA: la respuesta no tiene la estructura con la que se calibró (candado de forma). */
 export class TcgdexShapeError extends Error {

@@ -1,11 +1,13 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Role } from '@prisma/client';
+import { BusinessException } from '../../common/business.exception';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
 import { CardLinkRepairService } from './card-link-repair.service';
+import { FinishReviewService } from './finish-review.service';
 import { LinkExceptionsService } from './link-exceptions.service';
 import { SetSearchKeyService } from './set-search-key.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
@@ -13,6 +15,12 @@ import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 /** §AUTO-ENLACE fase 3 — body de `POST /admin/catalog/link-exceptions/:setId/confirm`: el `groupId` entero de TCGCSV. */
 class ConfirmGroupDto {
   @IsInt() @Min(1) groupId!: number;
+}
+
+/** §AUTO-ENLACE fase 4 — body de `POST /admin/catalog/finish-review/:inventoryItemId` (los valores se validan en el servicio ⇒ 422, contrato §8b). */
+class FinishReviewDto {
+  @IsOptional() decision?: unknown;
+  @IsOptional() expectedFinish?: unknown;
 }
 
 class SyncDto {
@@ -83,6 +91,7 @@ export class AdminCatalogController {
     private readonly linkRepair: CardLinkRepairService,
     private readonly searchKeys: SetSearchKeyService,
     private readonly linkExceptions: LinkExceptionsService,
+    private readonly finishReview: FinishReviewService,
   ) {}
 
   @Get('remote-sets')
@@ -172,6 +181,25 @@ export class AdminCatalogController {
     @CurrentUser() user: { id: string; role: Role },
   ) {
     return this.linkExceptions.confirm(setId, dto.groupId, user);
+  }
+
+  /** GET /admin/catalog/finish-review — piezas antiguas que podrían ser 1.ª edición, por confirmar (solo lectura local; contrato §8b). */
+  @Get('finish-review')
+  async listFinishReview(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+    const n = limit == null || limit === '' ? undefined : Number(limit);
+    if (n != null && !Number.isFinite(n)) throw BusinessException.validation('VALIDATION_ERROR', 'limit must be a number');
+    return this.finishReview.list(cursor, n);
+  }
+
+  /** POST /admin/catalog/finish-review/:inventoryItemId {decision, expectedFinish} — decide una pieza (super_admin, auditado; contrato §8b). */
+  @Post('finish-review/:inventoryItemId')
+  @HttpCode(200)
+  async decideFinishReview(
+    @Param('inventoryItemId', new ParseUUIDPipe()) inventoryItemId: string,
+    @Body() dto: FinishReviewDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.finishReview.decide(inventoryItemId, { decision: dto.decision, expectedFinish: dto.expectedFinish }, user);
   }
 
   @Post('sync')

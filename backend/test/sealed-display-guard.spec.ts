@@ -150,6 +150,18 @@ type Allow = { file: string; snippet: string; lines: number[]; reason: string };
 
 const ALLOWLIST: Allow[] = [
   {
+    file: 'src/modules/catalog/finish-review.service.ts',
+    snippet: 'cardName: r.card.name,',
+    lines: [112],
+    reason: '§AUTO-ENLACE fase 4: solo piezas `productType=raw` (el predicado SQL exige raw y acabado normal|holofoil): nunca un sellado.',
+  },
+  {
+    file: 'src/modules/catalog/finish-review.service.ts',
+    snippet: 'number: r.card.number,',
+    lines: [113],
+    reason: '§AUTO-ENLACE fase 4: solo piezas `productType=raw`; nunca un sellado.',
+  },
+  {
     file: 'src/modules/inventory/inventory.service.ts',
     snippet: 'number: display.isSealed ? null : item.card.number,',
     lines: [3143],

@@ -25,6 +25,7 @@ export const FINISH_TO_TCG_KEY: Record<Finish, string> = {
   reverse_holo: 'reverseHolofoil',
   holofoil: 'holofoil',
   first_edition_holofoil: '1stEditionHolofoil',
+  first_edition: '1stEditionNormal',
 };
 
 /**
@@ -436,7 +437,14 @@ export const TCGCSV_SUBTYPE_TO_FINISH: Record<string, Finish> = {
   holofoil: 'holofoil',
   reverseholofoil: 'reverse_holo',
   '1steditionholofoil': 'first_edition_holofoil',
+  // §AUTO-ENLACE fase 4 (Q1 = A, dueño 2026-11-27): las dos ediciones de WotC, cada una con SU precio. «Unlimited» es la edición normal.
+  '1stedition': 'first_edition',
+  unlimited: 'normal',
+  unlimitedholofoil: 'holofoil',
 };
+
+/** Subtipos que son ALIAS de otro acabado (`Unlimited*`): ante un producto con el nombre canónico Y el alias del mismo acabado manda el canónico. */
+export const TCGCSV_ALIAS_SUBTYPES: ReadonlySet<string> = new Set(['unlimited', 'unlimitedholofoil']);
 
 /**
  * v1.26 (§4.24a, paso 4) — Normaliza UN `subTypeName` crudo de TCGCSV a su `Finish`, o `null` si es

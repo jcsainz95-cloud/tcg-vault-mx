@@ -583,6 +583,11 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         bump('ambiguous_finishes');
         continue;
       }
+      // §AUTO-ENLACE fase 4 (Q1 = A): pasar una pieza a «1.ª edición» NUNCA es automático (cambia el precio); se decide por pieza en `finish-review`.
+      if (i.card.availableFinishes[0] === 'first_edition') {
+        bump('first_edition_review');
+        continue;
+      }
       const blocked =
         (!CORRECTABLE_STATUS.includes(i.status) && 'status') ||
         (i.reservedByOrderId != null && 'reserved') ||

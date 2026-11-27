@@ -34,6 +34,14 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
   const synth = (g: number) => [1, 2, 3].map((n) => ({ productId: g * 10 + n, name: `Carta ${g}-${n}`, number: String(n) }));
   const synthPrices = (g: number) => synth(g).map((p) => ({ productId: p.productId, subTypeName: 'Normal', marketPrice: 1.5 }));
 
+  // §AUTO-ENLACE fase 4 — WotC: dos ediciones por producto, cada una con SU precio (USD).
+  const wotcProducts = [{ productId: 9100051, name: 'Alakazam', number: '001/002' }, { productId: 9100052, name: 'Abra', number: '002/002' }, { productId: 9100053, name: 'Kadabra', number: '003/003' }];
+  const wotcPrices = [
+    { productId: 9100051, subTypeName: '1st Edition', marketPrice: 40 }, { productId: 9100051, subTypeName: 'Unlimited', marketPrice: 4 },
+    { productId: 9100052, subTypeName: '1st Edition Holofoil', marketPrice: 100 }, { productId: 9100052, subTypeName: 'Unlimited Holofoil', marketPrice: 10 },
+    { productId: 9100053, subTypeName: '1st Edition', marketPrice: 25 }, // solo 1.ª edición
+  ];
+
   async function mkSet(tag: string, pptSetId: string | null, n = 0): Promise<string> {
     const s = await h.prisma.cardSet.create({ data: { externalId: `al-${tag}-${run}`, name: `AL ${tag} ${run}`, pptSetId } });
     setIds.push(s.id);
@@ -65,9 +73,10 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
     jest.spyOn(client, 'getProducts').mockImplementation(async (g: number) => {
       productCalls.push(g);
       if (failing.has(g)) throw new Error('boom 503');
+      if (g === 910005) return wotcProducts;
       return g === 24837 ? fixture.products.map((p) => ({ productId: p.productId, name: p.name, number: p.number })) : g >= 910001 ? synth(g) : [];
     });
-    jest.spyOn(client, 'getPrices').mockImplementation(async (g: number) => (g === 24837 ? (fixture.prices as never) : g >= 910001 ? (synthPrices(g) as never) : []));
+    jest.spyOn(client, 'getPrices').mockImplementation(async (g: number) => (g === 910005 ? (wotcPrices as never) : g === 24837 ? (fixture.prices as never) : g >= 910001 ? (synthPrices(g) as never) : []));
     jest.spyOn(h.app.get(FxService), 'getCurrent').mockResolvedValue({ rate: 18, bufferPct: 0, source: 'banxico', effectiveDate: '2026-11-25' } as never);
     // Solo mis sets compiten: el resto de cartas sin ligar de la semilla se deja sin grupo (sin llamadas) — se cuentan en `remaining*`.
     setA = await mkSet('A', '24837');
@@ -260,6 +269,33 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
     const got = await Promise.all([claim(setNoGroup), claim(setNoGroup), claim(setNoGroup)]);
     expect(got.filter(Boolean)).toHaveLength(1);
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.auto_link_claim', entityId: setNoGroup } })).toBe(1);
+  });
+
+  it('fase 4 (Q1 = A): un set WotC se liga y precia con SUS DOS ediciones, cada una con su precio; las cartas ofrecen first_edition', async () => {
+    await claimsClear();
+    const sid = (await h.prisma.cardSet.create({ data: { externalId: `al-W-${run}`, name: `AL WotC ${run}`, pptSetId: '910005' } })).id;
+    setIds.push(sid);
+    const c1 = await h.prisma.card.create({ data: { externalId: `al-W-${run}-1`, setId: sid, name: 'Alakazam', number: '1', availableFinishes: ['normal'] } });
+    const c2 = await h.prisma.card.create({ data: { externalId: `al-W-${run}-2`, setId: sid, name: 'Abra', number: '2', availableFinishes: ['holofoil'] } });
+    const c3 = await h.prisma.card.create({ data: { externalId: `al-W-${run}-3`, setId: sid, name: 'Kadabra', number: '3', availableFinishes: ['normal'] } });
+    cardIds.push(c1.id, c2.id, c3.id);
+    // Una pieza «Normal» sobre una carta que TCGCSV solo ofrece como 1st Edition: la reparación NO la pasa a 1.ª edición sola (se decide en finish-review).
+    const shelf = (await h.prisma.vaultLocation.findFirst({ where: { zone: 'platform_stock', isActive: true } }))?.id ?? null;
+    const piece = await h.prisma.inventoryItem.create({
+      data: { folio: `ALW-${run}-001`, cardId: c3.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', ownerType: 'platform', status: 'listed', acquisitionType: 'compra', acquisitionCostCents: 5000, firstListedAt: new Date(), locationId: shelf },
+    });
+    const r = await job.run({ ...opts, maxSets: 50, maxCalls: 200 });
+    expect([r.sets.find((x) => x.setId === sid), r.aborted, r.setsTried]).toEqual([expect.objectContaining({ linked: 3 }), undefined, expect.anything()]);
+    const cards = await h.prisma.card.findMany({ where: { id: { in: [c1.id, c2.id] } }, orderBy: { number: 'asc' }, select: { availableFinishes: true } });
+    expect(cards.map((c) => c.availableFinishes)).toEqual([['normal', 'first_edition'], ['holofoil', 'first_edition_holofoil']]);
+    const px = await h.prisma.priceReference.findMany({ where: { cardId: { in: [c1.id, c2.id, c3.id] }, source: 'tcgcsv_singles' }, select: { cardId: true, finish: true, priceUsdCents: true } });
+    const by = (cid: string, f: string) => px.find((p) => p.cardId === cid && p.finish === f)?.priceUsdCents;
+    expect([by(c1.id, 'normal'), by(c1.id, 'first_edition'), by(c2.id, 'holofoil'), by(c2.id, 'first_edition_holofoil')]).toEqual([400, 4000, 1000, 10000]);
+    expect(px).toHaveLength(5); // + la 1.ª edición sola de Kadabra
+    expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: piece.id } })).finish).toBe('normal'); // NO se cambió sola
+    expect((await h.prisma.card.findUniqueOrThrow({ where: { id: c3.id }, select: { availableFinishes: true } })).availableFinishes).toEqual(['first_edition']);
+    expect(await h.prisma.auditLog.count({ where: { action: 'inventory.finish_corrected', entityId: piece.id } })).toBe(0);
+    await h.prisma.inventoryItem.delete({ where: { id: piece.id } });
   });
 
   it('contador: sync-status.summary (quedan X · ayer Y), solo lectura local', async () => {

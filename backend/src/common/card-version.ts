@@ -95,14 +95,22 @@ export function optionKeyOf(versionKey: string, stamped: boolean, finish: Finish
 }
 
 /** `FinishLabel` (§IDS.5, D-IDS-N): el acabado como lo nombra el cliente. Clave cerrada; el texto es i18n de frontend. */
-export type FinishLabel = 'non_holo' | 'holo' | 'reverse_holo' | 'first_edition_holo' | 'cosmos_holo';
-export const FINISH_LABEL_VALUES: readonly FinishLabel[] = ['non_holo', 'holo', 'reverse_holo', 'first_edition_holo', 'cosmos_holo'];
+export type FinishLabel = 'non_holo' | 'holo' | 'reverse_holo' | 'first_edition_holo' | 'first_edition' | 'cosmos_holo';
+export const FINISH_LABEL_VALUES: readonly FinishLabel[] = [
+  'non_holo',
+  'holo',
+  'reverse_holo',
+  'first_edition_holo',
+  'first_edition',
+  'cosmos_holo',
+];
 
 const FINISH_LABEL_BY_FINISH: Record<Finish, FinishLabel> = {
   normal: 'non_holo',
   holofoil: 'holo',
   reverse_holo: 'reverse_holo',
   first_edition_holofoil: 'first_edition_holo',
+  first_edition: 'first_edition',
 };
 
 /**

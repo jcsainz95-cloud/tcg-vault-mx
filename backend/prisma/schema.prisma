@@ -62,6 +62,8 @@ enum Finish {
   reverse_holo
   holofoil
   first_edition_holofoil
+  // §AUTO-ENLACE fase 4 (Q1 = A): «1st Edition» NO holográfica de TCGCSV (WotC). Migración propia ANTES del código que la usa.
+  first_edition
 }
 
 // v1.1 (M-2): subtipo opcional del producto sellado (solo productType=sealed).

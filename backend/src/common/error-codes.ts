@@ -81,6 +81,12 @@ export const ErrorCode = {
   UPSTREAM_ERROR: 'UPSTREAM_ERROR',
   // §AUTO-ENLACE fase 3 (contrato §3): el `groupId` elegido para confirmar no existe en `listGroups` de TCGCSV. 422.
   GROUP_NOT_FOUND: 'GROUP_NOT_FOUND',
+  // §AUTO-ENLACE fase 4 (contrato §8b, `finish-review`): 409. `ITEM_LOCKED` (venta/reserva/custodia/dueño ≠ plataforma), `NO_TARGET_PRICE` (sin precio del
+  // acabado destino), `STALE` (el acabado ya no es el que vio el cliente), `ALREADY_RESOLVED` (ya hay una decisión contraria).
+  ITEM_LOCKED: 'ITEM_LOCKED',
+  NO_TARGET_PRICE: 'NO_TARGET_PRICE',
+  STALE: 'STALE',
+  ALREADY_RESOLVED: 'ALREADY_RESOLVED',
   // v1.31 (formalizado; refresh-variants M-34): se intentó refrescar variantes/precios de un set que NO
   // existe en BD, o existe pero SIN cartas. La reparación solo-TCGCSV NO importa el set (no llama a
   // pokemontcg.io); mensaje accionable ("impórtalo primero con POST /admin/catalog/sync"). Se usa 409

@@ -501,6 +501,15 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
   }
 
   /**
+   * §AUTO-ENLACE fase 4 — precio EN VIVO (sin fila, sin encolar nada, sin escribir) de piezas HIPOTÉTICAS: «cómo quedaría esta pieza con otro acabado».
+   * Misma función del cuerpo único que el cálculo en vivo de siempre; `pending` ⇒ no hay precio de mercado de ese acabado.
+   */
+  async previewLive(items: readonly SaleItem[], dials: IvaDials): Promise<Map<string, PieceSale>> {
+    if (items.length === 0) return new Map();
+    return liveSalesFor(this.decider, items, dials, await this.decider.loadBatch([...items]));
+  }
+
+  /**
    * 💰 §DYN.5.6/.7 — el precio de cada pieza tal como lo exhibe y lo cobra la tienda: fila `priced` ⇒ su `P` tal cual (aunque
    * `PriceReference` o un dial ya se hayan movido); `pending` ⇒ `pending`; sin fila ⇒ cálculo en vivo por el cuerpo único y
    * `missing_row` encolado. v1.113.3: el «valor de mercado» de cada pieza sale de la MISMA fuente que su `P` (la fila, o el

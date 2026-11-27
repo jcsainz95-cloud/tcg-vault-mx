@@ -33,6 +33,7 @@ export const FINISH_ORDER: Finish[] = [
   'normal',
   'reverse_holo',
   'holofoil',
+  'first_edition',
   'first_edition_holofoil',
 ];
 
@@ -45,6 +46,7 @@ export const FINISH_ORDER: Finish[] = [
 export const PRIMARY_FINISH_ORDER: Finish[] = [
   'normal',
   'holofoil',
+  'first_edition',
   'first_edition_holofoil',
   'reverse_holo',
 ];

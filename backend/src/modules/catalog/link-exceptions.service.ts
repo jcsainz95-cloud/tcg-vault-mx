@@ -10,6 +10,7 @@ import { CardLinkRepairService, LINK_REPAIR_GATE_NAMESPACE, LINK_REPAIR_MANUAL_C
 import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
 import { scoreGroupCandidates, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
+import { FinishReviewService } from './finish-review.service';
 import { safeErrorTag } from '../shipments/guest-mail-link';
 
 /** Contrato §8c `AutoLinkSummary` (idéntico en `link-exceptions.summary` y `sync-status.autoLink`). */
@@ -68,6 +69,7 @@ export class LinkExceptionsService {
     private readonly repair: CardLinkRepairService,
     private readonly groupsCache: TcgcsvGroupsCache,
     @Optional() private readonly settings?: SettingsService,
+    @Optional() private readonly finishReview?: FinishReviewService,
   ) {}
 
   /** `summary` del contrato: «quedan X · ayer Y (Z con precio)». «Ayer» = día UTC anterior, de las filas `catalog.auto_link_run`. */
@@ -79,7 +81,7 @@ export class LinkExceptionsService {
       this.prisma.auditLog.findMany({ where: { action: 'catalog.auto_link_run', createdAt: { gte: yesterday, lt: today } }, select: { after: true } }),
       this.prisma.auditLog.findFirst({ where: { action: 'catalog.auto_link_run' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
       autoLinkEnabled(this.settings),
-      Promise.resolve(0), // fase 4: `FinishReviewService.pendingCount()`
+      this.finishReview ? this.finishReview.pendingCount().catch(() => 0) : Promise.resolve(0),
     ]);
     const counted = sets.filter((s) => countsInUnlinkedCards(s));
     const sum = (k: 'linked' | 'priced'): number => runs.reduce((n, r) => n + (Number((r.after as Record<string, unknown> | null)?.[k]) || 0), 0);

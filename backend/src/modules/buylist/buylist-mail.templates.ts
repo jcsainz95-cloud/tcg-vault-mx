@@ -97,6 +97,7 @@ export const FINISH_LABELS: Record<Finish, string> = {
   reverse_holo: 'Reverse Holo',
   holofoil: 'Holofoil',
   first_edition_holofoil: '1st Edition Holofoil',
+  first_edition: '1st Edition',
 };
 
 export function formatDate(date: Date | null, locale: Locale): string {

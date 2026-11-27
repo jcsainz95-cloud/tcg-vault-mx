@@ -8,6 +8,7 @@ import {
   TcgcsvPriceRow,
   deriveStructuralFinishes,
   tcgcsvSubTypeToFinish,
+  TCGCSV_ALIAS_SUBTYPES,
 } from '../pricing.types';
 import { TcgcsvHttpClient } from './tcgcsv-http.client';
 
@@ -231,7 +232,9 @@ export function deriveCardProductsFromTcgcsv(
     // Precio por variante: marketPrice de ESTE producto por su subTypeName→Finish.
     const pricesByFinish: { finish: Finish; marketPrice: number | null }[] = [];
     const seen = new Set<Finish>();
-    for (const r of priceRows) {
+    // Canónicos antes que alias (`Unlimited` ⇒ normal): si un producto trajera «Normal» Y «Unlimited», el precio es el de «Normal».
+    const isAlias = (r: TcgcsvPriceRow): number => (TCGCSV_ALIAS_SUBTYPES.has(String(r.subTypeName ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')) ? 1 : 0);
+    for (const r of [...priceRows].sort((a, b) => isAlias(a) - isAlias(b))) {
       const finish = tcgcsvSubTypeToFinish(r.subTypeName);
       if (finish == null || seen.has(finish)) continue;
       seen.add(finish);

@@ -162,7 +162,7 @@ describe('TcgcsvSinglesBulkPriceProvider.fetchPricesForSet', () => {
     const client = catalogClient({
       products: [{ productId: 555, name: 'X', number: '1' }],
       prices: [
-        { productId: 555, subTypeName: 'Unlimited', marketPrice: 9.9 }, // no mapeable
+        { productId: 555, subTypeName: 'Shadowless', marketPrice: 9.9 }, // no mapeable
         { productId: 555, subTypeName: 'Holofoil', marketPrice: 5.0 },
       ],
     });

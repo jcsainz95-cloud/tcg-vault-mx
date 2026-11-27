@@ -87,7 +87,7 @@ describe('IDS-B1 — M-95 es aditiva: lo existente no cambia (criterio 512, I-1)
           const runRow = await tx.listingPriceRun.create({
             data: { businessDate: new Date('2026-11-01'), trigger: 'daily', status: 'ok', scopeItemCount: 2 },
           });
-          const pieces: { id: string; finish: 'normal' | 'holofoil' | 'reverse_holo' | 'first_edition_holofoil' }[] = [];
+          const pieces: { id: string; finish: 'normal' | 'holofoil' | 'reverse_holo' | 'first_edition_holofoil' | 'first_edition' }[] = [];
           for (const [i, finish] of (['normal', 'holofoil'] as const).entries()) {
             const p = await tx.inventoryItem.create({
               data: {
