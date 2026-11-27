@@ -2,14 +2,14 @@
 Anexo de `API_CONTRACT.md` (convenciones allí). Diseño y reglas: `docs/DECISIONES.md` §AUTO-ENLACE. Solo `super_admin`. Dinero: centavos enteros.
 
 ## 1. Job diario (sin endpoint HTTP)
-- `catalog-auto-link`, 05:00 en la zona del scheduler (la de `catalog-metadata-sync` 01:00; backend la confirma en `scheduler.service.ts`). Dial `auto_link_enabled` (apagado al desplegar; backend lo enciende al veredicto de qa, sin acción del dueño).
+- `catalog-auto-link`, 05:00 en la zona del scheduler (la de `catalog-metadata-sync` 01:00; backend la confirma en `scheduler.service.ts`). Dial `auto_link_enabled`: **nace `on`** (HECHOS 2026-11-27 «La reparación automática prendida»; `settings.constants.ts:711`); el super_admin puede apagarlo (§8a).
 - Una corrida = una tanda: ≤ 8 sets, ≤ 600 cartas ligadas, ≤ 40 llamadas a TCGCSV (incluye reintentos y `listGroups`, 1 por corrida), ≤ 30 min. Single-flight `pg_advisory_lock` (misma llave que `price-ingest` ⇒ nunca se pisan).
 - Auditoría por set `catalog.auto_link {setId, groupId, via, linked, priced, collisions, conflicts, omitted[], notLinkable, error?}` y resumen `catalog.auto_link_run {setsTried, linked, priced, remainingBefore, remainingAfter, tcgcsvCalls, durationMs, aborted?}`. `actorUserId=null`.
 
 ## 2. GET `/admin/catalog/link-exceptions` (FASE 3; en fase 1 devuelve 404 y es normal)
 En fase 1 la lista sale de `sync-status.unlinkedPrice[]` (§5): el frontend lo trata como fuente vigente y NUNCA descarta `groupUsed/reason/exceptionReason` por faltar este endpoint; promos viejas (dpp…) se pintan con `reason:'promo_route'`, jamás «sin coincidencia clara». Una sola lista (sustituye el bloque rojo + «No ligables»). 200:
 ```
-{ summary:{ unlinkedCards:n, unlinkedSets:n, repairedYesterday:n, pricedYesterday:n, lastRunAt:iso|null, nextRunAt:iso, waitingDecision:n },
+{ summary:<AutoLinkSummary, forma EXACTA en §8c>,
   sets:[{ setId, name, unlinked:n, total:n,
     reason:'group_ambiguous'|'group_none'|'collisions'|'name_mismatch'|'promo_route'|'wotc_pending'|'provider_failing'|'tcgcsv_source'|'not_in_provider',
     groupUsed:{ groupId, name, via:'auto'|'confirmed'|'promo_table' }|null,
@@ -32,7 +32,7 @@ Igual que hoy (`DECISIONES` §PRECIO-SIN-ENLACE «Correcciones» a) y además, e
 - Idempotencia/429: heredadas de `sync` y `link-repair`; el botón se deshabilita mientras corre.
 
 ## 5. `GET /admin/catalog/sync-status` (aditivo)
-`unlinkedPrice` se conserva por compatibilidad y suma por set `groupUsed`, `reason`, `exceptionReason` (fase 1, ya entregado). `summary` idéntico al de §2 es **fase 2**: en fase 1 el frontend NO depende de él. No se retira nada en esta entrega.
+`unlinkedPrice` se conserva por compatibilidad y suma por set `groupUsed`, `reason`, `exceptionReason` (fase 1, ya entregado). **`sync-status.summary` es del barrido `sync-all` y NO se toca** (vigente en `catalog-sync.service.ts`); el resumen del job vive en `sync-status.autoLink` (§8c). Ya no se retira nada.
 
 ## 7. Correcciones tras gates de fase 1 (2026-11-27; vigentes; qa B-1..I-4, seg AE-1..AE-5)
 1. **B2 estricto (AE-1, I-2, I-3).** Llave de nombre = normalizar (acentos, mayúsculas, puntuación, «&»≡«and», guion≡espacio) y quitar paréntesis FINALES de variante del producto («Genesect EX (Team Plasma)» ⇒ «genesect ex» = «Genesect-EX»). B2 liga SOLO con llave IGUAL; prohibido contención, prefijo o subconjunto de palabras («Pikachu» ≠ «Pikachu VMAX»; «Charizard» ≠ «Charizard ex»). Vale en ambos sentidos: 1 local + N productos ⇒ el único con llave igual; N locales + 1 producto ⇒ la única local con llave igual (I-2: 2 locales + 1 producto liga la de llave igual). 0 o ≥ 2 con llave igual ⇒ no se liga. El producto sobrante tras B2 cuenta `no_local_card`, NO colisión (I-3). Pruebas obligatorias de no-enlace con calificador (V, VMAX, ex, GX, Mega, Dark) y la sonda Pikachu/VMAX/Bulbasaur #25 ⇒ 0 enlaces. `namesCompatible` (subconjunto) deja de usarse en B2. Gate de encendido: `auto_link_enabled` sigue APAGADO hasta cerrar esto.
@@ -54,6 +54,35 @@ Igual que hoy (`DECISIONES` §PRECIO-SIN-ENLACE «Correcciones» a) y además, e
    - **(e2) Unown, REGLA CORREGIDA (la de backend se rechaza en un punto).** Rechazado: «la 1.ª llave quita siempre los paréntesis de una letra en ambos lados» (dejaría ligar «Unown (J)» local con «Unown (K)» del proveedor si comparten número, p. ej. por error de numeración; contradice la prueba «Unown (J) vs [K] ⇒ 0 enlaces» de (b)). Regla literal: *«Letra única `(X)`/`[X]` (X = una letra, `!` o `?`): si AMBOS lados traen letra, la llave la conserva y deben ser iguales (J=J). Si EXACTAMENTE un lado la trae y el otro no (local «Unown» sin letra, ex10, vs proveedor «Unown (A)»), la 1.ª llave la quita en el lado que la trae y se compara por igualdad. Nunca se liga con letras distintas.»* Falso positivo medido por razonamiento: «Unown» sin letra solo liga con un «Unown (X)» si el número es único local y en la fuente (regla c); con varios Unown del mismo número en la fuente ⇒ ≥ 2 candidatos ⇒ `collision`, no se liga. NO MEDIDO: que la forma asimétrica conserve los 15/18 094; backend re-mide N=144 y reporta k/N (debe dar ganados 0, cambios de dueño 0, perdidos ≤ 15) y añade rojo→verde: «Unown (J)» vs «Unown (K)» mismo número ⇒ 0; «Unown» vs «Unown (A)» número único ⇒ liga; «Unown» vs dos «Unown (X)» mismo número ⇒ `collision`.
    Total tras (b): perdidos esperados = 102 − 87 = 15 (12 textuales + 3 colisiones), todos visibles como excepción, 0 silenciosos. Backend re-mide N=144 y reporta k/N; debe dar ganados 0, cambios de dueño 0.
 7. **Frontend (I-4).** Si la fila del set desaparece al refrescar (ya sin pendientes), el resultado se queda visible en la misma posición (no al pie de la lista) hasta que se cierre.
+
+## 8. Huecos fases 2-4 cerrados (2026-11-27; vigente)
+### 8a. Dial `auto_link_enabled` (sin endpoint nuevo)
+Se usa `GET /admin/settings` (campo `autoLinkEnabled: 'on'|'off'`) y `PUT /admin/settings` `{ autoLinkEnabled:'on'|'off' }` (ya mapeado `settings.constants.ts:1589`, validador `:1447`). Solo `super_admin` (otro rol ⇒ 403); valor distinto de `on|off` ⇒ 422 `VALIDATION_ERROR`; auditado por el mecanismo de ajustes (before/after). Nace `on`. Efecto: apagado ⇒ el job no hace nada (`skipped:'dial_off'`) y el botón «Actualizar este set» sigue funcionando; la corrida en curso termina su tanda. El frontend pinta el interruptor en el panel del contador (§8c) solo para `super_admin`; pide confirmación al apagar. Para pintar estado sin llamar a settings basta `autoLink.autoLinkEnabled` (§8c).
+
+### 8b. Fase 4: piezas antiguas por confirmar (Q1 = A; nada se cambia en silencio)
+**Qué entra:** `InventoryItem` con `productType='raw'`, `finish ∈ {normal, holofoil}`, cuya carta ofrece `first_edition` o `first_edition_holofoil` en `availableFinishes` (WotC con «1st Edition» mapeada), sin fila de bitácora `catalog.finish_review` para esa pieza. Sellado, gradeadas y todo lo demás: nunca. Sin columna nueva (la decisión vive en bitácora).
+- **GET `/admin/catalog/finish-review?cursor=&limit=50`** (super_admin, solo lectura local). 200:
+```
+{ pending:n,
+  items:[{ inventoryItemId, folio, cardId, cardName, setName, number, status:InventoryStatus,
+    currentFinish:'normal'|'holofoil', targetFinish:'first_edition'|'first_edition_holofoil',
+    currentPriceCents:int|null, targetPriceCents:int|null, /* P vigente (ListingPrice) y el que tendría con el acabado destino; null si no hay PriceReference de ese acabado */
+    blockedReason:null|'has_sale'|'reserved'|'in_custody'|'customer_owned'|'no_target_price' }],
+  nextCursor:string|null }
+```
+Orden: `listed` primero, luego `folio`. Centavos enteros MXN. `pending:0` ⇒ el frontend oculta la sección (no hay lista vacía fija).
+- **POST `/admin/catalog/finish-review/:inventoryItemId`** `{ decision:'keep'|'first_edition', expectedFinish:'normal'|'holofoil' }` (super_admin). `keep` = «es Unlimited, así está bien»: solo registra la decisión. `first_edition` = cambia el acabado (`normal→first_edition`, `holofoil→first_edition_holofoil`) y recalcula `ListingPrice` de la pieza **en la misma transacción** con la ruta de valuación existente; `listPriceCents` manual se conserva solo si era override manual explícito, si no se recalcula. 200 `{ inventoryItemId, decision, before:{finish,unitPriceCents,listPriceCents}, after:{finish,unitPriceCents,listPriceCents}, alreadyResolved:bool }`. Auditoría `catalog.finish_review {inventoryItemId, decision, before, after}` con el usuario.
+- **Reglas de dinero/concurrencia:** `SELECT … FOR UPDATE` de la pieza; revalida dentro de la transacción. Se bloquea (`409 ITEM_LOCKED`, `blockedReason` en el cuerpo, 0 escrituras) si la pieza tiene `OrderItem`, reserva/carrito vigente, estado ∉ {`in_stock`,`listed`} o dueño ≠ plataforma (aplica también a `keep`: no se registra). `first_edition` sin `PriceReference` del acabado destino ⇒ `409 NO_TARGET_PRICE` (dinero ante la duda; sigue pudiendo `keep`). `expectedFinish` distinto del actual ⇒ `409 STALE`. Repetir la misma decisión ⇒ 200 `alreadyResolved:true` sin escribir; decisión contraria ya registrada ⇒ 409 `ALREADY_RESOLVED`. 404 pieza; 422 `decision` inválida. Una pieza con venta se queda en la lista con su motivo hasta que ya no tenga movimiento; nunca se toca el historial de la venta.
+- **AUTO (declarado, excepción):** (a) no hay job: es decisión de negocio que la máquina no puede inferir (una «Normal» es igual de posible Unlimited que 1.ª edición); (b) n/a; (c) la duda queda en esta lista por pieza, no bloquea ningún flujo ni contador; (d) sets nuevos no la crecen (solo piezas ya existentes antes del mapeo; piezas nuevas se dan de alta con el acabado correcto). Costo al dueño: una decisión por pieza listada (backend reporta `pending` k/N al desplegar; esperado ≈ 0 según DECISIONES §B1).
+
+### 8c. Resumen del job: `AutoLinkSummary`
+Vive en **`GET /admin/catalog/link-exceptions` → `summary`** y, idéntico, en **`GET /admin/catalog/sync-status` → `autoLink`** (campo nuevo; `sync-status.summary` queda para el barrido). Backend: en `admin-catalog.controller.ts:107` renombrar `summary:` a `autoLink:` (hoy PISA el `summary` del barrido, `...this.sync.getSyncStatus()` ya lo trae). Forma exacta:
+```
+{ autoLinkEnabled:bool, unlinkedCards:n, unlinkedSets:n, repairedYesterday:n, pricedYesterday:n,
+  lastRunAt:iso|null, nextRunAt:iso|null /* null si autoLinkEnabled=false */,
+  waitingDecision:n /* siempre 0 tras Q1; se conserva por compatibilidad */, pendingConfirm:n /* = finish-review.pending */ }
+```
+(`link-exceptions.service.ts:8-17` ya coincide salvo `nextRunAt` nullable y `pendingConfirm`.) Texto del frontend (es): encendido ⇒ «Quedan {unlinkedCards} · ayer {repairedYesterday} ({pricedYesterday} con precio) · próxima corrida {nextRunAt local}»; `lastRunAt:null` ⇒ «Aún no ha corrido»; apagado ⇒ «Reparación automática apagada» sin «se reintenta solo» ni próxima corrida; `pendingConfirm>0` ⇒ enlace «{n} piezas antiguas por confirmar». Sin llamadas a proveedores.
 
 ## 6. Schema (solo `schema.prisma`, migración aditiva; nada se borra)
 `CardSet.cardGroupId Int?` (grupo TCGCSV de las CARTAS, elegido por regla o confirmado) y `CardSet.cardGroupVia String?` (`auto|confirmed`; `promo_table` se deriva de `PTCG_PROMO_GROUPS`, no se guarda). Precedencia de resolución: tabla de promos > `cardGroupVia='confirmed'` > regla automática B3 > `pptSetId` numérico (legado) > nombre. Una confirmación nunca la pisa el automático; si el grupo confirmado deja de existir en `listGroups` ⇒ `reason:'group_none'` y vuelve a la lista.
