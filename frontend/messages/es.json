@@ -2505,15 +2505,15 @@
         "goToPrepare": "Ir a «Preparar»",
         "goToReplace": "Ver en «Por reponer»",
         "sdx": {
-          "customerQuote": {
-            "eyebrow": "Cotizado al cliente",
-            "charged": "{service}: el cliente pagó {charged} de envío (costo de la guía cotizado: {quoted}).",
-            "fallback": "El servicio cotizado ya no está disponible: se marcó {service}. Puedes cambiarlo.",
-            "current": "Costo actual de la opción marcada: {amount}.",
-            "same": "Igual a lo cotizado.",
-            "over": "{diff} más que lo cotizado; si pasa del margen permitido, el sistema avisa al dueño.",
-            "under": "{diff} menos que lo cotizado."
-          },
+        "customerQuote": {
+          "eyebrow": "Cotizado al cliente",
+          "charged": "{service}: el cliente pagó {charged} de envío (costo de la guía cotizado: {quoted}).",
+          "fallback": "El servicio cotizado ya no está disponible: se marcó {service}. Puedes cambiarlo.",
+          "current": "Costo actual de la opción marcada: {amount}.",
+          "same": "Igual a lo cotizado.",
+          "over": "{diff} más que lo cotizado; si pasa del margen permitido, el sistema avisa al dueño.",
+          "under": "{diff} menos que lo cotizado."
+        },
           "step": "Paso {n} de 4 · {name}",
           "stepName": {
             "address": "Dirección",
@@ -3704,11 +3704,7 @@
       "paySpeiConfirm": "Registrar pago",
       "flow": {
         "f2": {
-          "status": {
-            "approvedAgreed": "Aprobada al pactado",
-            "approvedRevised": "Aprobada con la baja aceptada",
-            "retired": "Baja retirada"
-          },
+          "status": { "approvedAgreed": "Aprobada al pactado", "approvedRevised": "Aprobada con la baja aceptada", "retired": "Baja retirada" },
           "actions": {
             "approve": "Aprobar al pactado",
             "reduce": "Bajar precio",
@@ -4474,22 +4470,8 @@
         "promosTitle": "Promos incluidas en esta corrida",
         "promosLead": "Estas promos viajan siempre con la actualización del catálogo; no hay que importarlas aparte.",
         "promosSets": "{created} nuevas · {updated} actualizadas · {unchanged} sin cambios",
-        "promosSetStatus": {
-          "created": "nueva",
-          "updated": "actualizada",
-          "unchanged": "sin cambios",
-          "missing_remote": "no existe en pokemontcg.io",
-          "error": "con error"
-        },
-        "promosTcgcsvStatus": {
-          "imported": "importado",
-          "updated": "actualizado",
-          "covered": "ya cubierto",
-          "busy": "ocupado, se reintenta solo en la siguiente corrida",
-          "skipped_needs_super_admin": "omitido: solo lo importa un súper-admin",
-          "quarantined": "en cuarentena: no se importa, se reevalúa solo",
-          "error": "con error"
-        },
+        "promosSetStatus": { "created": "nueva", "updated": "actualizada", "unchanged": "sin cambios", "missing_remote": "no existe en pokemontcg.io", "error": "con error" },
+        "promosTcgcsvStatus": { "imported": "importado", "updated": "actualizado", "covered": "ya cubierto", "busy": "ocupado, se reintenta solo en la siguiente corrida", "skipped_needs_super_admin": "omitido: solo lo importa un súper-admin", "quarantined": "en cuarentena: no se importa, se reevalúa solo", "error": "con error" },
         "promosTcgcsvRow": "Grupo {groupId}: {status} ({created} nuevas, {updated} actualizadas)",
         "promosGate": "Black Star ocultas: {k} de {need} aciertos necesarios (se evaluaron {n}; falsos {f}; {expansions} expansiones)",
         "promosGateOpen": "Black Star publicadas: compuerta abierta ({k} aciertos, {expansions} expansiones, {f} falsos)",
@@ -4535,14 +4517,7 @@
             "alreadyLinked": "la carta ya estaba ligada",
             "other": "sin coincidencia clara"
           },
-          "reasonCount": {
-            "ownerConflict": "{n} con dueño distinto",
-            "nameMismatch": "{n} por nombre distinto",
-            "alreadyLinked": "{n} ya estaban ligadas",
-            "collisions": "{n} con número repetido",
-            "noLocalCard": "{n} sin carta en tu catálogo",
-            "finishNotInProduct": "{n} con un acabado que el producto no trae (quedan sin precio en ese acabado)"
-          },
+          "reasonCount": {"ownerConflict": "{n} con dueño distinto", "nameMismatch": "{n} por nombre distinto", "alreadyLinked": "{n} ya estaban ligadas", "collisions": "{n} con número repetido", "noLocalCard": "{n} sin carta en tu catálogo", "finishNotInProduct": "{n} con un acabado que el producto no trae (quedan sin precio en ese acabado)"},
           "piecesCorrected": "{n, plural, one {Se corrigió el acabado de # pieza} other {Se corrigieron los acabados de # piezas}}.",
           "piecesExcluded": "No se tocaron: {list}.",
           "excl": {
@@ -4571,12 +4546,7 @@
           "groupLine": "Grupo de precios: {name} ({via})",
           "groupNone": "Grupo de precios: sin grupo asignado",
           "nextAttempt": "Disponible de nuevo a las {when}",
-          "via": {
-            "b3": "por coincidencia de nombre, revisa",
-            "auto": "automático",
-            "confirmed": "confirmado",
-            "promo_table": "tabla de promos"
-          },
+          "via": {"b3": "por coincidencia de nombre, revisa", "auto": "automático", "confirmed": "confirmado", "promo_table": "tabla de promos"},
           "setReason": {
             "group_ambiguous": "hay varios grupos de precios posibles y no se sabe cuál es",
             "group_none": "no se encontró un grupo de precios para este set",
