@@ -4584,7 +4584,10 @@
             "wotc_pending": "espera tu decisión sobre las ediciones antiguas",
             "provider_failing": "la fuente de precios está fallando; vuelve a intentarlo más tarde",
             "tcgcsv_source": "su fuente de precios no permite ligar",
-            "not_in_provider": "la fuente de precios no tiene este set"
+            "not_in_provider": "la fuente de precios no tiene este set",
+            "price_sanity": "los precios nuevos se veían raros y no se publicó nada; se reintenta en 7 días",
+            "finish_surge": "la fuente trae demasiados acabados nuevos de golpe; se reevalúa mañana",
+            "reverted": "lo deshiciste; no se vuelve a tocar por 30 días"
           },
           "autoNext": "Se reintenta solo a las {when}",
           "candidates": {
@@ -4699,6 +4702,10 @@
           },
           "finishChange": "{from} → {to}",
           "priceChange": "precio {from} → {to}",
+          "noPublishedPrice": "sin precio publicado",
+          "loadError": "No se pudo cargar la revisión de acabados.",
+          "retry": "Reintentar",
+          "moreError": "No se pudieron cargar más piezas.",
           "noPrice": "sin precio",
           "first": "Es 1.ª edición",
           "keep": "Es Unlimited, dejar así",
@@ -4721,7 +4728,72 @@
             "ALREADY_RESOLVED": "Ya se había tomado la decisión contraria para esta pieza.",
             "STALE": "La pieza cambió de acabado mientras decidías. Recarga la lista.",
             "generic": "No se pudo guardar la decisión."
+          },
+          "manualPrice": "Precio manual: revísalo.",
+          "doneFirstManual": "{name}: ahora es 1.ª edición. Se conservó tu precio manual ({price}); revísalo.",
+          "pricePending": "pendiente (se calcula en el siguiente barrido)"
+        },
+        "cardReview": {
+          "open": "Revisar {n} cartas",
+          "close": "Cerrar revisión",
+          "openAria": "Revisar cartas de {name}",
+          "loading": "Cargando cartas…",
+          "retry": "Reintentar",
+          "empty": "No quedan cartas por revisar en este set.",
+          "noCandidates": "El proveedor no tiene un producto con ese número.",
+          "noPrice": "sin precio",
+          "this": "Es esta",
+          "thisAria": "Es esta: ligar {card} con {product}",
+          "done": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}} y se puso su precio.",
+          "reason": {
+            "name_mismatch": "el nombre no coincide",
+            "collision": "número repetido"
+          },
+          "finish": {
+            "normal": "Normal",
+            "holofoil": "Holofoil",
+            "reverse_holofoil": "Reverse Holofoil",
+            "first_edition": "1st Edition",
+            "first_edition_holofoil": "1st Edition Holo"
+          },
+          "err": {
+            "rate": "Espera un minuto antes de volver a intentar con esta carta.",
+            "taken": "Otra carta ya tomó ese producto. Actualiza la lista.",
+            "notCandidate": "Ese producto ya no es un candidato válido. Actualiza la lista.",
+            "upstream": "La fuente de precios no respondió. Inténtalo más tarde.",
+            "generic": "No se pudo ligar la carta."
           }
+        },
+        "autoLinkRuns": {
+          "show": "Ver lo que hizo ayer",
+          "hide": "Ocultar",
+          "loading": "Cargando corridas…",
+          "loadErr": "No se pudieron cargar las corridas.",
+          "retry": "Reintentar",
+          "none": "No hay corridas en los últimos 7 días.",
+          "noPrice": "sin precio",
+          "runAria": "Corrida del {when}",
+          "run": "Corrida {when}: {linked} ligadas, {priced} con precio",
+          "held": "{n} retenidas",
+          "aborted": "se detuvo antes de terminar",
+          "setLine": "{linked} ligadas, {priced} con precio",
+          "finishes": "{n} acabados añadidos",
+          "via": {
+            "auto": "automático",
+            "b3": "por coincidencia de nombre (revisa)",
+            "promo_table": "tabla de promos",
+            "confirmed": "confirmado por ti"
+          },
+          "undo": "Deshacer este set",
+          "undoAria": "Deshacer el enlace automático de {name}",
+          "undone": "Se deshizo este set.",
+          "undoTitle": "¿Deshacer {name}?",
+          "undoBody": "Se quitan los enlaces y precios que puso el job en este set. Tus precios manuales y lo que confirmaste tú no se tocan; las piezas quedan sin precio hasta que se corrija.",
+          "undoConfirm": "Sí, deshacer",
+          "cancel": "Cancelar",
+          "undoUnavailable": "Esta función aún no está disponible en el servidor.",
+          "undoRate": "Espera unos minutos antes de volver a deshacer este set.",
+          "undoErr": "No se pudo deshacer."
         }
       },
       "sealedSpreads": {

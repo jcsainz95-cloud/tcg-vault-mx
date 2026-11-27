@@ -17,10 +17,11 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
-import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm, mockSetAutoLink, mockFinishReview, mockFinishDecision } from './mock/link-repair';
+import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm, mockSetAutoLink, mockFinishReview, mockFinishDecision, mockSetCards, mockCardConfirm, mockAutoLinkRuns } from './mock/link-repair';
 import { registerLinkRepairMock } from './api/catalog-link-repair';
 import { registerLinkExceptionsMock, registerAutoLinkDialMock } from './api/catalog-link-exceptions';
 import { registerFinishReviewMock } from './api/catalog-finish-review';
+import { registerLinkReviewMock } from './api/catalog-link-review';
 import * as flujoMock from './mock/buylist-flujo';
 import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
@@ -428,6 +429,13 @@ registerFinishReviewMock({
   list: () => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockFinishReview()), 200)) : null),
   decide: (id, d, f) =>
     MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockFinishDecision(id, d, f)); } catch (e) { rej(e); } }, 400)) : null,
+});
+registerLinkReviewMock({
+  cards: (setId) => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockSetCards(setId)), 200)) : null),
+  confirm: (setId, cardId, productId) =>
+    MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockCardConfirm(setId, cardId, productId)); } catch (e) { rej(e); } }, 300)) : null,
+  runs: () => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockAutoLinkRuns()), 200)) : null),
+  unlink: () => (MOCKS_BUILD && config.useMocks ? new Promise<void>((res) => setTimeout(res, 300)) : null),
 });
 registerLinkRepairMock((setId) =>
   MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkRepair(setId)); } catch (e) { rej(e); } }, 400)) : null);

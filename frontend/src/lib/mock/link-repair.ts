@@ -4,6 +4,7 @@
  */
 import type { LinkRepairResult } from '../api/catalog-link-repair';
 import type { UnlinkedPriceReport } from '@/types/contract';
+import type { AutoLinkRun, CardConfirmResult, SetCards } from '../api/catalog-link-review';
 import type { LinkConfirmResult, LinkExceptions } from '../api/catalog-link-exceptions';
 import type { FinishReviewItem, FinishReviewPage, FinishReviewResult, ReviewDecision, ReviewFinish } from '../api/catalog-finish-review';
 import { ApiClientError } from '../api-client';
@@ -50,11 +51,11 @@ export function mockLinkRepair(setId: string): LinkRepairResult {
 /** Fase 4 (§8b): piezas antiguas por confirmar. La primera está bloqueada por venta; la segunda no tiene precio destino. */
 let mockReviewItems: FinishReviewItem[] = [
   { inventoryItemId: 'fr-0001', folio: 'TH-000231', cardId: 'c-gym-1', cardName: "Rocket's Snorlax", setName: 'Gym Heroes', number: '12', status: 'listed',
-    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 113100, targetPriceCents: 389700, blockedReason: null },
+    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 113100, targetPriceCents: 389700, blockedReason: null, hasManualPrice: true },
   { inventoryItemId: 'fr-0002', folio: 'TH-000232', cardId: 'c-gym-2', cardName: "Erika's Gloom", setName: 'Gym Challenge', number: '16', status: 'in_stock',
-    currentFinish: 'holofoil', targetFinish: 'first_edition_holofoil', currentPriceCents: 3700, targetPriceCents: null, blockedReason: 'no_target_price' },
+    currentFinish: 'holofoil', targetFinish: 'first_edition_holofoil', currentPriceCents: 3700, targetPriceCents: null, blockedReason: 'no_target_price', hasManualPrice: false },
   { inventoryItemId: 'fr-0003', folio: 'TH-000233', cardId: 'c-gym-3', cardName: "Lt. Surge's Raichu", setName: 'Gym Heroes', number: '9', status: 'in_stock',
-    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 47300, targetPriceCents: 107600, blockedReason: 'has_sale' },
+    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 47300, targetPriceCents: 107600, blockedReason: 'has_sale', hasManualPrice: false },
 ];
 export function mockFinishReview(): FinishReviewPage {
   return { pending: mockReviewItems.length, items: mockReviewItems, nextCursor: null };
@@ -62,17 +63,17 @@ export function mockFinishReview(): FinishReviewPage {
 export function mockFinishDecision(id: string, decision: ReviewDecision, expectedFinish: ReviewFinish): FinishReviewResult {
   const it = mockReviewItems.find((i) => i.inventoryItemId === id);
   if (!it) return { inventoryItemId: id, decision, before: null, after: null, alreadyResolved: true };
-  if (it.blockedReason === 'has_sale') throw new ApiClientError(409, { code: 'ITEM_LOCKED', message: 'locked', details: { blockedReason: 'has_sale' } });
+  if (it.blockedReason === 'has_sale') throw new ApiClientError(409, { code: 'ITEM_LOCKED', message: 'locked', details: { blockedReason: 'has_sale', hasManualPrice: false } });
   if (decision === 'first_edition' && it.targetPriceCents == null) throw new ApiClientError(409, { code: 'NO_TARGET_PRICE', message: 'no price', details: {} });
   if (it.currentFinish !== expectedFinish) throw new ApiClientError(409, { code: 'STALE', message: 'stale', details: {} });
   mockReviewItems = mockReviewItems.filter((i) => i.inventoryItemId !== id);
   const to = it.targetFinish;
   return {
     inventoryItemId: id, decision, alreadyResolved: false,
-    before: { finish: it.currentFinish, unitPriceCents: it.currentPriceCents, listPriceCents: it.currentPriceCents },
+    before: { finish: it.currentFinish, unitPriceCents: it.currentPriceCents },
     after: decision === 'keep'
-      ? { finish: it.currentFinish, unitPriceCents: it.currentPriceCents, listPriceCents: it.currentPriceCents }
-      : { finish: to, unitPriceCents: it.targetPriceCents, listPriceCents: it.targetPriceCents },
+      ? { finish: it.currentFinish, unitPriceCents: it.currentPriceCents, manualPriceKept: false }
+      : { finish: to, unitPriceCents: it.hasManualPrice ? it.currentPriceCents : it.targetPriceCents, manualPriceKept: it.hasManualPrice },
   };
 }
 
@@ -114,3 +115,32 @@ export function mockLinkConfirm(setId: string, groupId: number): LinkConfirmResu
 }
 
 (globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';
+
+/** §9.4 / §9.6: revisión por carta, corridas y reversa (mock). */
+let mockCardsDone: string[] = [];
+export function mockSetCards(setId: string): SetCards {
+  const all = [
+    { cardId: 'c-sv-1', name: 'Pikachu ex', number: '063', reason: 'name_mismatch' as const,
+      candidates: [{ productId: 501, name: 'Pikachu ex - 063/191', number: '063', finishes: ['holofoil'], priceCents: 18900 }] },
+    { cardId: 'c-sv-2', name: 'Pikachu ex', number: '063', reason: 'collision' as const,
+      candidates: [{ productId: 502, name: 'Pikachu ex - 063/191 (Pre-release)', number: '063', finishes: ['normal'], priceCents: null },
+        { productId: 501, name: 'Pikachu ex - 063/191', number: '063', finishes: ['holofoil'], priceCents: 18900 }] },
+  ];
+  return { setId, items: all.filter((c) => !mockCardsDone.includes(c.cardId)) };
+}
+export function mockCardConfirm(_setId: string, cardId: string, productId: number): CardConfirmResult {
+  if (productId === 0) throw new ApiClientError(409, { code: 'PRODUCT_TAKEN', message: 'taken', details: {} });
+  mockCardsDone = [...mockCardsDone, cardId];
+  return { cardId, productId, priced: 1, alreadyConfirmed: false };
+}
+export function mockAutoLinkRuns(): AutoLinkRun[] {
+  const at = new Date(Date.now() - 20 * 3_600_000).toISOString();
+  return [{
+    runId: 'run-1', at, setsTried: 2, linked: 87, priced: 87, held: 3, aborted: false,
+    sets: [
+      { setId: MOCK_SET_CLASSIC, name: '30th Celebration Classic Collection', groupId: 24380, via: 'b3', linked: 30, priced: 30, held: 0, finishesAdded: 0,
+        sample: [{ cardName: 'Charizard', number: '4', finish: 'holofoil', newPriceCents: 1240900, previousPriceCents: null }] },
+      { setId: MOCK_SET_SV, name: 'Scarlet & Violet', groupId: 22873, via: 'auto', linked: 57, priced: 57, held: 3, finishesAdded: 2, sample: [] },
+    ],
+  }];
+}

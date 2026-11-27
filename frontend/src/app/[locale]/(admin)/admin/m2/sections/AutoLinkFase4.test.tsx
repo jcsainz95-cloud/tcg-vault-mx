@@ -48,11 +48,11 @@ describe('§8a interruptor', () => {
 describe('§8b piezas antiguas', () => {
   const item = (o: Partial<fr.FinishReviewItem> = {}): fr.FinishReviewItem => ({
     inventoryItemId: 'i1', folio: 'TH-1', cardId: 'c', cardName: 'Snorlax', setName: 'Gym Heroes', number: '12', status: 'listed',
-    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 113100, targetPriceCents: 389700, blockedReason: null, ...o,
+    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 113100, targetPriceCents: 389700, blockedReason: null, hasManualPrice: false, ...o,
   });
   it('muestra precio actual vs destino del servidor, decide y deja el resultado junto a la pieza', async () => {
     vi.spyOn(fr, 'getFinishReview').mockResolvedValue({ pending: 1, items: [item()], nextCursor: null });
-    const d = vi.spyOn(fr, 'decideFinishReview').mockResolvedValue({ inventoryItemId: 'i1', decision: 'first_edition', alreadyResolved: false, before: null, after: { finish: 'first_edition', unitPriceCents: 389700, listPriceCents: 389700 } });
+    const d = vi.spyOn(fr, 'decideFinishReview').mockResolvedValue({ inventoryItemId: 'i1', decision: 'first_edition', alreadyResolved: false, before: null, after: { finish: 'first_edition', unitPriceCents: 389700, manualPriceKept: false } });
     renderWithProviders(<FinishReviewSection />);
     const li = (await screen.findByTestId('finish-review-item'));
     expect(li.textContent).toMatch(/MX\$1,131\.00 → MX\$3,897\.00/);

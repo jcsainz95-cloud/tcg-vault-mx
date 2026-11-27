@@ -32,7 +32,7 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await page.goto('/es/admin/m2');
     const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
     const classic = notice.getByRole('button', { name: /Actualizar este set: 30th Celebration/ });
-    const sv = notice.getByRole('button', { name: /Actualizar este set: Scarlet/ });
+    const sv = notice.getByRole('button', { name: /Actualizar este set: Scarlet & Violet(?! Promos)/ });
     await classic.click();
     await expect(sv).toBeDisabled();
     await expect(notice.getByTestId('unlinked-result')).toBeVisible();
@@ -44,7 +44,7 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
     const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
-    await notice.getByRole('button', { name: /Actualizar este set: Scarlet/ }).click();
+    await notice.getByRole('button', { name: /Actualizar este set: Scarlet & Violet(?! Promos)/ }).click();
     await expect(notice.getByTestId('unlinked-error')).toContainText('5');
   });
 

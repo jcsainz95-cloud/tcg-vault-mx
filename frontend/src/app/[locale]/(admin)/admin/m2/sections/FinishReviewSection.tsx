@@ -42,7 +42,18 @@ export function FinishReviewSection() {
     },
     onError: (e, v) => setErrors((m) => ({ ...m, [v.item.inventoryItemId]: e })),
   });
-  if (!isSuperAdmin || !q.data) return null;
+  if (!isSuperAdmin) return null;
+  if (q.isError) {
+    return (
+      <section id="finish-review" aria-label={t('aria')} data-testid="finish-review">
+        <Banner variant="danger" role="alert" title={t('loadError')}>
+          <p className="text-sm">{getError(q.error)}</p>
+          <Button size="sm" variant="secondary" className="mt-2" loading={q.isFetching} onClick={() => q.refetch()} data-testid="finish-review-retry">{t('retry')}</Button>
+        </Banner>
+      </section>
+    );
+  }
+  if (!q.data) return null;
   const items = [...q.data.items, ...extra];
   const next = cursor ?? (extra.length ? null : q.data.nextCursor);
   // Las resueltas en esta sesión se quedan visibles con su resultado hasta recargar (no se refresca la lista).
@@ -79,8 +90,9 @@ export function FinishReviewSection() {
                   {it.folio ? `${it.folio} · ` : ''}
                   {t('finishChange', { from: tf(`finish.${it.currentFinish}`), to: tf(`finish.${it.targetFinish}`) })}
                   {' · '}
-                  {t('priceChange', { from: money(it.currentPriceCents), to: money(it.targetPriceCents) })}
+                  {t('priceChange', { from: it.currentPriceCents == null ? t('noPublishedPrice') : money(it.currentPriceCents), to: money(it.targetPriceCents) })}
                 </p>
+                {it.hasManualPrice && !res && <p className="text-xs font-medium" data-testid="finish-review-manual">{t('manualPrice')}</p>}
                 {locked && <p className="text-xs text-muted" data-testid="finish-review-blocked">{tf(`blocked.${it.blockedReason}`)}</p>}
                 {!res && (
                   <div className="mt-1 flex flex-wrap gap-2">
@@ -112,7 +124,9 @@ export function FinishReviewSection() {
                       ? t('alreadyResolved')
                       : res.decision === 'keep'
                         ? t('doneKeep', { name: it.cardName })
-                        : t('doneFirst', { name: it.cardName, price: money(res.after?.listPriceCents ?? res.after?.unitPriceCents ?? null) })}
+                        : res.after?.manualPriceKept
+                          ? t('doneFirstManual', { name: it.cardName, price: money(res.after.unitPriceCents) })
+                          : t('doneFirst', { name: it.cardName, price: res.after?.unitPriceCents == null ? t('pricePending') : money(res.after.unitPriceCents) })}
                   </p>
                 )}
                 {err != null && !res && (
@@ -122,9 +136,12 @@ export function FinishReviewSection() {
             );
           })}
         </ul>
+        {more.isError && (
+          <p role="alert" className="mt-2 text-sm text-danger" data-testid="finish-review-more-error">{t('moreError')} {getError(more.error)}</p>
+        )}
         {next && (
           <Button size="sm" variant="secondary" className="mt-2" loading={more.isPending} onClick={() => more.mutate(next)}>
-            {t('more')}
+            {more.isError ? t('retry') : t('more')}
           </Button>
         )}
       </Banner>

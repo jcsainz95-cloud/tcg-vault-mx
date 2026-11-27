@@ -22,6 +22,8 @@ export interface FinishReviewItem {
   targetFinish: ReviewTarget;
   currentPriceCents: number | null;
   targetPriceCents: number | null;
+  /** §9.1: la pieza tiene precio manual del dueño; se conserva siempre y se avisa. */
+  hasManualPrice: boolean;
   blockedReason: ReviewBlockedReason | null;
 }
 export interface FinishReviewPage { pending: number; items: FinishReviewItem[]; nextCursor: string | null }
@@ -30,8 +32,9 @@ export type ReviewDecision = 'keep' | 'first_edition';
 export interface FinishReviewResult {
   inventoryItemId: string;
   decision: ReviewDecision;
-  before: { finish: string; unitPriceCents: number | null; listPriceCents: number | null } | null;
-  after: { finish: string; unitPriceCents: number | null; listPriceCents: number | null } | null;
+  before: { finish: string; unitPriceCents: number | null } | null;
+  /** `unitPriceCents` = lo que cobra la tienda (con IVA). `manualPriceKept` (§9.1): se conservó el precio manual. */
+  after: { finish: string; unitPriceCents: number | null; manualPriceKept: boolean } | null;
   alreadyResolved: boolean;
 }
 
@@ -54,6 +57,7 @@ export function readFinishReview(raw: {
       targetFinish: (i.targetFinish === 'first_edition_holofoil' ? 'first_edition_holofoil' : 'first_edition') as ReviewTarget,
       currentPriceCents: cents(i.currentPriceCents),
       targetPriceCents: cents(i.targetPriceCents),
+      hasManualPrice: i.hasManualPrice === true,
       blockedReason: (REVIEW_BLOCKED as readonly unknown[]).includes(i.blockedReason) ? (i.blockedReason as ReviewBlockedReason) : null,
     }));
   return { pending: Number(raw.pending) || 0, items, nextCursor: raw.nextCursor ?? null };
@@ -84,8 +88,10 @@ export async function decideFinishReview(id: string, decision: ReviewDecision, e
   return {
     inventoryItemId: raw.inventoryItemId ?? id,
     decision: raw.decision === 'keep' ? 'keep' : decision,
-    before: raw.before ?? null,
-    after: raw.after ?? null,
+    before: raw.before ? { finish: String(raw.before.finish ?? ''), unitPriceCents: cents(raw.before.unitPriceCents) } : null,
+    after: raw.after
+      ? { finish: String(raw.after.finish ?? ''), unitPriceCents: cents(raw.after.unitPriceCents), manualPriceKept: raw.after.manualPriceKept === true }
+      : null,
     alreadyResolved: raw.alreadyResolved === true,
   };
 }

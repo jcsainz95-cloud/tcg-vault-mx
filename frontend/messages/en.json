@@ -4584,7 +4584,10 @@
             "wotc_pending": "waiting for your decision on the old editions",
             "provider_failing": "the price source is failing; try again later",
             "tcgcsv_source": "its price source does not allow linking",
-            "not_in_provider": "the price source does not have this set"
+            "not_in_provider": "the price source does not have this set",
+            "price_sanity": "the new prices looked off and nothing was published; retried in 7 days",
+            "finish_surge": "the source brings too many new finishes at once; re-evaluated tomorrow",
+            "reverted": "you undid it; it will not be touched for 30 days"
           },
           "autoNext": "Retries on its own at {when}",
           "candidates": {
@@ -4699,6 +4702,10 @@
           },
           "finishChange": "{from} → {to}",
           "priceChange": "price {from} → {to}",
+          "noPublishedPrice": "no published price",
+          "loadError": "Could not load the finish review.",
+          "retry": "Retry",
+          "moreError": "Could not load more items.",
           "noPrice": "no price",
           "first": "It is 1st Edition",
           "keep": "It is Unlimited, keep",
@@ -4721,7 +4728,72 @@
             "ALREADY_RESOLVED": "The opposite decision was already made for this piece.",
             "STALE": "The piece changed finish while you were deciding. Reload the list.",
             "generic": "Could not save the decision."
+          },
+          "manualPrice": "Manual price: please review it.",
+          "doneFirstManual": "{name}: now 1st Edition. Your manual price ({price}) was kept; please review it.",
+          "pricePending": "pending (calculated on the next sweep)"
+        },
+        "cardReview": {
+          "open": "Review {n} cards",
+          "close": "Close review",
+          "openAria": "Review cards of {name}",
+          "loading": "Loading cards…",
+          "retry": "Retry",
+          "empty": "No cards left to review in this set.",
+          "noCandidates": "The provider has no product with that number.",
+          "noPrice": "no price",
+          "this": "This one",
+          "thisAria": "This one: link {card} to {product}",
+          "done": "{n, plural, one {# card linked} other {# cards linked}} and priced.",
+          "reason": {
+            "name_mismatch": "name does not match",
+            "collision": "repeated number"
+          },
+          "finish": {
+            "normal": "Normal",
+            "holofoil": "Holofoil",
+            "reverse_holofoil": "Reverse Holofoil",
+            "first_edition": "1st Edition",
+            "first_edition_holofoil": "1st Edition Holo"
+          },
+          "err": {
+            "rate": "Wait a minute before trying this card again.",
+            "taken": "Another card already took that product. Refresh the list.",
+            "notCandidate": "That product is no longer a valid candidate. Refresh the list.",
+            "upstream": "The price source did not respond. Try again later.",
+            "generic": "Could not link the card."
           }
+        },
+        "autoLinkRuns": {
+          "show": "See what it did yesterday",
+          "hide": "Hide",
+          "loading": "Loading runs…",
+          "loadErr": "Could not load the runs.",
+          "retry": "Retry",
+          "none": "No runs in the last 7 days.",
+          "noPrice": "no price",
+          "runAria": "Run of {when}",
+          "run": "Run {when}: {linked} linked, {priced} priced",
+          "held": "{n} held back",
+          "aborted": "stopped before finishing",
+          "setLine": "{linked} linked, {priced} priced",
+          "finishes": "{n} finishes added",
+          "via": {
+            "auto": "automatic",
+            "b3": "by name match (please check)",
+            "promo_table": "promo table",
+            "confirmed": "confirmed by you"
+          },
+          "undo": "Undo this set",
+          "undoAria": "Undo the automatic link of {name}",
+          "undone": "This set was undone.",
+          "undoTitle": "Undo {name}?",
+          "undoBody": "The links and prices the job set in this set are removed. Your manual prices and anything you confirmed are untouched; pieces stay without a price until fixed.",
+          "undoConfirm": "Yes, undo",
+          "cancel": "Cancel",
+          "undoUnavailable": "This function is not available on the server yet.",
+          "undoRate": "Wait a few minutes before undoing this set again.",
+          "undoErr": "Could not undo."
         }
       },
       "sealedSpreads": {

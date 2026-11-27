@@ -8,6 +8,7 @@ import { useRole } from '@/lib/role';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { useErrorMessage } from '@/components/ui/QueryState';
+import { AutoLinkRunsPanel } from './AutoLinkRunsPanel';
 
 /**
  * §AUTO-ENLACE F2 (contrato §8a/§8c) — contador, estado del job diario `catalog-auto-link` e interruptor (solo
@@ -59,6 +60,7 @@ export function AutoLinkSummary({ fallback }: { fallback?: unknown }) {
               </a>
             </p>
           )}
+          {isSuperAdmin && <AutoLinkRunsPanel canUnlink />}
         </div>
         {isSuperAdmin && sm.autoLinkEnabled != null && (
           <Button

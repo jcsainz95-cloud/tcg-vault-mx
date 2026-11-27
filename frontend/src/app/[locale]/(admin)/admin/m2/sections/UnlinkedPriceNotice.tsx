@@ -10,6 +10,8 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { asApiError } from '@/lib/api-client';
 import { useErrorMessage } from '@/components/ui/QueryState';
+import { useRole } from '@/lib/role';
+import { CardReviewPanel } from './CardReviewPanel';
 import { LinkRepairResultNotice } from './LinkRepairResultNotice';
 import { LINK_REPAIR_KEY } from './useCatalogSync';
 
@@ -41,6 +43,7 @@ interface Row {
 export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | undefined }) {
   const t = useTranslations('admin.m2.catalog.unlinkedPrice');
   const format = useFormatter();
+  const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
   const exceptions = useQuery({ queryKey: ['link-exceptions'], queryFn: getLinkExceptions, retry: false });
   // M-3: el botón de la tabla general y el de esta lista comparten clave; mientras uno corre, ambos se deshabilitan.
@@ -157,7 +160,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                       </p>
                       <p className="text-muted">
                         {c.productCount != null && t('candidates.products', { n: c.productCount })}
-                        {c.publishedOn && ` · ${t('candidates.published', { date: c.publishedOn })}`}
+                        {c.publishedOn && `${c.productCount != null ? ' · ' : ''}${t('candidates.published', { date: c.publishedOn })}`}
                       </p>
                     </div>
                     <Button
@@ -173,6 +176,9 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                   </li>
                 ))}
               </ul>
+            )}
+            {isSuperAdmin && fromApi && (s.reason === 'name_mismatch' || s.reason === 'collisions') && (
+              <CardReviewPanel setId={s.setId} setName={s.name} count={s.unlinked} />
             )}
             {confirm.variables?.setId === s.setId && (confirm.isSuccess || confirm.isError) && (
               <ConfirmResultNotice name={s.name} result={confirm.isSuccess ? confirm.data : null} error={confirm.isError ? confirm.error : undefined} onDismiss={() => confirm.reset()} />
