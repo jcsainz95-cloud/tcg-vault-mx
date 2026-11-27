@@ -47,4 +47,20 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await notice.getByRole('button', { name: /Actualizar este set: Scarlet/ }).click();
     await expect(notice.getByTestId('unlinked-error')).toContainText('5');
   });
+
+  test('F2/F3: contador, dial Encendida y «Confirmar» con resultado junto al caso, sin desborde a 390 px', async ({ page }) => {
+    mockOnly('`link-exceptions` y `confirm` de `lib/mock/link-repair.ts` (dial encendido por defecto)');
+    await page.setViewportSize({ width: 390, height: 800 });
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    await expect(page.getByTestId('auto-link-counter')).toContainText('Quedan 14 cartas sin precio · ayer se repararon 87');
+    await expect(page.getByTestId('auto-link-job')).toContainText('Reparación automática: Encendida');
+    const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
+    await expect(notice.getByText(/Mejor candidato: Classic Collection/)).toBeVisible();
+    await notice.getByRole('button', { name: /Confirmar el grupo Classic Collection para 30th/ }).click();
+    const res = notice.getByTestId('confirm-result');
+    await expect(res).toContainText('Confirmado en 30th Celebration Classic Collection: 9 cartas ligadas y 18 precios actualizados.');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
 });

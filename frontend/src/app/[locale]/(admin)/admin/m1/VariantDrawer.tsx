@@ -97,6 +97,7 @@ const PIECE_FINISH_LABEL: Record<Finish, FinishLabel> = {
   reverse_holo: 'reverse_holo',
   holofoil: 'holo',
   first_edition_holofoil: 'first_edition_holo',
+  first_edition: 'first_edition',
 };
 
 export function VariantDrawer(props: VariantDrawerProps) {

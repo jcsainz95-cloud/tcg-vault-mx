@@ -1259,6 +1259,7 @@
     "reverse_holo": "Reverse Holo",
     "holofoil": "Holofoil",
     "first_edition_holofoil": "1st Edition",
+    "first_edition": "1st Edition (no holo)",
     "reverse": "Reverse",
     "holo": "Holo",
     "firstEdHolo": "1ed Holo"
@@ -2504,15 +2505,15 @@
         "goToPrepare": "Ir a «Preparar»",
         "goToReplace": "Ver en «Por reponer»",
         "sdx": {
-        "customerQuote": {
-          "eyebrow": "Cotizado al cliente",
-          "charged": "{service}: el cliente pagó {charged} de envío (costo de la guía cotizado: {quoted}).",
-          "fallback": "El servicio cotizado ya no está disponible: se marcó {service}. Puedes cambiarlo.",
-          "current": "Costo actual de la opción marcada: {amount}.",
-          "same": "Igual a lo cotizado.",
-          "over": "{diff} más que lo cotizado; si pasa del margen permitido, el sistema avisa al dueño.",
-          "under": "{diff} menos que lo cotizado."
-        },
+          "customerQuote": {
+            "eyebrow": "Cotizado al cliente",
+            "charged": "{service}: el cliente pagó {charged} de envío (costo de la guía cotizado: {quoted}).",
+            "fallback": "El servicio cotizado ya no está disponible: se marcó {service}. Puedes cambiarlo.",
+            "current": "Costo actual de la opción marcada: {amount}.",
+            "same": "Igual a lo cotizado.",
+            "over": "{diff} más que lo cotizado; si pasa del margen permitido, el sistema avisa al dueño.",
+            "under": "{diff} menos que lo cotizado."
+          },
           "step": "Paso {n} de 4 · {name}",
           "stepName": {
             "address": "Dirección",
@@ -3703,7 +3704,11 @@
       "paySpeiConfirm": "Registrar pago",
       "flow": {
         "f2": {
-          "status": { "approvedAgreed": "Aprobada al pactado", "approvedRevised": "Aprobada con la baja aceptada", "retired": "Baja retirada" },
+          "status": {
+            "approvedAgreed": "Aprobada al pactado",
+            "approvedRevised": "Aprobada con la baja aceptada",
+            "retired": "Baja retirada"
+          },
           "actions": {
             "approve": "Aprobar al pactado",
             "reduce": "Bajar precio",
@@ -4469,8 +4474,22 @@
         "promosTitle": "Promos incluidas en esta corrida",
         "promosLead": "Estas promos viajan siempre con la actualización del catálogo; no hay que importarlas aparte.",
         "promosSets": "{created} nuevas · {updated} actualizadas · {unchanged} sin cambios",
-        "promosSetStatus": { "created": "nueva", "updated": "actualizada", "unchanged": "sin cambios", "missing_remote": "no existe en pokemontcg.io", "error": "con error" },
-        "promosTcgcsvStatus": { "imported": "importado", "updated": "actualizado", "covered": "ya cubierto", "busy": "ocupado, se reintenta solo en la siguiente corrida", "skipped_needs_super_admin": "omitido: solo lo importa un súper-admin", "quarantined": "en cuarentena: no se importa, se reevalúa solo", "error": "con error" },
+        "promosSetStatus": {
+          "created": "nueva",
+          "updated": "actualizada",
+          "unchanged": "sin cambios",
+          "missing_remote": "no existe en pokemontcg.io",
+          "error": "con error"
+        },
+        "promosTcgcsvStatus": {
+          "imported": "importado",
+          "updated": "actualizado",
+          "covered": "ya cubierto",
+          "busy": "ocupado, se reintenta solo en la siguiente corrida",
+          "skipped_needs_super_admin": "omitido: solo lo importa un súper-admin",
+          "quarantined": "en cuarentena: no se importa, se reevalúa solo",
+          "error": "con error"
+        },
         "promosTcgcsvRow": "Grupo {groupId}: {status} ({created} nuevas, {updated} actualizadas)",
         "promosGate": "Black Star ocultas: {k} de {need} aciertos necesarios (se evaluaron {n}; falsos {f}; {expansions} expansiones)",
         "promosGateOpen": "Black Star publicadas: compuerta abierta ({k} aciertos, {expansions} expansiones, {f} falsos)",
@@ -4515,7 +4534,14 @@
             "alreadyLinked": "la carta ya estaba ligada",
             "other": "sin coincidencia clara"
           },
-          "reasonCount": {"ownerConflict": "{n} con dueño distinto", "nameMismatch": "{n} por nombre distinto", "alreadyLinked": "{n} ya estaban ligadas", "collisions": "{n} con número repetido", "noLocalCard": "{n} sin carta en tu catálogo", "finishNotInProduct": "{n} con un acabado que el producto no trae (quedan sin precio en ese acabado)"},
+          "reasonCount": {
+            "ownerConflict": "{n} con dueño distinto",
+            "nameMismatch": "{n} por nombre distinto",
+            "alreadyLinked": "{n} ya estaban ligadas",
+            "collisions": "{n} con número repetido",
+            "noLocalCard": "{n} sin carta en tu catálogo",
+            "finishNotInProduct": "{n} con un acabado que el producto no trae (quedan sin precio en ese acabado)"
+          },
           "piecesCorrected": "{n, plural, one {Se corrigió el acabado de # pieza} other {Se corrigieron los acabados de # piezas}}.",
           "piecesExcluded": "No se tocaron: {list}.",
           "excl": {
@@ -4544,7 +4570,11 @@
           "groupLine": "Grupo de precios: {name} ({via})",
           "groupNone": "Grupo de precios: sin grupo asignado",
           "nextAttempt": "Disponible de nuevo a las {when}",
-          "via": {"auto": "automático", "confirmed": "confirmado", "promo_table": "tabla de promos"},
+          "via": {
+            "auto": "automático",
+            "confirmed": "confirmado",
+            "promo_table": "tabla de promos"
+          },
           "setReason": {
             "group_ambiguous": "hay varios grupos de precios posibles y no se sabe cuál es",
             "group_none": "no se encontró un grupo de precios para este set",
@@ -4555,6 +4585,24 @@
             "provider_failing": "la fuente de precios está fallando; vuelve a intentarlo más tarde",
             "tcgcsv_source": "su fuente de precios no permite ligar",
             "not_in_provider": "la fuente de precios no tiene este set"
+          },
+          "autoNext": "Se reintenta solo a las {when}",
+          "candidates": {
+            "aria": "Grupos de precios candidatos para {name}",
+            "best": "Mejor candidato",
+            "other": "Otro candidato",
+            "products": "{n, plural, one {# producto} other {# productos}}",
+            "published": "publicado {date}",
+            "confirm": "Confirmar",
+            "confirmAria": "Confirmar el grupo {group} para {name}",
+            "dismiss": "Cerrar",
+            "done": "Confirmado en {name}: {linked, plural, one {# carta ligada} other {# cartas ligadas}} y {priced, plural, one {# precio actualizado} other {# precios actualizados}}.",
+            "collisions": "{n} con número repetido quedaron sin ligar.",
+            "conflicts": "{n} con dueño distinto quedaron sin ligar.",
+            "rate": "Este set se confirmó hace poco; espera unos minutos.",
+            "groupNotFound": "Ese grupo ya no existe en la fuente de precios. Actualiza la lista.",
+            "upstream": "La fuente de precios no respondió; no se guardó nada. Intenta más tarde.",
+            "err": "No se pudo confirmar el grupo de {name}."
           }
         },
         "degradedTitle": "La lista está incompleta",
@@ -4617,6 +4665,19 @@
             "catalogPhaseFailed": "<b>No se pudieron traer cartas nuevas</b>: la fuente de catálogo no respondió. Los precios y las variantes sí se actualizaron.",
             "failed": "No se pudo arrancar la sincronización, así que no se escribió nada. Los precios y las cartas siguen como estaban."
           }
+        },
+        "autoLink": {
+          "aria": "Reparación automática de precios",
+          "counter": "{remaining, plural, one {Queda # carta sin precio} other {Quedan # cartas sin precio}}",
+          "repaired": "ayer se {n, plural, one {reparó #} other {repararon #}}",
+          "state": "Reparación automática: {state}",
+          "on": "Encendida",
+          "off": "Apagada",
+          "last": "última corrida {when}",
+          "neverRan": "aún no ha corrido",
+          "next": "próxima {when}",
+          "waiting": "{n, plural, one {# espera tu decisión} other {# esperan tu decisión}}",
+          "offHint": "Está apagada: nada se repara solo hasta que se encienda."
         }
       },
       "sealedSpreads": {
@@ -9038,7 +9099,7 @@
     },
     "pages": {
       "home": {
-      "title": "Singles de Pokémon desde Ciudad de México",
+        "title": "Singles de Pokémon desde Ciudad de México",
         "description": "Singles de Pokémon (cartas sueltas) y gradeadas, verificadas y con condición garantizada. Desde Ciudad de México, con envíos a todo México."
       },
       "catalog": {
@@ -10154,6 +10215,7 @@
       "holo": "Holo",
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition Holo",
+      "first_edition": "1st Edition (no holo)",
       "cosmos_holo": "Cosmos Holo"
     },
     "finishLabelShort": {
@@ -10161,6 +10223,7 @@
       "holo": "Holo",
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition",
+      "first_edition": "1st Ed. no holo",
       "cosmos_holo": "Cosmos"
     }
   },

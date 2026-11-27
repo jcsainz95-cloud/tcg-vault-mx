@@ -4,10 +4,12 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/
 import { useFormatter, useTranslations } from 'next-intl';
 import { RefreshCw } from 'lucide-react';
 import { groupLabel, readGroupUsed, readSetReason, repairCatalogLinks, type LinkGroupUsed, type LinkSetReason } from '@/lib/api/catalog-link-repair';
-import { getLinkExceptions, NO_BUTTON_REASONS } from '@/lib/api/catalog-link-exceptions';
+import { confirmLinkException, getLinkExceptions, NO_BUTTON_REASONS, type LinkCandidate, type LinkConfirmResult } from '@/lib/api/catalog-link-exceptions';
 import type { UnlinkedPriceReport } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
+import { asApiError } from '@/lib/api-client';
+import { useErrorMessage } from '@/components/ui/QueryState';
 import { LinkRepairResultNotice } from './LinkRepairResultNotice';
 import { LINK_REPAIR_KEY } from './useCatalogSync';
 
@@ -27,6 +29,8 @@ interface Row {
   reason: LinkSetReason | null;
   groupUsed: LinkGroupUsed | null;
   nextAttemptAt: string | null;
+  candidates: LinkCandidate[];
+  canConfirm: boolean;
 }
 
 /**
@@ -41,6 +45,15 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const exceptions = useQuery({ queryKey: ['link-exceptions'], queryFn: getLinkExceptions, retry: false });
   // M-3: el botón de la tabla general y el de esta lista comparten clave; mientras uno corre, ambos se deshabilitan.
   const anyRepairRunning = useIsMutating({ mutationKey: LINK_REPAIR_KEY }) > 0;
+  // §AUTO-ENLACE F3: «Confirmar» un grupo candidato (liga y precia el set). El resultado queda junto al caso.
+  const confirm = useMutation({
+    mutationKey: LINK_REPAIR_KEY,
+    mutationFn: (v: { setId: string; groupId: number }) => confirmLinkException(v.setId, v.groupId),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['catalog-sync-status'] });
+      qc.invalidateQueries({ queryKey: ['link-exceptions'] });
+    },
+  });
   const retry = useMutation({
     mutationKey: LINK_REPAIR_KEY,
     mutationFn: (v: { setId: string; name: string }) => repairCatalogLinks(v.setId),
@@ -52,7 +65,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
 
   // Fase 1: `link-exceptions` aún no existe (404); el camino real es `sync-status.unlinkedPrice` con grupo y motivo.
   const fromReport: Row[] = (report?.sets ?? []).map((s) => ({
-    ...s, reason: readSetReason(s.reason), groupUsed: readGroupUsed(s.groupUsed), nextAttemptAt: null,
+    ...s, reason: readSetReason(s.reason), groupUsed: readGroupUsed(s.groupUsed), nextAttemptAt: null, candidates: [], canConfirm: false,
   }));
   const fromApi = exceptions.data?.sets ?? null;
   const linkable: Row[] = fromApi ? fromApi.filter((s) => !(s.reason && NO_BUTTON_REASONS.includes(s.reason)) && s.unlinked > 0) : fromReport;
@@ -67,6 +80,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const notLinkableCards = noButton.reduce((n, s) => n + s.unlinked, 0);
 
   const pendingId = retry.isPending ? retry.variables?.setId : null;
+  const autoOn = exceptions.data?.summary.autoLinkEnabled === true;
   // El nombre viaja con la acción: la fila puede desaparecer al refrescar el contador.
   const lastName = retry.variables?.name ?? '';
   const lastSetId = retry.variables?.setId ?? null;
@@ -118,7 +132,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                 {(fromApi || s.groupUsed || s.reason) && (
                   <p className="text-xs text-muted" data-testid="unlinked-group">
                     {s.groupUsed ? groupText(s.groupUsed) : t('groupNone')}
-                    {s.nextAttemptAt && ` · ${t('nextAttempt', { when: timeOf(s.nextAttemptAt) })}`}
+                    {s.nextAttemptAt && ` · ${autoOn ? t('autoNext', { when: timeOf(s.nextAttemptAt) }) : t('nextAttempt', { when: timeOf(s.nextAttemptAt) })}`}
                   </p>
                 )}
               </div>
@@ -133,6 +147,36 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                 <RefreshCw size={14} aria-hidden /> {pendingId === s.setId ? t('retrying') : t('retry')}
               </Button>
             </div>
+            {s.canConfirm && s.candidates.length > 0 && (
+              <ul className="mt-2 space-y-1" data-testid="link-candidates" aria-label={t('candidates.aria', { name: s.name })}>
+                {s.candidates.map((c, i) => (
+                  <li key={c.groupId} className="flex flex-wrap items-center justify-between gap-2 border-l-2 border-border pl-2">
+                    <div className="min-w-0 text-xs">
+                      <p className="font-medium break-words">
+                        {i === 0 ? t('candidates.best') : t('candidates.other')}: {c.name || tf('groupId', { id: c.groupId })}
+                      </p>
+                      <p className="text-muted">
+                        {c.productCount != null && t('candidates.products', { n: c.productCount })}
+                        {c.publishedOn && ` · ${t('candidates.published', { date: c.publishedOn })}`}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={i === 0 ? 'primary' : 'secondary'}
+                      aria-label={t('candidates.confirmAria', { group: c.name || tf('groupId', { id: c.groupId }), name: s.name })}
+                      loading={confirm.isPending && confirm.variables?.setId === s.setId && confirm.variables?.groupId === c.groupId}
+                      disabled={confirm.isPending || retry.isPending || anyRepairRunning}
+                      onClick={() => confirm.mutate({ setId: s.setId, groupId: c.groupId })}
+                    >
+                      {t('candidates.confirm')}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {confirm.variables?.setId === s.setId && (confirm.isSuccess || confirm.isError) && (
+              <ConfirmResultNotice name={s.name} result={confirm.isSuccess ? confirm.data : null} error={confirm.isError ? confirm.error : undefined} onDismiss={() => confirm.reset()} />
+            )}
             {lastSetId === s.setId && result}
           </li>
         ))}
@@ -154,5 +198,30 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
         </div>
       )}
     </Banner>
+  );
+}
+
+/** §AUTO-ENLACE F3: resultado de «Confirmar», junto al caso. */
+function ConfirmResultNotice({ name, result, error, onDismiss }: { name: string; result: LinkConfirmResult | null; error?: unknown; onDismiss: () => void }) {
+  const t = useTranslations('admin.m2.catalog.unlinkedPrice.candidates');
+  const getError = useErrorMessage('operator');
+  const close = (
+    <button type="button" onClick={onDismiss} className="ml-2 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-testid="confirm-result-close">
+      {t('dismiss')}
+    </button>
+  );
+  if (error != null) {
+    const e = asApiError(error) ?? { status: 0, code: '' };
+    const text = e.status === 429 ? t('rate') : e.code === 'GROUP_NOT_FOUND' ? t('groupNotFound') : e.status >= 500 || e.code === 'UPSTREAM_ERROR' ? t('upstream') : `${t('err', { name })} ${getError(error)}`;
+    return <p role="alert" className="mt-2 border-l-2 border-danger pl-2 text-sm text-danger" data-testid="confirm-error">{text}{close}</p>;
+  }
+  if (!result) return null;
+  return (
+    <p role="status" className="mt-2 border-l-2 border-ink pl-2 text-sm" data-testid="confirm-result">
+      {t('done', { name, linked: result.linked, priced: result.priced })}
+      {result.collisions > 0 && ` ${t('collisions', { n: result.collisions })}`}
+      {result.conflicts > 0 && ` ${t('conflicts', { n: result.conflicts })}`}
+      {close}
+    </p>
   );
 }

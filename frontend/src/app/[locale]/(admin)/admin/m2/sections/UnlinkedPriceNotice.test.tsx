@@ -19,6 +19,9 @@ const REPORT: UnlinkedPriceReport = {
   notLinkable: { totalCards: 4, sets: [{ setId: 'x', name: 'Promos Raros', unlinked: 4, reason: 'no_group' }] },
 };
 
+const SUM: exc.LinkExceptionsSummary = {
+  unlinkedCards: 12, unlinkedSets: 2, repairedYesterday: 5, pricedYesterday: 5, lastRunAt: null, nextRunAt: null, waitingDecision: null, autoLinkEnabled: null,
+};
 const R = (o: Partial<repair.LinkRepairResult>): repair.LinkRepairResult => ({
   linked: 0, priced: null, groupUsed: null, reason: null, nextAttemptAt: null, reasons: [], piecesCorrected: 0, piecesExcluded: [], ...o,
 });
@@ -110,12 +113,14 @@ describe('UnlinkedPriceNotice · nombre y motivos', () => {
 });
 
 describe('§AUTO-ENLACE · F1/F2/F4', () => {
+  const X = { lastAttemptAt: null, tries: null, candidates: [], canConfirm: false };
   const EXC = {
     unlinkedCards: 12,
+    summary: SUM,
     sets: [
-      { setId: UUID1, name: 'Scarlet', unlinked: 9, total: 100, reason: 'group_ambiguous' as const, groupUsed: null, nextAttemptAt: null },
-      { setId: UUID2, name: 'Violet', unlinked: 3, total: 50, reason: null, groupUsed: { groupId: 7, name: 'SV: Violet', via: 'auto' as const }, nextAttemptAt: null },
-      { setId: 'z', name: 'Fuera', unlinked: 2, total: 5, reason: 'not_in_provider' as const, groupUsed: null, nextAttemptAt: null },
+      { setId: UUID1, name: 'Scarlet', unlinked: 9, total: 100, reason: 'group_ambiguous' as const, groupUsed: null, nextAttemptAt: null, ...X },
+      { setId: UUID2, name: 'Violet', unlinked: 3, total: 50, reason: null, groupUsed: { groupId: 7, name: 'SV: Violet', via: 'auto' as const }, nextAttemptAt: null, ...X },
+      { setId: 'z', name: 'Fuera', unlinked: 2, total: 5, reason: 'not_in_provider' as const, groupUsed: null, nextAttemptAt: null, ...X },
     ],
   };
   it('lista desde link-exceptions: motivo y grupo por set; sin botón para «no en proveedor»', async () => {
@@ -266,5 +271,39 @@ describe('readLinkRepair', () => {
     expect(mixed.reasons).toEqual([{ key: 'ownerConflict', count: 2 }, { key: 'nameMismatch', count: 1 }]);
     expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'no_local_card', count: 9 }] }).reasons).toEqual([{ key: 'noLocalCard', count: 9 }]);
     expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'name_mismatch', count: 2 }] }).reasons).toEqual([{ key: 'nameMismatch', count: 2 }]);
+  });
+});
+describe('§AUTO-ENLACE F3 · Confirmar candidato', () => {
+  const CAND = { groupId: 24380, name: 'Classic Collection', publishedOn: '2026-06-12', productCount: 34, score: 0.9 };
+  const EXC3: exc.LinkExceptions = {
+    unlinkedCards: 11,
+    summary: SUM,
+    sets: [{ setId: UUID1, name: 'Scarlet', unlinked: 11, total: 30, reason: 'name_mismatch', groupUsed: null, nextAttemptAt: null, lastAttemptAt: null, tries: 1, canConfirm: true,
+      candidates: [CAND, { ...CAND, groupId: 2, name: 'Otro' }] }],
+  };
+  it('muestra el mejor candidato arriba, confirma y pinta el resultado junto al caso', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue(EXC3);
+    const spy = vi.spyOn(exc, 'confirmLinkException').mockResolvedValue({ setId: UUID1, groupUsed: null, linked: 9, priced: 18, collisions: 0, conflicts: 0 });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    expect(await screen.findByText(/Mejor candidato: Classic Collection/)).toBeTruthy();
+    expect(screen.getByText(/los nombres de las cartas no coinciden/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar el grupo Classic Collection para Scarlet/ }));
+    const res = await screen.findByTestId('confirm-result');
+    expect(spy).toHaveBeenCalledWith(UUID1, 24380);
+    expect(res.closest('li')?.textContent).toContain('Scarlet');
+    expect(res.textContent).toMatch(/Confirmado en Scarlet: 9 cartas ligadas y 18 precios actualizados\./);
+  });
+  it('422 GROUP_NOT_FOUND se explica en claro', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue(EXC3);
+    vi.spyOn(exc, 'confirmLinkException').mockRejectedValue(new ApiClientError(422, { code: 'GROUP_NOT_FOUND', message: 'x', details: {} }));
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirmar el grupo Classic Collection/ }));
+    expect((await screen.findByTestId('confirm-error')).textContent).toMatch(/ya no existe/);
+  });
+  it('sin canConfirm no hay botón Confirmar', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, sets: [{ ...EXC3.sets[0], canConfirm: false }] });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    await screen.findByText('Scarlet');
+    expect(screen.queryByText('Confirmar')).toBeNull();
   });
 });

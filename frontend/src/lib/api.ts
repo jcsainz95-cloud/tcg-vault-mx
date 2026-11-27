@@ -17,8 +17,9 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
-import { mockUnlinkedPrice, mockLinkRepair } from './mock/link-repair';
+import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm } from './mock/link-repair';
 import { registerLinkRepairMock } from './api/catalog-link-repair';
+import { registerLinkExceptionsMock } from './api/catalog-link-exceptions';
 import * as flujoMock from './mock/buylist-flujo';
 import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
@@ -415,6 +416,11 @@ import type {
 const MOCKS_BUILD = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
 
 // §AUTO-ENLACE: `lib/api/catalog-link-repair.ts` no importa `lib/mock`; el mock se cablea aquí.
+registerLinkExceptionsMock({
+  list: () => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockLinkExceptions()), 200)) : null),
+  confirm: (setId, groupId) =>
+    MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkConfirm(setId, groupId)); } catch (e) { rej(e); } }, 400)) : null,
+});
 registerLinkRepairMock((setId) =>
   MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkRepair(setId)); } catch (e) { rej(e); } }, 400)) : null);
 

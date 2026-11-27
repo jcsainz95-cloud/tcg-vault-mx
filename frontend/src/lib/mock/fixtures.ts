@@ -2960,6 +2960,7 @@ const MOCK_VARIANT_REF_FACTOR: Record<Finish, number> = {
   reverse_holo: 1.25,
   holofoil: 1.6,
   first_edition_holofoil: 2.5,
+  first_edition: 2,
 };
 export function mockMarketReferenceForVariant(cardId: string, finish: Finish): number | null {
   const base = mockReferenceByCardId[cardId];

@@ -1259,6 +1259,7 @@
     "reverse_holo": "Reverse Holo",
     "holofoil": "Holofoil",
     "first_edition_holofoil": "1st Edition",
+    "first_edition": "1st Edition (non-holo)",
     "reverse": "Reverse",
     "holo": "Holo",
     "firstEdHolo": "1ed Holo"
@@ -2504,15 +2505,15 @@
         "goToPrepare": "Go to “Prepare”",
         "goToReplace": "See under “To replace”",
         "sdx": {
-        "customerQuote": {
-          "eyebrow": "Quoted to the customer",
-          "charged": "{service}: the customer paid {charged} for shipping (quoted label cost: {quoted}).",
-          "fallback": "The quoted service is no longer available: {service} is selected. You can change it.",
-          "current": "Current cost of the selected option: {amount}.",
-          "same": "Same as quoted.",
-          "over": "{diff} more than quoted; above the allowed margin the system alerts the owner.",
-          "under": "{diff} less than quoted."
-        },
+          "customerQuote": {
+            "eyebrow": "Quoted to the customer",
+            "charged": "{service}: the customer paid {charged} for shipping (quoted label cost: {quoted}).",
+            "fallback": "The quoted service is no longer available: {service} is selected. You can change it.",
+            "current": "Current cost of the selected option: {amount}.",
+            "same": "Same as quoted.",
+            "over": "{diff} more than quoted; above the allowed margin the system alerts the owner.",
+            "under": "{diff} less than quoted."
+          },
           "step": "Step {n} of 4 · {name}",
           "stepName": {
             "address": "Address",
@@ -3703,7 +3704,11 @@
       "paySpeiConfirm": "Record payment",
       "flow": {
         "f2": {
-          "status": { "approvedAgreed": "Approved at agreed price", "approvedRevised": "Approved with the accepted reduction", "retired": "Reduction withdrawn" },
+          "status": {
+            "approvedAgreed": "Approved at agreed price",
+            "approvedRevised": "Approved with the accepted reduction",
+            "retired": "Reduction withdrawn"
+          },
           "actions": {
             "approve": "Approve at agreed price",
             "reduce": "Lower price",
@@ -4469,8 +4474,22 @@
         "promosTitle": "Promos included in this run",
         "promosLead": "These promos always travel with the catalog update; there is no need to import them separately.",
         "promosSets": "{created} new · {updated} updated · {unchanged} unchanged",
-        "promosSetStatus": { "created": "new", "updated": "updated", "unchanged": "unchanged", "missing_remote": "not on pokemontcg.io", "error": "failed" },
-        "promosTcgcsvStatus": { "imported": "imported", "updated": "updated", "covered": "already covered", "busy": "busy, retried automatically on the next run", "skipped_needs_super_admin": "skipped: only a super-admin imports it", "quarantined": "quarantined: not imported, re-evaluated automatically", "error": "failed" },
+        "promosSetStatus": {
+          "created": "new",
+          "updated": "updated",
+          "unchanged": "unchanged",
+          "missing_remote": "not on pokemontcg.io",
+          "error": "failed"
+        },
+        "promosTcgcsvStatus": {
+          "imported": "imported",
+          "updated": "updated",
+          "covered": "already covered",
+          "busy": "busy, retried automatically on the next run",
+          "skipped_needs_super_admin": "skipped: only a super-admin imports it",
+          "quarantined": "quarantined: not imported, re-evaluated automatically",
+          "error": "failed"
+        },
         "promosTcgcsvRow": "Group {groupId}: {status} ({created} new, {updated} updated)",
         "promosGate": "Black Star hidden: {k} of {need} required hits (evaluated {n}; false hits {f}; {expansions} expansions)",
         "promosGateOpen": "Black Star published: gate open ({k} hits, {expansions} expansions, {f} false hits)",
@@ -4515,7 +4534,14 @@
             "alreadyLinked": "the card was already linked",
             "other": "no clear match"
           },
-          "reasonCount": {"ownerConflict": "{n} with a different owner", "nameMismatch": "{n} with a different name", "alreadyLinked": "{n} already linked", "collisions": "{n} with a repeated number", "noLocalCard": "{n} with no card in your catalog", "finishNotInProduct": "{n} with a finish the product lacks (unpriced in that finish)"},
+          "reasonCount": {
+            "ownerConflict": "{n} with a different owner",
+            "nameMismatch": "{n} with a different name",
+            "alreadyLinked": "{n} already linked",
+            "collisions": "{n} with a repeated number",
+            "noLocalCard": "{n} with no card in your catalog",
+            "finishNotInProduct": "{n} with a finish the product lacks (unpriced in that finish)"
+          },
           "piecesCorrected": "{n, plural, one {The finish of # piece was corrected} other {The finishes of # pieces were corrected}}.",
           "piecesExcluded": "Not touched: {list}.",
           "excl": {
@@ -4544,7 +4570,11 @@
           "groupLine": "Price group: {name} ({via})",
           "groupNone": "Price group: none assigned",
           "nextAttempt": "Available again at {when}",
-          "via": {"auto": "automatic", "confirmed": "confirmed", "promo_table": "promo table"},
+          "via": {
+            "auto": "automatic",
+            "confirmed": "confirmed",
+            "promo_table": "promo table"
+          },
           "setReason": {
             "group_ambiguous": "several price groups are possible and it is unclear which one",
             "group_none": "no price group was found for this set",
@@ -4555,6 +4585,24 @@
             "provider_failing": "the price source is failing; try again later",
             "tcgcsv_source": "its price source does not allow linking",
             "not_in_provider": "the price source does not have this set"
+          },
+          "autoNext": "Retries on its own at {when}",
+          "candidates": {
+            "aria": "Candidate price groups for {name}",
+            "best": "Best candidate",
+            "other": "Other candidate",
+            "products": "{n, plural, one {# product} other {# products}}",
+            "published": "published {date}",
+            "confirm": "Confirm",
+            "confirmAria": "Confirm group {group} for {name}",
+            "dismiss": "Close",
+            "done": "Confirmed in {name}: {linked, plural, one {# card linked} other {# cards linked}} and {priced, plural, one {# price updated} other {# prices updated}}.",
+            "collisions": "{n} with a repeated number were left unlinked.",
+            "conflicts": "{n} with a different owner were left unlinked.",
+            "rate": "This set was confirmed a moment ago; wait a few minutes.",
+            "groupNotFound": "That group no longer exists in the price source. Refresh the list.",
+            "upstream": "The price source did not respond; nothing was saved. Try again later.",
+            "err": "Could not confirm the group for {name}."
           }
         },
         "degradedTitle": "The list is incomplete",
@@ -4617,6 +4665,19 @@
             "catalogPhaseFailed": "<b>New cards could not be brought in</b>: the catalog source did not respond. Prices and variants were updated.",
             "failed": "The sync could not be started, so nothing was written. Prices and cards stayed as they were."
           }
+        },
+        "autoLink": {
+          "aria": "Automatic price repair",
+          "counter": "{remaining, plural, one {# card left without a price} other {# cards left without a price}}",
+          "repaired": "yesterday {n} {n, plural, one {was} other {were}} repaired",
+          "state": "Automatic repair: {state}",
+          "on": "On",
+          "off": "Off",
+          "last": "last run {when}",
+          "neverRan": "has not run yet",
+          "next": "next {when}",
+          "waiting": "{n, plural, one {# waits} other {# wait}} for your decision",
+          "offHint": "It is off: nothing is repaired on its own until it is turned on."
         }
       },
       "sealedSpreads": {
@@ -9038,7 +9099,7 @@
     },
     "pages": {
       "home": {
-      "title": "Pokémon singles from Mexico City",
+        "title": "Pokémon singles from Mexico City",
         "description": "Pokémon singles (raw cards) and graded, verified with guaranteed condition. From Mexico City, shipping all over Mexico."
       },
       "catalog": {
@@ -10154,6 +10215,7 @@
       "holo": "Holo",
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition Holo",
+      "first_edition": "1st Edition (non-holo)",
       "cosmos_holo": "Cosmos Holo"
     },
     "finishLabelShort": {
@@ -10161,6 +10223,7 @@
       "holo": "Holo",
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition",
+      "first_edition": "1st Ed. non-holo",
       "cosmos_holo": "Cosmos"
     }
   },
