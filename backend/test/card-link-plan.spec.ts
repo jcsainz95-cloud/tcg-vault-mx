@@ -47,7 +47,9 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
   it('número repetido solo en un lado ⇒ tampoco se adivina (no enlaza por número)', () => {
     const r = plan([prod(1, 'Foo', '5'), prod(2, 'Bar', '5')], [card('c1', '5', 'Otro')]);
     expect(r.links.size).toBe(0);
-    expect(r.collisions).toBe(2);
+    // I-3: ningún producto tiene carta local con SU llave ⇒ sobrantes `no_local_card`, no colisión.
+    expect(r.collisions).toBe(0);
+    expect(r.unlinked.map((u) => u.reason)).toEqual(['no_local_card', 'no_local_card']);
   });
 
   it('número único en ambos lados y nombre COMPATIBLE (uno contenido en el otro por palabras) ⇒ enlaza por número', () => {
@@ -157,13 +159,36 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
   });
 
   it('B2 me55c #11: solo la carta local Genesect-EX + ambos productos (716157/716158) ⇒ liga 716158 y NO el Metagross', () => {
-    // Nombre local ≠ llave del producto (palabras de más/menos) pero compatible: la regla b no aplica y el número se repite en TCGCSV.
-    const only = localCards().filter((c) => c.id === 'card-716158').map((c) => ({ ...c, name: 'Genesect' }));
+    // «Genesect-EX» local = «Genesect EX (Team Plasma)» del producto tras normalizar y quitar el paréntesis de variante (AE-1).
+    const only = localCards().filter((c) => c.id === 'card-716158').map((c) => ({ ...c, name: 'Genesect-EX' }));
     const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
     for (const order of [d, [...d].reverse()]) {
       const r = planCardLinks(order, only, new Map(), normalizeCardNumber);
       expect(r.links.get(716158)?.cardId).toBe('card-716158');
       expect(r.links.get(716157)).toBeUndefined();
+      // I-3: el Metagross sobrante no es colisión, es «sin carta local».
+      expect(r.unlinked.find((u) => u.productId === 716157)?.reason).toBe('no_local_card');
+      expect(r.collisions).toBe(0);
+    }
+  });
+
+  it('AE-1: B2 NO liga por contención de palabras («Pikachu» ≠ «Pikachu VMAX»), en ambos órdenes', () => {
+    const ps = [prod(1, 'Pikachu VMAX', '25/100'), prod(2, 'Bulbasaur', '25/101')];
+    for (const order of [ps, [...ps].reverse()]) {
+      const r = plan(order, [card('c1', '25', 'Pikachu')]);
+      expect(r.links.size).toBe(0);
+      expect(r.unlinked.map((u) => u.reason)).toEqual(['no_local_card', 'no_local_card']);
+    }
+    // Y con el producto verdadero presente liga ese, no el VMAX.
+    const r2 = plan([prod(1, 'Pikachu VMAX', '25/100'), prod(2, 'Pikachu', '25/101')], [card('c1', '25', 'Pikachu')]);
+    expect([...r2.links.entries()]).toEqual([[2, { cardId: 'c1', rule: 'number_name' }]]);
+  });
+
+  it('I-2: sentido inverso (2 locales + 1 producto) ⇒ liga la ÚNICA local de llave igual, en ambos órdenes de cartas', () => {
+    const cs = [card('cA', '11', 'Metagross'), card('cG', '11', 'Genesect-EX')];
+    for (const order of [cs, [...cs].reverse()]) {
+      const r = plan([prod(1, 'Genesect EX (Team Plasma)', '11/101')], order);
+      expect([...r.links.entries()].map(([k, v]) => [k, v.cardId])).toEqual([[1, 'cG']]);
     }
   });
 
@@ -226,7 +251,7 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
       cardSet: { findUnique: jest.fn(async () => ({ id: 'set-cc', name: '30th Celebration Classic Collection', pptSetId: '24837', externalId: 'me-cc' })) },
       card: { findMany: jest.fn(async () => cardsL.map((c) => ({ id: c.id, number: c.number, name: c.name, tcgplayerId: null, _count: { cardProducts: 1 } }))) },
       cardProduct: {
-        findMany: jest.fn(async () => products.map((p) => ({ id: `cp-${p.productId}`, tcgplayerProductId: p.productId, cardId: `card-${p.productId}`, kind: 'set_base' }))),
+        findMany: jest.fn(async () => products.map((p) => ({ id: `cp-${p.productId}`, tcgplayerProductId: p.productId, cardId: `card-${p.productId}`, kind: 'set_base', finishes: derived().find((d) => d.productId === p.productId)!.finishes }))),
         upsert: jest.fn(),
       },
       priceReference: { findUnique: jest.fn(async () => null), upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })) },
@@ -242,6 +267,46 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
     expect(prisma.cardProduct.upsert).not.toHaveBeenCalled();
     expect(res).toMatchObject({ joined: 0, pricesWritten: 30, groupName: 'ME: 30th Celebration Classic Collection', groupVia: 'auto' });
     expect(prs).toHaveLength(30);
+  });
+
+  describe('B-1 / AE-2: B4 (reparación) solo precia acabados presentes en CardProduct.finishes y respeta override', () => {
+    const fp = fixture.prices[0] as Record<string, unknown>;
+    const mk = (existingFinishes: string[], existingPrice: { isManualOverride: boolean } | null) => {
+      const prs: any[] = [];
+      const prod1 = { ...fixture.products[0], productId: 9001, name: 'Charizard', number: '4/102' };
+      const price1 = { ...fp, productId: 9001, subTypeName: 'Holofoil', marketPrice: 1877.4, lowPrice: 1800, midPrice: 1850, highPrice: 2000, directLowPrice: null };
+      const prisma = {
+        $executeRaw: jest.fn(async () => 0),
+        cardSet: { findUnique: jest.fn(async () => ({ id: 's', name: 'Base', pptSetId: '24837', externalId: 'base1' })) },
+        card: { findMany: jest.fn(async () => [{ id: 'cC', number: '4', name: 'Charizard', tcgplayerId: null, _count: { cardProducts: 1 } }]) },
+        cardProduct: {
+          findMany: jest.fn(async () => [{ id: 'cp1', tcgplayerProductId: 9001, cardId: 'cC', kind: 'set_base', finishes: existingFinishes }]),
+          upsert: jest.fn(),
+        },
+        priceReference: { findUnique: jest.fn(async () => existingPrice), upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })) },
+      } as unknown as PrismaService;
+      const client = { getProducts: jest.fn(async () => [prod1]), getPrices: jest.fn(async () => [price1]), listGroups: jest.fn(async () => []) } as unknown as TcgcsvCatalogClient;
+      const fx = { getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0, source: 'banxico', effectiveDate: '2026-11-25' })) } as unknown as FxService;
+      const svc = new CardProductResolverService(prisma, client, { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fx);
+      return { svc, prs, prisma };
+    };
+    it('B-1: producto [normal] y fuente Holofoil 187 740 ¢ ⇒ NO se escribe fila Holofoil huérfana', async () => {
+      const { svc, prs, prisma } = mk(['normal'], null);
+      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(0);
+      expect(prisma.cardProduct.upsert).not.toHaveBeenCalled();
+    });
+    it('B-1 (control): si el CardProduct ya tiene holofoil ⇒ sí se precia', async () => {
+      const { svc, prs } = mk(['holofoil'], null);
+      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(1);
+      expect(prs[0].create.finish).toBe('holofoil');
+    });
+    it('AE-2: fila del día con isManualOverride ⇒ B4 no escribe (0 upserts)', async () => {
+      const { svc, prs } = mk(['holofoil'], { isManualOverride: true });
+      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(0);
+    });
   });
 
   it('los 5 omitidos de antes eran exactamente los paréntesis de nombre (y ya no se omiten)', () => {

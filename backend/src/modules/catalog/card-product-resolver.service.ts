@@ -116,7 +116,8 @@ export class CardProductResolverService {
       // Modo reparación: los sets de promos viejas tienen su propia ruta y no se tocan aquí.
       if (!this.promoProducts || opts.onlyUnlinked) return null;
       const pr = await this.promoProducts.run(set.id, groupId, promo.numberPrefix);
-      return { ...pr, groupName: await this.groupNameOf(groupId), groupVia: 'promo_table' as const };
+      // B-2: la tabla manda; la ruta de promos NO consulta `listGroups` (la tabla no trae nombre ⇒ null).
+      return { ...pr, groupName: null, groupVia: 'promo_table' as const };
     }
 
     const [products, prices] = await Promise.all([
@@ -154,7 +155,7 @@ export class CardProductResolverService {
     });
     const existingOwners = await this.prisma.cardProduct.findMany({
       where: { tcgplayerProductId: { in: derived.map((d) => d.productId) } },
-      select: { id: true, tcgplayerProductId: true, cardId: true, kind: true },
+      select: { id: true, tcgplayerProductId: true, cardId: true, kind: true, finishes: true },
     });
     const ownerOf = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.cardId]));
     const prevKind = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.kind]));
@@ -180,6 +181,7 @@ export class CardProductResolverService {
     let unjoined = 0;
     let pricesWritten = 0;
     let pricesPending = 0;
+    let finishNotInProduct = 0;
 
     for (const dp of derived) {
       // Join por productId EXACTO (ancla tcgplayerId del set_base). Sin ancla → número normalizado
@@ -233,11 +235,18 @@ export class CardProductResolverService {
       const skipped = new Set(plan.unlinked.filter((u) => u.reason === 'skipped_linked').map((u) => u.productId));
       const inSet = new Set(localCards.map((c) => c.id));
       const cpId = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.id]));
+      // B-1: solo se precian acabados ya presentes en `CardProduct.finishes`. Un acabado nuevo de la fuente NO se escribe
+      // aquí (no hay reconciliación de estructura en la reparación): lo trae «Sincronizar este set»; evita filas huérfanas.
+      const finishesOf = new Map(existingOwners.map((o) => [o.tcgplayerProductId, new Set<string>(o.finishes as string[])]));
       for (const dp of derived) {
         const ownerId = ownerOf.get(dp.productId);
         const cpid = cpId.get(dp.productId);
         if (!skipped.has(dp.productId) || !ownerId || !cpid || !inSet.has(ownerId)) continue;
         for (const pf of dp.pricesByFinish) {
+          if (!finishesOf.get(dp.productId)?.has(pf.finish)) {
+            finishNotInProduct += 1; // se REPORTA (`finish_not_in_product`); la carta queda PRICE_PENDING en ese acabado
+            continue;
+          }
           const cents = pf.marketPrice == null || pf.marketPrice <= 0 ? 0 : Math.round(pf.marketPrice * 100);
           if (cents <= 0) {
             pricesPending += 1;
@@ -269,7 +278,7 @@ export class CardProductResolverService {
       reasonCounts: plan.unlinked.reduce<Record<string, number>>((acc, u) => {
         if (u.reason !== 'skipped_linked') acc[u.reason] = (acc[u.reason] ?? 0) + 1;
         return acc;
-      }, {}),
+      }, finishNotInProduct > 0 ? { finish_not_in_product: finishNotInProduct } : {}),
       examples: plan.unlinked
         .filter((u) => u.reason !== 'skipped_linked')
         .slice(0, 20)
@@ -297,7 +306,7 @@ export class CardProductResolverService {
     const set = await this.prisma.cardSet.findUnique({ where: { id: localSetId }, select: { id: true, name: true, pptSetId: true, externalId: true } });
     if (!set) return { groupId: null, name: null, via: null, failure: 'none' };
     const promo = promoGroupFor(set.externalId);
-    if (promo) return { groupId: promo.groupId, name: await this.groupNameOf(promo.groupId), via: 'promo_table', failure: null };
+    if (promo) return { groupId: promo.groupId, name: null, via: 'promo_table', failure: null }; // B-2: sin `listGroups` en promos
     const m = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
     if (m.groupId != null) return { groupId: m.groupId, name: await this.groupNameOf(m.groupId), via: 'auto', failure: null };
     return { groupId: null, name: null, via: null, failure: m.failure === 'ambiguous' ? 'ambiguous' : 'none' };

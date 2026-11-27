@@ -29,6 +29,7 @@ import { PromoCollectionLinkService, PromoGateState, PromoLinksSummary } from '.
 import { CatalogAutoStateService, CATALOG_AUTO_KEYS } from './catalog-auto-state.service';
 import { allFailuresFromSource } from './catalog-source-failure';
 import { contentKeyOf } from './promo-collection-link';
+import { safeErrorTag } from '../shipments/guest-mail-link';
 import type { Role } from '@prisma/client';
 
 /**
@@ -1627,10 +1628,12 @@ export class CatalogSyncService implements OnModuleInit {
       return await op();
     } catch (e) {
       if (e instanceof BusinessException) throw e;
+      // AE-4: el detalle del proveedor va solo al log (con etiqueta), nunca al cliente.
+      this.logger.warn(`sync: fuente pokemontcg.io falló (${safeErrorTag(e)}).`);
       throw new BusinessException(
         ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
-        `Fuente pokemontcg.io no disponible (HTTP 5xx); reintenta en unos minutos (${(e as Error).message})`,
+        'Fuente pokemontcg.io no disponible (HTTP 5xx); reintenta en unos minutos',
       );
     }
   }

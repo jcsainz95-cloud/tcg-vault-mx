@@ -34,7 +34,7 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
       { externalId: 'sv8', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08', printedTotal: 200, _count: { cards: 191 } },
       { externalId: 'base1', name: 'Base', series: 'Base', releaseDate: '1999/01/09', printedTotal: 102, _count: { cards: 102 } },
     ];
-    const prisma: any = { cardSet: { findMany: jest.fn(async () => localSets) }, auditLog: { findMany: jest.fn(async () => []) } };
+    const prisma: any = { cardSet: { findMany: jest.fn(async () => localSets) }, $queryRaw: jest.fn(async () => []) };
     const client = {
       getSets: jest.fn(async () => {
         throw new Error('pokemontcg.io /sets -> HTTP 429');
@@ -60,11 +60,9 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
             : [],
         ),
       },
-      auditLog: {
-        findMany: jest.fn(async () => [
-          { entityId: 'uuid-sv8', after: { groupUsed: { groupId: 23821, name: 'SV08: Surging Sparks', via: 'auto' }, reason: 'collisions' } },
-        ]),
-      },
+      $queryRaw: jest.fn(async () => [
+        { entityId: 'uuid-sv8', after: { groupUsed: { groupId: 23821, name: 'SV08: Surging Sparks', via: 'auto' }, reason: 'collisions' } },
+      ]),
     };
     const client = {
       getSets: jest.fn(async () => [{ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' }]),
@@ -80,13 +78,13 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
       groupUsed: { groupId: 23821, name: 'SV08: Surging Sparks', via: 'auto' },
       reason: 'collisions',
     });
-    expect(prisma.auditLog.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1); // AE-5: DISTINCT ON en Postgres, una sola consulta
   });
 
   it('set remoto no importado → localSetId/groupUsed/reason null', async () => {
     const prisma: any = {
       cardSet: { findMany: jest.fn(async (arg: any) => (arg?.select ? [] : [])) },
-      auditLog: { findMany: jest.fn(async () => []) },
+      $queryRaw: jest.fn(async () => []),
     };
     const client = { getSets: jest.fn(async () => [{ id: 'sv9', name: 'X', releaseDate: '2025/01/01' }]) } as unknown as PokemonTcgIoClient;
     const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());

@@ -153,7 +153,15 @@ export class AdminCatalogController {
     // v1.27 (P-12): `force` propagado hasta importSet/importSetByExternalId (resolver estructural
     // TCGCSV por set) y registrado en el detalle de auditoría.
     const force = dto.force ?? false;
-    const res = await this.sync.sync(dto.setId, dto.fromReleaseDate, force);
+    // AE-3: `sync` de UN set (1 cada 10 min por set, 429); el barrido completo no lleva este límite.
+    const claimId = dto.setId ? await this.linkRepair.claimSync(dto.setId, user.id) : null;
+    let res: Awaited<ReturnType<CatalogSyncService['sync']>>;
+    try {
+      res = await this.sync.sync(dto.setId, dto.fromReleaseDate, force);
+    } catch (e) {
+      if (claimId) await this.linkRepair.releaseSyncClaim(claimId);
+      throw e;
+    }
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

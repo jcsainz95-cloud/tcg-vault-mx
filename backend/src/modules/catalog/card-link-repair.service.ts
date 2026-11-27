@@ -7,6 +7,7 @@ import { BusinessException } from '../../common/business.exception';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
+import { safeErrorTag } from '../shipments/guest-mail-link';
 
 export type NotLinkableReason = 'no_group' | 'tcgcsv_source' | 'promo_route';
 /** §AUTO-ENLACE §2 (mismo enum del contrato; la FASE 1 emite el subconjunto que mide). */
@@ -27,12 +28,12 @@ export async function lastLinkOutcomes(
 ): Promise<Map<string, { groupUsed: GroupUsed | null; reason: LinkExceptionReason | null }>> {
   const out = new Map<string, { groupUsed: GroupUsed | null; reason: LinkExceptionReason | null }>();
   if (setIds.length === 0) return out;
-  const audits = await prisma.auditLog.findMany({
-    where: { action: 'catalog.link_repair', entityId: { in: setIds } },
-    orderBy: { createdAt: 'desc' },
-    distinct: ['entityId'],
-    select: { entityId: true, after: true },
-  });
+  // AE-5: el último intento por set lo resuelve Postgres (`DISTINCT ON`, parametrizado), no `distinct` de Prisma en memoria.
+  const audits = await prisma.$queryRaw<{ entityId: string | null; after: unknown }[]>`
+    SELECT DISTINCT ON ("entityId") "entityId", "after"
+    FROM "AuditLog"
+    WHERE "action" = 'catalog.link_repair' AND "entityId" = ANY(${setIds}::text[])
+    ORDER BY "entityId", "createdAt" DESC`;
   for (const a of audits) {
     if (!a.entityId) continue;
     const after = (a.after ?? {}) as { groupUsed?: unknown; reason?: unknown };
@@ -97,6 +98,8 @@ export const LINK_REPAIR_ROTATION_MS = 60 * 60_000;
 const MAX_LISTED_SETS = 100;
 const ACTION = 'catalog.link_repair';
 const CLAIM = 'catalog.link_repair_claim';
+/** AE-3: reclamo de `POST /admin/catalog/sync {setId}` (1 por set cada 10 min; mismo candado y patrón que `link-repair`). */
+const SYNC_CLAIM = 'catalog.sync_claim';
 const DEPLOY_MARKER = 'catalog.link_repair_deploy';
 const DEPLOY_START = 'catalog.link_repair_deploy_start';
 
@@ -114,6 +117,8 @@ export interface LinkRepairSetResult {
   /** Motivo por el que el set no quedó completo (`null` = sin pendientes conocidos). */
   reason: LinkExceptionReason | null;
   /** Siguiente momento en que el botón manual del set vuelve a aceptar (reclamo de 10 min); `null` en corridas automáticas. */
+  /** I-1: «Disponible de nuevo a las HH:MM» (enfriamiento del botón, +10 min). `nextAttemptAt` queda como alias (contrato §7.4). */
+  availableAgainAt: string | null;
   nextAttemptAt: string | null;
   piecesCorrected: number;
   piecesExcluded: { reason: string; count: number }[];
@@ -395,10 +400,34 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         if (claimId) await this.prisma.auditLog.deleteMany({ where: { id: claimId } });
         throw BusinessException.retriable('UPSTREAM_ERROR', 'The price provider failed; try again later', { setId });
       }
-      return { ...r, nextAttemptAt: new Date(Date.now() + LINK_REPAIR_MANUAL_COOLDOWN_MS).toISOString() };
+      const availableAgainAt = new Date(Date.now() + LINK_REPAIR_MANUAL_COOLDOWN_MS).toISOString();
+      return { ...r, availableAgainAt, nextAttemptAt: availableAgainAt };
     } finally {
       this.inflightSets.delete(setId);
     }
+  }
+
+  /**
+   * AE-3: límite propio de `sync` de UN set (1 cada 10 min, 429 `RATE_LIMITED`). Mismo reclamo bajo `pg_advisory_xact_lock` que
+   * `runForSet` (misma NAMESPACE, llave `sync:<setId>`). Devuelve el id del reclamo para devolverlo si el proveedor falla.
+   */
+  async claimSync(externalSetId: string, actorUserId: string): Promise<string> {
+    const now = Date.now();
+    let claimId = '';
+    const wait = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LINK_REPAIR_GATE_NAMESPACE}::int, hashtext(${'sync:' + externalSetId}))`;
+      const last = await tx.auditLog.findFirst({ where: { action: SYNC_CLAIM, entityId: externalSetId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+      if (last && now - last.createdAt.getTime() < LINK_REPAIR_MANUAL_COOLDOWN_MS) return LINK_REPAIR_MANUAL_COOLDOWN_MS - (now - last.createdAt.getTime());
+      claimId = (await tx.auditLog.create({ data: { actorUserId, action: SYNC_CLAIM, entityType: 'CardSet', entityId: externalSetId, after: { setId: externalSetId } }, select: { id: true } })).id;
+      return 0;
+    });
+    if (wait > 0) throw this.tooSoon(wait);
+    return claimId;
+  }
+
+  /** AE-3: un fallo del proveedor no consume los 10 min (igual que m-12 en `link-repair`). */
+  async releaseSyncClaim(claimId: string): Promise<void> {
+    await this.prisma.auditLog.deleteMany({ where: { id: claimId } }).catch(() => undefined);
   }
 
   private tooSoon(waitMs: number): BusinessException {
@@ -408,7 +437,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
   /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
   private async attemptSet(setId: string, trigger: string, actorUserId: string | null): Promise<LinkRepairSetResult> {
     const blank = (name: string): LinkRepairSetResult => ({
-      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
+      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, availableAgainAt: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
     });
     const set = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { name: true, externalId: true } });
     if (!set) return { ...blank(setId), error: 'not_found' };
@@ -461,7 +490,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         },
       });
     } catch (e) {
-      res.error = (e as Error).message;
+      res.error = safeErrorTag(e); // AE-4: etiqueta/código, nunca el texto crudo del proveedor (ni en bitácora ni en `lastError`)
       // m-13: el intento fallido queda registrado (con el error) ⇒ el set pasa al final de la rotación y cuenta su racha.
       await this.audit
         .log({ actorUserId, action: ACTION, entityType: 'CardSet', entityId: setId, after: { setId, failed: true, error: res.error.slice(0, 200), trigger } })
