@@ -74,7 +74,7 @@ describe('M2View · Catálogo y precios', () => {
     expect(screen.getByRole('button', { name: /Importar sets nuevos/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sincronizar todo \(forzar\)/ })).toBeInTheDocument();
     expect(
-      (await screen.findAllByRole('button', { name: /Sincronizar Surging Sparks/ })).length,
+      (await screen.findAllByRole('button', { name: /Actualizar Surging Sparks/ })).length,
     ).toBeGreaterThan(0);
   });
 

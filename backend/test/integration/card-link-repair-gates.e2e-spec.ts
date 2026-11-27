@@ -210,7 +210,7 @@ describe('E2E — §PRECIO-SIN-ENLACE tras gates', () => {
     let r = first;
     for (let i = 0; i < 12 && !r.complete; i++) r = await repair.run('deploy');
     expect(r.complete).toBe(true);
-    expect(await row()).toMatchObject({ pendingError: true, lastError: 'proveedor caído (prueba)' });
+    expect(await row()).toMatchObject({ pendingError: true, lastError: 'Error' /* AE-4: etiqueta, no el texto crudo */ });
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_deploy' } })).toBe(1);
   });
 });

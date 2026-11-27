@@ -14,7 +14,9 @@
 # 2026-11-06 · frontend/e2e/ids-quick-add.spec.ts (UX-ALTA-LIGA, IDS-F11/F12): +6 mockOnly en 1 fichero nuevo; lee el cuerpo exacto del POST items/batch, solo posible con mocks; el caso real lo cubre el gate QA en stack real con semilla (E2E League Bird #35, 2026-11-06)
 # 2026-11-07 · admin-m2-tcgcsv-promos: el import real depende de tcgcsv.com y del backend; el spec usa un servidor falso (api/tcgcsv-promos)
 # 2026-11-26 · frontend/e2e/auth.spec.ts (§CELULAR-ALTA): +1 mockOnly (163→164, mismo fichero, 36 ficheros) = caso «Google con correo nuevo ⇒ Completa tu cuenta»: el canje del idToken lo finge la rama mock de api.ts y un E2E no puede fabricar un idToken real; lo cubren CelularAlta.test.tsx y api.test.ts en vitest y la integración de backend (google/complete)
-mockOnly 164 36
+# 2026-11-27 · frontend/e2e/admin-m2-link-repair.spec.ts (§AUTO-ENLACE fase 1, frontend fba47ee1; re-gate QA V2): +2 mockOnly (164→166), +1 fichero (36→37) = import (L2) + UNA llamada (L12) en el caso «Actualizar este set» de M2. Legítimo: sync-status y link-repair cambian datos de precios y en real dependen de TCGCSV, así que el spec usa lib/mock/link-repair.ts; la lógica la cubren los tests de backend de §AUTO-ENLACE (c3685458). Ninguna otra clave cambia (devops, medido vs 6386a3f2 sobre 633053f2).
+# 2026-11-27 · frontend/e2e/admin-m2-link-repair.spec.ts (§AUTO-ENLACE re-gate qa M3, frontend 94684601; motivo de frontend en docs/STATUS.md sección Frontend): +2 mockOnly (166→168), mismo fichero (37 ficheros) = UNA llamada en L30 (caso M-3 «mientras un botón corre, los demás quedan deshabilitados», necesita los 400 ms de latencia simulada de lib/mock/link-repair.ts) + UNA en L43 (caso 429 del set SV simulado en el mock). Legítimo: en real link-repair escribe precios y depende de TCGCSV, y el 429 no es provocable a voluntad sin agotar el límite real. Ninguna otra clave cambia (devops, medido vs 0611341f sobre 94684601).
+mockOnly 168 37
 needsSeed 33 9
 harnessLimit 5 3
 skipIfSeedMissing 15 7

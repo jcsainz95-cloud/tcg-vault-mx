@@ -4485,29 +4485,37 @@
         },
         "unlinkedPrice": {
           "title": "{cards, plural, one {# carta sin precio ligado} other {# cartas sin precio ligado}} en {sets, plural, one {# set} other {# sets}}",
-          "lead": "Estas cartas no tienen su precio de mercado ligado, por eso salen «Sin mercado». Reintentar solo toca cartas sin ligar; las ya ligadas no cambian.",
+          "lead": "Estas cartas no tienen su precio de mercado ligado, por eso salen «Sin mercado». «Actualizar este set» liga las que faltan y actualiza los precios del set en un solo paso.",
           "row": "{unlinked} de {total} sin ligar",
           "collisions": "{n} coincidencias dudosas",
           "omitted": "{n} omitidos",
-          "retry": "Reintentar enlace",
-          "retrying": "Enlazando…",
-          "aria": "Reintentar enlace de {name}",
+          "retry": "Actualizar este set",
+          "retrying": "Actualizando…",
+          "aria": "Actualizar este set: {name}",
           "ok": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}} en {name}.",
           "none": "No se pudo ligar ninguna carta en {name}: {reason}.",
           "cardsCount": "{n, plural, one {# carta} other {# cartas}}",
           "err": "No se pudo reintentar el enlace de {name}.",
+          "errImport": "Falló la importación de cartas de {name}; no se intentó ligar precios.",
+          "resolvedTitle": "Resultado de la última actualización",
+          "finishNotice": "{n, plural, one {# carta tiene} other {# cartas tienen}} un acabado que la fuente no da para ese producto; quedan sin precio de ese acabado.",
+          "dismiss": "Cerrar",
+          "groupPromos": "grupo de promos",
+          "groupId": "grupo {id}",
           "notLinkableTitle": "{count, plural, one {# carta no se puede ligar} other {# cartas no se pueden ligar}}",
           "reason": {
             "collisions": "hay números repetidos y no se sabe cuál es cuál",
             "ownerConflict": "el producto ya pertenece a otra carta",
             "noGroup": "este set no tiene grupo de precios",
             "tcgcsvSource": "su fuente de precios no permite ligar",
+            "notInProvider": "la fuente de precios no tiene este set",
             "nameMismatch": "el nombre no coincide",
             "noLocalCard": "el producto no tiene carta en tu catálogo",
+            "finishNotInProduct": "el producto no trae ese acabado; queda sin precio en él",
             "alreadyLinked": "la carta ya estaba ligada",
             "other": "sin coincidencia clara"
           },
-          "reasonCount": {"ownerConflict": "{n} con dueño distinto", "nameMismatch": "{n} por nombre distinto", "alreadyLinked": "{n} ya estaban ligadas", "collisions": "{n} con número repetido", "noLocalCard": "{n} sin carta en tu catálogo"},
+          "reasonCount": {"ownerConflict": "{n} con dueño distinto", "nameMismatch": "{n} por nombre distinto", "alreadyLinked": "{n} ya estaban ligadas", "collisions": "{n} con número repetido", "noLocalCard": "{n} sin carta en tu catálogo", "finishNotInProduct": "{n} con un acabado que el producto no trae (quedan sin precio en ese acabado)"},
           "piecesCorrected": "{n, plural, one {Se corrigió el acabado de # pieza} other {Se corrigieron los acabados de # piezas}}.",
           "piecesExcluded": "No se tocaron: {list}.",
           "excl": {
@@ -4525,7 +4533,29 @@
           "rate": "Espera {minutes, plural, one {# minuto} other {# minutos}} antes de reintentar este set.",
           "rateGeneric": "Espera unos minutos antes de reintentar este set.",
           "upstream": "La fuente de precios no respondió, intenta más tarde.",
-          "conflictsCount": "{n} con dueño distinto"
+          "conflictsCount": "{n} con dueño distinto",
+          "imported": "Se importaron {n, plural, one {# carta} other {# cartas}}.",
+          "noLocalId": "Las cartas se importaron, pero el sistema aún no devolvió el identificador del set para enlazar precios en {name}. Vuelve a pulsar el botón.",
+          "pricedOnly": "No hubo cartas nuevas por ligar en {name}.",
+          "reasonsNote": "Motivos que quedaron sin ligar: {list}.",
+          "nameMismatchNotice": "{n, plural, one {# carta quedó} other {# cartas quedaron}} sin ligar porque el nombre no coincide con el del producto.",
+          "priced": "{n, plural, one {Se actualizó # precio} other {Se actualizaron # precios}}.",
+          "groupUsed": "Grupo de precios: {name}.",
+          "groupLine": "Grupo de precios: {name} ({via})",
+          "groupNone": "Grupo de precios: sin grupo asignado",
+          "nextAttempt": "Disponible de nuevo a las {when}",
+          "via": {"auto": "automático", "confirmed": "confirmado", "promo_table": "tabla de promos"},
+          "setReason": {
+            "group_ambiguous": "hay varios grupos de precios posibles y no se sabe cuál es",
+            "group_none": "no se encontró un grupo de precios para este set",
+            "collisions": "hay números repetidos y no se sabe cuál es cuál",
+            "name_mismatch": "los nombres de las cartas no coinciden",
+            "promo_route": "es un set de promos y sigue su propia ruta",
+            "wotc_pending": "espera tu decisión sobre las ediciones antiguas",
+            "provider_failing": "la fuente de precios está fallando; vuelve a intentarlo más tarde",
+            "tcgcsv_source": "su fuente de precios no permite ligar",
+            "not_in_provider": "la fuente de precios no tiene este set"
+          }
         },
         "degradedTitle": "La lista está incompleta",
         "degradedBody": "La lista está incompleta porque pokemontcg.io no respondió: solo se muestran los sets que ya están en tu catálogo. Se vuelve a intentar sola; puedes reintentar ahora si quieres verla ya.",
@@ -4555,10 +4585,10 @@
           "secondHalfCta": "Terminar la segunda mitad"
         },
         "repairSet": {
-          "label": "Sincronizar este set",
-          "aria": "Sincronizar {name}: cartas, imágenes y precios",
-          "phase1": "{name} — fase 1 de 2: trayendo cartas e imágenes…",
-          "phase2": "{name} — fase 2 de 2: variantes y precios…"
+          "label": "Actualizar este set",
+          "aria": "Actualizar {name}: cartas, imágenes y precios",
+          "phase1": "{name} — trayendo cartas e imágenes del set…",
+          "phase2": "{name} — enlazando cartas y actualizando precios…"
         },
         "figure": {
           "context": "de {n} del set",
@@ -4586,17 +4616,6 @@
             "unknown": "El sistema perdió el rastro y no puede decir qué se escribió: <b>—</b>. Revisa la lista de sets; si alguno se ve mal, repáralo desde su fila.",
             "catalogPhaseFailed": "<b>No se pudieron traer cartas nuevas</b>: la fuente de catálogo no respondió. Los precios y las variantes sí se actualizaron.",
             "failed": "No se pudo arrancar la sincronización, así que no se escribió nada. Los precios y las cartas siguen como estaban."
-          },
-          "repairSet": {
-            "done": "<b>{name}</b>: <b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b> · <b>{cards} cartas tocadas</b> ",
-            "pending": "<b>{name}</b>: <b>{prices} precios escritos</b> · <b>{variants} variantes actualizadas</b>. <b>{pending} variantes quedaron sin precio</b> y siguen en la cola de pendientes.",
-            "notDone": "<b>{name}</b>: <b>no se escribió ningún precio ni ninguna variante.</b> Este set no se pudo emparejar con la fuente de precios (TCGCSV). <b>Sus precios siguen como estaban.</b>",
-            "unreachable": "<b>{name}</b>: <b>{prices} precios escritos</b>, pero la fuente de precios no respondió por completo. Repite cuando esté disponible.",
-            "catalogPhaseFailed": "<b>{name}</b>: no se pudieron traer <b>cartas nuevas</b> (la fuente de catálogo no respondió), pero <b>{prices} precios escritos</b> y <b>{variants} variantes actualizadas</b>.",
-            "pricePhaseFailed": "<b>{name}</b>: las cartas se trajeron, pero <b>los precios no se pudieron actualizar</b>: <b>—</b>. Sus precios siguen como estaban.",
-            "failed": "<b>{name}</b>: <b>no se importó ninguna carta y no se tocó ningún precio.</b> La fuente de catálogo y la de precios no respondieron.",
-            "unknown": "<b>{name}</b>: el sistema no puede decir qué se escribió: <b>—</b>. Revisa el set antes de darlo por reparado.",
-            "unknownFigure": "<b>{name}</b>: <b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b>. Cuántas cartas tocó esta corrida: <b>—</b>, el sistema no lo pudo medir."
           }
         }
       },

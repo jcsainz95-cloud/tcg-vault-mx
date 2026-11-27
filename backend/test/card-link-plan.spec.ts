@@ -1,4 +1,4 @@
-import { planCardLinks, namesCompatible, LinkCard, LinkProduct } from '../src/modules/catalog/card-link-plan';
+import { planCardLinks, LinkCard, LinkProduct } from '../src/modules/catalog/card-link-plan';
 import { normalizeCardNumber, CardProductResolverService } from '../src/modules/catalog/card-product-resolver.service';
 import { deriveAvailableFinishesFromProducts } from '../src/common/card-order';
 import { deriveCardProductsFromTcgcsv } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
@@ -47,12 +47,105 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
   it('número repetido solo en un lado ⇒ tampoco se adivina (no enlaza por número)', () => {
     const r = plan([prod(1, 'Foo', '5'), prod(2, 'Bar', '5')], [card('c1', '5', 'Otro')]);
     expect(r.links.size).toBe(0);
-    expect(r.collisions).toBe(2);
+    // I-3: ningún producto tiene carta local con SU llave ⇒ sobrantes `no_local_card`, no colisión.
+    expect(r.collisions).toBe(0);
+    expect(r.unlinked.map((u) => u.reason)).toEqual(['no_local_card', 'no_local_card']);
   });
 
-  it('número único en ambos lados y nombre COMPATIBLE (uno contenido en el otro por palabras) ⇒ enlaza por número', () => {
-    const r = plan([prod(1, 'Charizard ex', '7/100')], [card('c1', '7', 'Charizard')]);
-    expect(r.links.get(1)).toEqual({ cardId: 'c1', rule: 'number' });
+  it('§7.8: número único a ambos lados y llave de nombre IGUAL ⇒ enlaza por número (nombre con sufijo de TCGCSV)', () => {
+    const r = plan([prod(1, 'Charizard ex - 7/100', '7/100')], [card('c1', '7', 'Charizard ex')]);
+    expect(r.links.get(1)?.cardId).toBe('c1');
+  });
+
+  it('§7.8: contención de palabras NO liga (en ambos sentidos) ⇒ name_mismatch', () => {
+    const casos: [string, string][] = [
+      ['Pikachu VMAX', 'Pikachu'],
+      ['Pikachu', 'Pikachu VMAX'],
+      ['Charizard ex', 'Charizard'],
+      ['Charizard', 'Charizard ex'],
+      ['Charizard', 'Dark Charizard'],
+      ['Dark Charizard', 'Charizard'],
+    ];
+    for (const [prodName, cardName] of casos) {
+      const r = plan([prod(1, prodName, '7/100')], [card('c1', '7', cardName)]);
+      expect([prodName, cardName, r.links.size, r.unlinked]).toEqual([prodName, cardName, 0, [{ productId: 1, reason: 'name_mismatch' }]]);
+      expect(r.omitted).toBe(1);
+    }
+  });
+
+  it('§7.8: «Pikachu VMAX» #58 local NO liga al producto 716194 «Pikachu» (sonda qa)', () => {
+    const r = plan([prod(716194, 'Pikachu', '58/102')], [card('c58', '58', 'Pikachu VMAX')]);
+    expect(r.links.size).toBe(0);
+    expect(r.unlinked).toEqual([{ productId: 716194, reason: 'name_mismatch' }]);
+  });
+
+  it('§7.8: wouldTake también exige llave igual (dueño ajeno + carta homónima por contención ⇒ sin owner_conflict)', () => {
+    const r = plan([prod(1, 'Pikachu', '58/102')], [card('c1', '58', 'Pikachu VMAX')], [[1, 'otra']], { onlyUnlinked: true });
+    expect(r.unlinked).toEqual([{ productId: 1, reason: 'skipped_linked' }]);
+  });
+
+  it('§7.8b: símbolos y Unown ligan por llave igual; lo distinto NO (♂≠F, (J)≠[K], Pikachu≠Pikachu Star)', () => {
+    const ok: [string, string, string][] = [
+      ['Nidoran M', '83', 'Nidoran ♂'],
+      ['Nidoran F', '82', 'Nidoran ♀'],
+      ['Latias Star', '105', 'Latias ★'],
+      ['Gyarados Star (Delta Species)', '102', 'Gyarados ★ δ'],
+      ['Azumarill (Delta Species)', '19', 'Azumarill δ'],
+      ['Delta Rainbow Energy', '98', 'δ Rainbow Energy'],
+      ['Giratina Prism Star', '58', 'Giratina ◇'],
+      ['Miracle Sphere Alpha', '129', 'Miracle Sphere α'],
+      ['Unown (J)', '76', 'Unown [J]'],
+      ['Unown (A)', '1', 'Unown'],
+      ['Nidoran (F)', '66', 'Nidoran ♀'],
+    ];
+    for (const [pn, num, cn] of ok) {
+      const r = plan([prod(1, pn, `${num}/100`)], [card('c1', num, cn)]);
+      expect([pn, cn, r.links.get(1)?.cardId]).toEqual([pn, cn, 'c1']);
+    }
+    const no: [string, string][] = [['Nidoran M', 'Nidoran ♀'], ['Unown (J)', 'Unown [K]'], ['Pikachu', 'Pikachu ★'], ['Pikachu Star', 'Pikachu']];
+    for (const [pn, cn] of no) {
+      const r = plan([prod(1, pn, '9/100')], [card('c1', '9', cn)]);
+      expect([pn, cn, r.links.size]).toEqual([pn, cn, 0]);
+    }
+    // Los textuales siguen siendo excepción.
+    expect(plan([prod(1, "Boss's Orders - 172/193", '172/193')], [card('c1', '172', "Boss's Orders (Ghetsis)")]).unlinked).toEqual([{ productId: 1, reason: 'name_mismatch' }]);
+  });
+
+  it('§7.8b(e2): Unown asimétrico: letras distintas (incl. ! y ?) nunca ligan; una sola letra se quita en ese lado', () => {
+    for (const [pn, cn] of [['Unown (J)', 'Unown (K)'], ['Unown [!]', 'Unown [?]'], ['Unown (!)', 'Unown (?)']] as const) {
+      const r = plan([prod(1, pn, '9/100')], [card('c1', '9', cn)]);
+      expect([pn, cn, r.links.size]).toEqual([pn, cn, 0]);
+    }
+    // Iguales ligan; el local con letra y el proveedor sin ella (y al revés) ligan si el número es único en ambos lados.
+    for (const [pn, cn] of [['Unown (!)', 'Unown [!]'], ['Unown', 'Unown (J)'], ['Unown (A)', 'Unown']] as const) {
+      const r = plan([prod(1, pn, '9/100')], [card('c1', '9', cn)]);
+      expect([pn, cn, r.links.get(1)?.cardId]).toEqual([pn, cn, 'c1']);
+    }
+    // «Unown» local vs dos «Unown (X)» con el mismo número ⇒ collision.
+    const c = plan([prod(1, 'Unown (A)', '9/100'), prod(2, 'Unown (B)', '9/100')], [card('c1', '9', 'Unown')]);
+    expect(c.links.size).toBe(0);
+    expect(c.unlinked.map((u) => u.reason)).toEqual(['collision', 'collision']);
+  });
+
+  it('§7.8 respaldo: parseo fallido + «[...]», « - NNN/NNN» y paréntesis finales ⇒ llave igual a la local; nunca una tercera', () => {
+    const casos: [string, string][] = [
+      ['Pikachu - 058/102 (Secret) (Full Art)', 'Pikachu'],
+      ['Pikachu [Foo Bar] (Full Art)', 'Pikachu'],
+      ['Pikachu - SV001 (Alternate Art)', 'Pikachu'],
+      ['Mewtwo - TG05/TG30 (Cosmos Holo) (Reverse Holo)', 'Mewtwo'],
+      ['Metagross (Delta Species) (Secret)', 'Metagross (Delta Species)'], // 2.ª llave solo si hace falta; aquí la 1.ª ya es igual a la local con NAME_PARENS
+      ['Metagross (Delta Species) (Secret)', 'Metagross'], // 2.ª llave: sin NAME_PARENS
+    ];
+    for (const [prodName, cardName] of casos) {
+      const r = plan([prod(1, prodName, '9/100')], [card('c1', '9', cardName)]);
+      expect([prodName, r.links.get(1)?.cardId]).toEqual([prodName, 'c1']);
+    }
+    // Nombre local con corchetes (segunda y última llave): «Unown [E]» sigue ligando a su carta.
+    const u = plan([prod(1, 'Unown [E]', '65/130')], [card('cu', '65', 'Unown [E]')]);
+    expect(u.links.get(1)?.cardId).toBe('cu');
+    // Nunca una tercera: «Pikachu VMAX» no se reduce a «Pikachu».
+    const r = plan([prod(1, 'Pikachu VMAX (Secret)', '9/100')], [card('c1', '9', 'Pikachu')]);
+    expect(r.links.size).toBe(0);
   });
 
   it('G3-4: número único pero nombre INCOMPATIBLE ⇒ `name_mismatch`, no enlaza (un homónimo por número no cuelga precio ajeno)', () => {
@@ -62,11 +155,6 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     expect(r.omitted).toBe(1);
   });
 
-  it('namesCompatible: palabras completas, no subcadenas', () => {
-    expect(namesCompatible('mew', 'mewtwo')).toBe(false);
-    expect(namesCompatible('charizard', 'charizard ex')).toBe(true);
-    expect(namesCompatible('', 'x')).toBe(false);
-  });
 
   it('regla a: tcgplayerId manda aunque el número se repita', () => {
     const r = plan([prod(1, 'Foo', '5'), prod(2, 'Foo', '5')], [card('c1', '5', 'Foo', 0, '2'), card('c2', '5', 'Foo')]);
@@ -156,6 +244,50 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
     for (const pid of [716203, 716204, 716205]) expect(r.links.get(pid)?.rule).toBe('number_name'); // #106 ×3
   });
 
+  it('B2 me55c #11: solo la carta local Genesect-EX + ambos productos (716157/716158) ⇒ liga 716158 y NO el Metagross', () => {
+    // «Genesect-EX» local = «Genesect EX (Team Plasma)» del producto tras normalizar y quitar el paréntesis de variante (AE-1).
+    const only = localCards().filter((c) => c.id === 'card-716158').map((c) => ({ ...c, name: 'Genesect-EX' }));
+    const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
+    for (const order of [d, [...d].reverse()]) {
+      const r = planCardLinks(order, only, new Map(), normalizeCardNumber);
+      expect(r.links.get(716158)?.cardId).toBe('card-716158');
+      expect(r.links.get(716157)).toBeUndefined();
+      // I-3: el Metagross sobrante no es colisión, es «sin carta local».
+      expect(r.unlinked.find((u) => u.productId === 716157)?.reason).toBe('no_local_card');
+      expect(r.collisions).toBe(0);
+    }
+  });
+
+  it('AE-1: B2 NO liga por contención de palabras («Pikachu» ≠ «Pikachu VMAX»), en ambos órdenes', () => {
+    const ps = [prod(1, 'Pikachu VMAX', '25/100'), prod(2, 'Bulbasaur', '25/101')];
+    for (const order of [ps, [...ps].reverse()]) {
+      const r = plan(order, [card('c1', '25', 'Pikachu')]);
+      expect(r.links.size).toBe(0);
+      expect(r.unlinked.map((u) => u.reason)).toEqual(['no_local_card', 'no_local_card']);
+    }
+    // Y con el producto verdadero presente liga ese, no el VMAX.
+    const r2 = plan([prod(1, 'Pikachu VMAX', '25/100'), prod(2, 'Pikachu', '25/101')], [card('c1', '25', 'Pikachu')]);
+    expect([...r2.links.entries()]).toEqual([[2, { cardId: 'c1', rule: 'number_name' }]]);
+  });
+
+  it('I-2: sentido inverso (2 locales + 1 producto) ⇒ liga la ÚNICA local de llave igual, en ambos órdenes de cartas', () => {
+    const cs = [card('cA', '11', 'Metagross'), card('cG', '11', 'Genesect-EX')];
+    for (const order of [cs, [...cs].reverse()]) {
+      const r = plan([prod(1, 'Genesect EX (Team Plasma)', '11/101')], order);
+      expect([...r.links.entries()].map(([k, v]) => [k, v.cardId])).toEqual([[1, 'cG']]);
+    }
+  });
+
+  it('B2 me55c #106 triple: una carta local por número + 3 productos ⇒ liga solo el de nombre compatible; 2 compatibles ⇒ colisión', () => {
+    const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
+    const trip = d.filter((x) => [716203, 716204, 716205].includes(x.productId));
+    const loc = { ...localCards().find((c) => c.id === 'card-716204')! };
+    const r = planCardLinks(trip, [loc], new Map(), normalizeCardNumber);
+    expect([...r.links.entries()]).toEqual([[716204, expect.objectContaining({ cardId: 'card-716204' })]]);
+    const dup = planCardLinks([trip[0], { ...trip[1], productId: 999, name: trip[0].name }, trip[2]], [{ ...loc, name: trip[0].name }], new Map(), normalizeCardNumber);
+    expect(dup.links.size).toBe(0);
+  });
+
   it('CA-8: si falta la carta de Genesect, su producto (#11) NO cuelga de la de Metagross (el enrutado solo-local sí lo haría)', () => {
     const only11 = localCards().filter((c) => c.id !== 'card-716158');
     const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
@@ -195,6 +327,72 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
     expect(metaPr).toMatchObject({ cardId: 'card-716157', finish: 'holofoil', priceUsdCents: 397, source: 'tcgcsv_singles' });
     // CA-2: el acabado de la carta sale del producto (único subtipo) y reemplaza la semilla ['normal'].
     expect(deriveAvailableFinishesFromProducts([{ kind: 'set_base', finishes: metaCp.finishes }], [])).toEqual(['holofoil']);
+  });
+
+  it('B4: modo reparación con TODO ya enlazado ⇒ 0 CardProduct escritos y los 30 precios en la misma corrida (pricesWritten=30, groupName)', async () => {
+    const prs: any[] = [];
+    const cardsL = localCards();
+    const prisma = {
+      $executeRaw: jest.fn(async () => 0),
+      cardSet: { findUnique: jest.fn(async () => ({ id: 'set-cc', name: '30th Celebration Classic Collection', pptSetId: '24837', externalId: 'me-cc' })) },
+      card: { findMany: jest.fn(async () => cardsL.map((c) => ({ id: c.id, number: c.number, name: c.name, tcgplayerId: null, _count: { cardProducts: 1 } }))) },
+      cardProduct: {
+        findMany: jest.fn(async () => products.map((p) => ({ id: `cp-${p.productId}`, tcgplayerProductId: p.productId, cardId: `card-${p.productId}`, kind: 'set_base', finishes: derived().find((d) => d.productId === p.productId)!.finishes }))),
+        upsert: jest.fn(),
+      },
+      priceReference: { findUnique: jest.fn(async () => null), upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })) },
+    } as unknown as PrismaService;
+    const client = {
+      getProducts: jest.fn(async () => products),
+      getPrices: jest.fn(async () => prices),
+      listGroups: jest.fn(async () => [{ groupId: 24837, name: 'ME: 30th Celebration Classic Collection' }]),
+    } as unknown as TcgcsvCatalogClient;
+    const fx = { getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0, source: 'banxico', effectiveDate: '2026-11-25' })) } as unknown as FxService;
+    const svc = new CardProductResolverService(prisma, client, { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fx);
+    const res = await svc.resolveCardProductsForSet('set-cc', { onlyUnlinked: true });
+    expect(prisma.cardProduct.upsert).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ joined: 0, pricesWritten: 30, groupName: 'ME: 30th Celebration Classic Collection', groupVia: 'auto' });
+    expect(prs).toHaveLength(30);
+  });
+
+  describe('B-1 / AE-2: B4 (reparación) solo precia acabados presentes en CardProduct.finishes y respeta override', () => {
+    const fp = fixture.prices[0] as Record<string, unknown>;
+    const mk = (existingFinishes: string[], existingPrice: { isManualOverride: boolean } | null) => {
+      const prs: any[] = [];
+      const prod1 = { ...fixture.products[0], productId: 9001, name: 'Charizard', number: '4/102' };
+      const price1 = { ...fp, productId: 9001, subTypeName: 'Holofoil', marketPrice: 1877.4, lowPrice: 1800, midPrice: 1850, highPrice: 2000, directLowPrice: null };
+      const prisma = {
+        $executeRaw: jest.fn(async () => 0),
+        cardSet: { findUnique: jest.fn(async () => ({ id: 's', name: 'Base', pptSetId: '24837', externalId: 'base1' })) },
+        card: { findMany: jest.fn(async () => [{ id: 'cC', number: '4', name: 'Charizard', tcgplayerId: null, _count: { cardProducts: 1 } }]) },
+        cardProduct: {
+          findMany: jest.fn(async () => [{ id: 'cp1', tcgplayerProductId: 9001, cardId: 'cC', kind: 'set_base', finishes: existingFinishes }]),
+          upsert: jest.fn(),
+        },
+        priceReference: { findUnique: jest.fn(async () => existingPrice), upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })) },
+      } as unknown as PrismaService;
+      const client = { getProducts: jest.fn(async () => [prod1]), getPrices: jest.fn(async () => [price1]), listGroups: jest.fn(async () => []) } as unknown as TcgcsvCatalogClient;
+      const fx = { getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0, source: 'banxico', effectiveDate: '2026-11-25' })) } as unknown as FxService;
+      const svc = new CardProductResolverService(prisma, client, { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fx);
+      return { svc, prs, prisma };
+    };
+    it('B-1: producto [normal] y fuente Holofoil 187 740 ¢ ⇒ NO se escribe fila Holofoil huérfana', async () => {
+      const { svc, prs, prisma } = mk(['normal'], null);
+      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(0);
+      expect(prisma.cardProduct.upsert).not.toHaveBeenCalled();
+    });
+    it('B-1 (control): si el CardProduct ya tiene holofoil ⇒ sí se precia', async () => {
+      const { svc, prs } = mk(['holofoil'], null);
+      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(1);
+      expect(prs[0].create.finish).toBe('holofoil');
+    });
+    it('AE-2: fila del día con isManualOverride ⇒ B4 no escribe (0 upserts)', async () => {
+      const { svc, prs } = mk(['holofoil'], { isManualOverride: true });
+      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(0);
+    });
   });
 
   it('los 5 omitidos de antes eran exactamente los paréntesis de nombre (y ya no se omiten)', () => {

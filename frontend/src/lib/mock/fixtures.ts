@@ -4753,8 +4753,8 @@ export function getMockRarityHealth(): RarityHealthResponse {
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
 export const mockRemoteSets: RemoteSetDTO[] = [
-  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', printedTotal: 191, imported: true, cardCount: 191 },
-  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', printedTotal: 167, imported: true, cardCount: 167 },
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', printedTotal: 191, imported: true, cardCount: 191, localSetId: '5d1e7a90-0b2c-4c3d-9e4f-6a7b8c9d0e1f', groupUsed: { groupId: 23651, name: null, via: 'auto' }, reason: null },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', printedTotal: 167, imported: true, cardCount: 167, localSetId: '3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b', groupUsed: { groupId: 24380, name: 'Classic Collection', via: 'auto' }, reason: 'collisions' },
   { id: 'sv05', name: 'Temporal Forces', series: 'Scarlet & Violet', releaseDate: '2024/03/22', printedTotal: 162, imported: false, cardCount: 0 },
   { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', printedTotal: 198, imported: false, cardCount: 0 },
   { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', printedTotal: 102, imported: true, cardCount: 102 },

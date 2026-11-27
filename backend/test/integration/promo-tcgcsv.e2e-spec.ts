@@ -509,6 +509,7 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     ];
     const snap = async () => JSON.stringify([(await cardsOfSet()).map((c) => [c.id, c.name]), (await productsOfSet()).map((p) => [p.id, p.cardId])]);
     const before = await snap();
+    await h.prisma.auditLog.deleteMany({ where: { action: 'catalog.sync_claim', entityId: 'mep' } }); // AE-3: 1 sync por set cada 10 min; estado propio de la prueba
     const r = await h.api<any>('POST', '/admin/catalog/sync', { token: admin, json: { setId: 'mep' } });
     expect(r.status).toBe(202);
     expect(r.body.shadowed).toEqual(['mep']);
@@ -529,8 +530,14 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     // Un set de pokemontcg.io SIN relación sigue sincronizando normal.
     const other = { id: otherExt, name: 'Zz Other', series: 'Zz', releaseDate: '2026/02/02', printedTotal: 1 };
     ptcg.cards[otherExt] = [{ id: `${otherExt}-1`, name: 'Algo', number: '1', set: other }];
+    await h.prisma.auditLog.deleteMany({ where: { action: 'catalog.sync_claim', entityId: otherExt } });
     const ok = await h.api<any>('POST', '/admin/catalog/sync', { token: admin, json: { setId: otherExt } });
     expect(ok.status).toBe(202);
+    // AE-3: el mismo set otra vez dentro de 10 min (también con force) ⇒ 429 RATE_LIMITED propio de `sync`.
+    for (const force of [false, true]) {
+      const again = await h.api<any>('POST', '/admin/catalog/sync', { token: admin, json: { setId: otherExt, force } });
+      expect(again.status).toBe(429);
+    }
     expect(ok.body.shadowed).toBeUndefined();
     expect(await h.prisma.card.count({ where: { externalId: `${otherExt}-1` } })).toBe(1);
     ptcg.sets = [];

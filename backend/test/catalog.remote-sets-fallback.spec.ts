@@ -34,7 +34,7 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
       { externalId: 'sv8', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08', printedTotal: 200, _count: { cards: 191 } },
       { externalId: 'base1', name: 'Base', series: 'Base', releaseDate: '1999/01/09', printedTotal: 102, _count: { cards: 102 } },
     ];
-    const prisma: any = { cardSet: { findMany: jest.fn(async () => localSets) } };
+    const prisma: any = { cardSet: { findMany: jest.fn(async () => localSets) }, $queryRaw: jest.fn(async () => []) };
     const client = {
       getSets: jest.fn(async () => {
         throw new Error('pokemontcg.io /sets -> HTTP 429');
@@ -56,10 +56,13 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
       cardSet: {
         findMany: jest.fn(async (arg: any) =>
           arg?.select
-            ? [{ externalId: 'sv8', _count: { cards: 5 } }]
+            ? [{ id: 'uuid-sv8', externalId: 'sv8', _count: { cards: 5 } }]
             : [],
         ),
       },
+      $queryRaw: jest.fn(async () => [
+        { entityId: 'uuid-sv8', after: { groupUsed: { groupId: 23821, name: 'SV08: Surging Sparks', via: 'auto' }, reason: 'collisions' } },
+      ]),
     };
     const client = {
       getSets: jest.fn(async () => [{ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' }]),
@@ -69,6 +72,39 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
     expect(res.degraded).toBe(false);
     expect(res.source).toBe('remote');
     expect(res.data[0]).toMatchObject({ id: 'sv8', imported: true, cardCount: 5 });
+    // §AUTO-ENLACE 4b: localSetId + último groupUsed/reason de la bitácora, en UNA consulta (sin N+1).
+    expect(res.data[0]).toMatchObject({
+      localSetId: 'uuid-sv8',
+      groupUsed: { groupId: 23821, name: 'SV08: Surging Sparks', via: 'auto' },
+      reason: 'collisions',
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1); // AE-5: DISTINCT ON en Postgres, una sola consulta
+  });
+
+  it('set remoto no importado → localSetId/groupUsed/reason null', async () => {
+    const prisma: any = {
+      cardSet: { findMany: jest.fn(async (arg: any) => (arg?.select ? [] : [])) },
+      $queryRaw: jest.fn(async () => []),
+    };
+    const client = { getSets: jest.fn(async () => [{ id: 'sv9', name: 'X', releaseDate: '2025/01/01' }]) } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
+    const res: any = await svc.remoteSets();
+    expect(res.data[0]).toMatchObject({ id: 'sv9', imported: false, localSetId: null, groupUsed: null, reason: null });
+  });
+});
+
+describe('CatalogSyncService.sync single — localSetId', () => {
+  it('devuelve el UUID del CardSet (match por externalId, el mismo del import)', async () => {
+    const prisma: any = {
+      cardSet: { upsert: jest.fn(async () => ({ id: 'uuid-sv8', externalId: 'sv8' })) },
+      card: { upsert: jest.fn(async () => ({})), count: jest.fn(async () => 0) },
+    };
+    const client = {
+      getCardsBySet: jest.fn(async () => ({ data: [remoteCard('sv8-1')], page: 1, pageSize: 250, count: 1, totalCount: 1 })),
+    } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
+    const res: any = await svc.sync('sv8');
+    expect(res.localSetId).toBe('uuid-sv8');
   });
 });
 

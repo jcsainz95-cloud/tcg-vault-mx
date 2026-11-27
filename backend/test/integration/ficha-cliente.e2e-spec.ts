@@ -282,9 +282,10 @@ describe('§FICHA-CLIENTE — overview, ?userId= y notas internas', () => {
       const opAll = await h.api('GET', '/admin/users?pageSize=100', { token: operator });
       expect(opAll.body.data.every((u: { role: string }) => u.role === 'customer')).toBe(true);
       expect(opAll.body.total).toBe(await h.prisma.user.count({ where: { role: 'customer' } }));
-      const sa = await h.api('GET', '/admin/users?pageSize=100', { token: admin });
-      expect(sa.body.data.some((u: { role: string }) => u.role === 'vault_operator')).toBe(true);
-      expect(sa.body.data.some((u: { role: string }) => u.role === 'super_admin')).toBe(true);
+      // Determinista (no depende del orden dentro de los primeros 100): se busca a cada miembro del staff por su correo/usuario.
+      const find = async (q: string) => (await h.api('GET', `/admin/users?pageSize=100&q=${encodeURIComponent(q)}`, { token: admin })).body.data as { id: string; role: string }[];
+      expect((await find(E2E_USERS.admin.email)).some((u) => u.id === adminId && u.role === 'super_admin')).toBe(true);
+      expect((await find(`ficha-op2-${RUN}`)).some((u) => u.id === operator2Id && u.role === 'vault_operator')).toBe(true);
     });
 
     it('GET :id, audit, overview y notas sobre staff ⇒ 404 para el operador; 200 para el súper-admin', async () => {

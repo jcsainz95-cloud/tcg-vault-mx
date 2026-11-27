@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useIsMutating } from '@tanstack/react-query';
+import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDateTimeMx, formatTimeMx } from '@/lib/format';
 import { RefreshCw, Layers } from 'lucide-react';
@@ -33,7 +34,10 @@ import {
 } from '@/lib/verdict';
 import { SyncProgress } from './shared';
 import { UnlinkedPriceNotice } from './UnlinkedPriceNotice';
-import type { CatalogSync, RepairSetResult } from './useCatalogSync';
+import { LINK_REPAIR_KEY } from './useCatalogSync';
+import { LINK_SET_REASONS, groupLabel, readGroupUsed } from '@/lib/api/catalog-link-repair';
+import { LinkRepairResultNotice } from './LinkRepairResultNotice';
+import type { CatalogSync } from './useCatalogSync';
 
 /**
  * M2 › **Sincronización del catálogo** — `DESIGN_SYSTEM §32` (v4.0, decisión del dueño).
@@ -536,78 +540,15 @@ export function forceAllView(args: {
   return { state: 'result', verdict, phraseKey, vars, jobId: variantsStatus?.jobId ?? null };
 }
 
-/**
- * ACCIÓN 3 · «Sincronizar este set» — la de REPARACIÓN (§32.5c). Aquí se corrige D2.
- *
- * ⭐⭐ `pricesUpserted === 0 && cardProductsUpserted === 0` ⇒ **`NO SE HIZO`**, tono `warning`,
- * **cero cifras de contexto**, con la **causa** y la **consecuencia** (H9). Hoy ese mismo
- * desenlace se pintaba verde con «191 cartas procesadas · 0 precios».
- */
-export function repairSetView(result: RepairSetResult): ActionView {
-  const { set, catalog, variants } = result;
-  const name = set.name;
-  if (!variants.ok) {
-    // La fase 2 no llegó a medir nada. Si además cayó la fase 1, no corrió NADA ⇒ FALLÓ.
-    const verdict = computeVerdict({
-      nothingRan: !catalog.ok,
-      writes: [],
-      failedOrPending: true,
-      hadWork: true,
-    });
-    return {
-      state: 'result',
-      verdict,
-      phraseKey: catalog.ok ? 'result.repairSet.pricePhaseFailed' : 'result.repairSet.failed',
-      vars: { name },
-    };
-  }
-  const v = variants.data;
-  const verdict = computeVerdict({
-    nothingRan: false,
-    // ⭐ Las cifras que deciden son las de la fase 2. `cardsProcessed` es «cartas que ESTA corrida
-    // tocó» y puede ser `null` = no se pudo saber ⇒ «—» y NUNCA un cero de relleno (H4/CS-2).
-    writes: [v.cardProductsUpserted, v.pricesUpserted, v.cardsProcessed],
-    failedOrPending: !catalog.ok || v.pending > 0 || !v.tcgcsvReachable,
-    // ⛔ `hadWork` no se asume: había trabajo si el set tiene cartas que emparejar.
-    hadWork: v.cardsInSet > 0,
-  });
-  const vars: Vars = {
-    name,
-    variants: formatFigure(v.cardProductsUpserted),
-    prices: formatFigure(v.pricesUpserted),
-    cards: formatFigure(v.cardsProcessed),
-    inSet: v.cardsInSet,
-    pending: v.pending,
-  };
-  if (verdict === 'notDone') {
-    // ⛔ CERO cifras de contexto: aquí un «de 191 del set» es justo el número que quemó al dueño.
-    return { state: 'result', verdict, phraseKey: 'result.repairSet.notDone', vars: { name } };
-  }
-  if (verdict === 'noChanges') {
-    return { state: 'result', verdict, phraseKey: 'result.repairSet.notDone', vars: { name } };
-  }
-  if (verdict === 'unknown') {
-    return { state: 'result', verdict, phraseKey: 'result.repairSet.unknown', vars: { name } };
-  }
-  if (verdict === 'partial') {
-    const phraseKey = !catalog.ok
-      ? 'result.repairSet.catalogPhaseFailed'
-      : !v.tcgcsvReachable
-        ? 'result.repairSet.unreachable'
-        : v.pending > 0
-          ? 'result.repairSet.pending'
-          : 'result.repairSet.unknownFigure';
-    return { state: 'result', verdict, phraseKey, vars };
-  }
-  return { state: 'result', verdict, phraseKey: 'result.repairSet.done', vars };
-}
-
 /* ─────────────────────────────────── LA SECCIÓN ─────────────────────────────────── */
 
 export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   const t = useTranslations('admin.m2.catalog');
   const tv = useTranslations('common.verdict');
   const tc = useTranslations('common');
+  const tu = useTranslations('admin.m2.catalog.unlinkedPrice');
+  const tuf = tu as unknown as (k: string, v?: Record<string, unknown>) => string;
+  const format = useFormatter();
   const getError = useErrorMessage('operator');
 
   const {
@@ -627,6 +568,8 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
     finishSecondHalf,
     repairSetMutation,
     repairPhase,
+    repairFailedPhase,
+    repairImported,
   } = catalog;
 
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
@@ -648,7 +591,9 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   };
 
   /** §32.7.5 — una operación de catálogo a la vez; las demás `disabled` con el motivo anunciado. */
-  const busy = catalogBusy || repairSetMutation.isPending;
+  // M-3: también ocupado si el botón de la lista de «sin ligar» (misma clave de mutación) está corriendo.
+  const otherRepairRunning = useIsMutating({ mutationKey: LINK_REPAIR_KEY }) > 0;
+  const busy = catalogBusy || repairSetMutation.isPending || otherRepairRunning;
   const busyProps = (mine: boolean) =>
     ({
       disabled: busy && !mine,
@@ -671,7 +616,6 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
     stateLost: forceAllStateLost,
     started: forceAllMutation.isSuccess || refreshVariantsAllMutation.isSuccess,
   });
-  const repairView = repairSetMutation.data ? repairSetView(repairSetMutation.data) : null;
   /** La selección que rigió ESTA corrida de «Importar sets nuevos» (§M2-CS.4). Contexto, no trabajo. */
   const importSelection = selectionOf({
     launched: importNewMutation.data ?? null,
@@ -728,7 +672,50 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   };
 
   const setColumns: Column<RemoteSetDTO>[] = [
-    { key: 'name', header: t('set'), render: (s) => <span lang="en">{s.name}</span> },
+    {
+      key: 'name',
+      header: t('set'),
+      // F1 (§AUTO-ENLACE): el resultado de la acción vive JUNTO a la fila pulsada, no al final de la tabla.
+      render: (s) => (
+        <div className="flex min-w-0 flex-col gap-2">
+          <span lang="en">{s.name}</span>
+          {(() => {
+            // Lectura tolerante (§AUTO-ENLACE 4b): sin campos ⇒ nada; motivo desconocido ⇒ no se pinta.
+            const group = readGroupUsed(s.groupUsed);
+            const reason = (LINK_SET_REASONS as readonly string[]).includes(s.reason ?? '') ? s.reason : null;
+            const again = s.availableAgainAt ?? s.nextAttemptAt ?? null;
+            if (!group && !reason && !again) return null;
+            return (
+              <p className="text-xs font-normal text-muted" data-testid={`set-group-${s.id}`}>
+                {group ? tu('groupLine', { name: groupLabel(group, tuf), via: tuf(`via.${group.via}`) }) : tu('groupNone')}
+                {reason && ` · ${tuf(`setReason.${reason}`)}`}
+                {again &&
+                  ` · ${tu('nextAttempt', { when: format.dateTime(new Date(again), { timeStyle: 'short' }) })}`}
+              </p>
+            );
+          })()}
+          {repairSetMutation.variables?.id === s.id && (
+            <div data-testid={`set-result-${s.id}`} className="font-normal">
+              {repairPhase != null && (
+                <p role="status" className="text-sm text-muted">
+                  {t(repairPhase === 'catalog' ? 'repairSet.phase1' : 'repairSet.phase2', { name: s.name })}
+                </p>
+              )}
+              {repairPhase == null && (repairSetMutation.isSuccess || repairSetMutation.isError) && (
+                <LinkRepairResultNotice
+                  name={s.name}
+                  result={repairSetMutation.data?.link}
+                  imported={repairSetMutation.data?.imported ?? repairImported}
+                  failedPhase={repairSetMutation.isError ? repairFailedPhase : null}
+                  linkSkipped={repairSetMutation.isSuccess && repairSetMutation.data?.link == null}
+                  error={repairSetMutation.isError ? repairSetMutation.error : undefined}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      ),
+    },
     {
       key: 'release',
       header: t('releaseDate'),
@@ -943,20 +930,6 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
             />
           ))}
       </QueryState>
-
-      {repairPhase != null && repairSetMutation.variables && (
-        <Banner variant="info" role="status">
-          {t(repairPhase === 'catalog' ? 'repairSet.phase1' : 'repairSet.phase2', {
-            name: repairSetMutation.variables.name,
-          })}
-        </Banner>
-      )}
-      {repairView != null && repairPhase == null && renderNotice(repairView)}
-      {repairSetMutation.isError && (
-        <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-          {getError(repairSetMutation.error)}
-        </Banner>
-      )}
 
       {/* Confirmación de la acción 2 (§32.7): el diálogo es donde vive la explicación de las dos
           fases — parte de lo que decían las `*Hint` muertas, ahora en una superficie que se ve. */}
