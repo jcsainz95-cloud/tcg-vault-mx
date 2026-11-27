@@ -73,7 +73,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     if (h) {
       await h.prisma.orderItem.deleteMany({ where: { inventoryItemId: { in: itemIds } } });
       await h.prisma.order.deleteMany({ where: { orderNumber: `FR-${run}` } });
-      await h.prisma.auditLog.deleteMany({ where: { action: 'catalog.finish_review' } });
+      await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.finish_review', 'catalog.finish_review_price_pending'] } } });
       await h.prisma.listingPrice.deleteMany({ where: { inventoryItemId: { in: itemIds } } });
       await h.prisma.inventoryMovement.deleteMany({ where: { itemId: { in: itemIds } } });
       await h.prisma.inventoryItem.deleteMany({ where: { id: { in: itemIds } } });

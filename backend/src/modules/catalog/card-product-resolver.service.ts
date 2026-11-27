@@ -45,7 +45,7 @@ import type { TcgcsvGroupRef } from '../pricing/pricing.types';
  * funden acabados con la carta de set — se exponen como productos vendibles separados (§4.27e).
  */
 /** Espacio de llaves del candado por carta (`pg_advisory_xact_lock(int, int)`). */
-export const CARD_LINK_LOCK_NS = 118_125_012;
+export const CARD_LINK_LOCK_NAMESPACE = 118_125_012;
 /** §9.5 (vi): tope de acabados añadidos por corrida. */
 export const FINISH_ADD_RUN_CAP = 200;
 
@@ -301,6 +301,7 @@ export class CardProductResolverService {
       }
       // (iii) override manual de MERCADO de ese (carta, acabado): no se toca.
       if (adds.length > 0) {
+        // MONEY-REF-EXEMPT: solo decide SI se añade un acabado (existe un override manual de mercado de esa variante); no devuelve ningún monto que se cobre, ofrezca o valúe.
         const manual = await this.prisma.priceReference.findMany({
           where: { isManualOverride: true, cardId: { in: [...new Set(adds.map((a) => a.cardId))] }, finish: { in: [...new Set(adds.map((a) => a.finish))] } },
           select: { cardId: true, finish: true },
@@ -504,7 +505,7 @@ export class CardProductResolverService {
 
   /** Candado por carta compartido por el job y las confirmaciones (misma llave): serializa «ligar esta carta». */
   static async lockCardLink(tx: Prisma.TransactionClient, cardId: string): Promise<void> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CARD_LINK_LOCK_NS}::int, hashtext(${'cardlink:' + cardId}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CARD_LINK_LOCK_NAMESPACE}::int, hashtext(${'cardlink:' + cardId}))`;
   }
 
   /**

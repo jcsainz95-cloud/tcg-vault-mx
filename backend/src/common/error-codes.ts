@@ -77,7 +77,8 @@ export const ErrorCode = {
   // backend remapea el fallo remoto a 502 con mensaje accionable. Money-safe (todo el fetch ocurre
   // ANTES de escribir). Emisores: familia TCGCSV del sellado (§M2 groups/products), sync/sync-all
   // (pokemontcg.io) y la familia refresh-variants (§M2 — M-34/M-35). En el batch refresh-variants-all
-  // NO se propaga como HTTP: se captura por-set y va a summary.failures[].code. 502.
+  // NO se propaga como HTTP: se captura por-set y va a summary.failures[].code. 502. §AUTO-ENLACE (contrato §3): en `link-repair`/`confirm`/`cards` el proveedor caído
+  // es 503 (`BusinessException.retriable`), mensaje fijo, nunca 502.
   UPSTREAM_ERROR: 'UPSTREAM_ERROR',
   // §AUTO-ENLACE fase 3 (contrato §3): el `groupId` elegido para confirmar no existe en `listGroups` de TCGCSV. 422.
   GROUP_NOT_FOUND: 'GROUP_NOT_FOUND',

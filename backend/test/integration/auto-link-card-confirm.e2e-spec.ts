@@ -98,7 +98,8 @@ describe('E2E — §AUTO-ENLACE §9.4 confirmación por carta + §9.6 candado', 
       await h.prisma.cardProduct.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.card.deleteMany({ where: { id: { in: cardIds } } });
       await h.prisma.cardSet.deleteMany({ where: { id: { in: setIds } } });
-      await h.prisma.auditLog.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...setIds] } }, { action: { in: ['catalog.auto_link_run', 'catalog.auto_link_claim', 'catalog.card_confirm_claim'] } }] } });
+      // El job recorre TODOS los sets sin ligar (también los sembrados): sus filas de intento (`link_repair`/`auto_link`) no deben sobrevivir a esta suite (otra suite mide el total de cartas sin ligar).
+      await h.prisma.auditLog.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...setIds] } }, { action: { in: ['catalog.auto_link_run', 'catalog.auto_link_claim', 'catalog.auto_link', 'catalog.link_repair', 'catalog.card_confirm_claim', 'catalog.auto_unlink', 'catalog.auto_unlink_claim'] } }] } });
       await h.close();
     }
   });

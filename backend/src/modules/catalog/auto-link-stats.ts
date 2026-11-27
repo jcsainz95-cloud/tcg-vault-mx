@@ -12,13 +12,17 @@ export interface UnlinkedSetRow {
 }
 
 export async function unlinkedBySet(prisma: Pick<PrismaService, '$queryRaw'>): Promise<UnlinkedSetRow[]> {
+  // Una sola pasada: «ligada» = tiene ≥ 1 `CardProduct` (anti-join contra la lista distinta de cartas ligadas). Antes: dos subconsultas `NOT EXISTS` por carta
+  // (FILTER + HAVING), ≈ 2× más lento a ~24 000 cartas (medido: 67 ms → 30 ms en caliente; `sync-status` se consulta por sondeo desde M2).
   return prisma.$queryRaw<UnlinkedSetRow[]>`
+    WITH linked AS (SELECT DISTINCT "cardId" FROM "CardProduct")
     SELECT s."id" AS "setId", s."name", s."externalId",
-           COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."cardId" = c."id"))::int AS "unlinked",
+           (COUNT(*) - COUNT(l."cardId"))::int AS "unlinked",
            COUNT(*)::int AS "total"
     FROM "Card" c JOIN "CardSet" s ON s."id" = c."setId"
+    LEFT JOIN linked l ON l."cardId" = c."id"
     GROUP BY s."id", s."name", s."externalId"
-    HAVING COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."cardId" = c."id")) > 0`;
+    HAVING COUNT(*) > COUNT(l."cardId")`;
 }
 
 /**

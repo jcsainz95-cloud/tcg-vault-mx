@@ -599,7 +599,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         continue;
       }
       // §AUTO-ENLACE fase 4 (Q1 = A): pasar una pieza a «1.ª edición» NUNCA es automático (cambia el precio); se decide por pieza en `finish-review`.
-      if (i.card.availableFinishes[0] === 'first_edition' || i.card.availableFinishes[0] === 'first_edition_holofoil') {
+      if (i.card.availableFinishes[0].startsWith('first_edition')) {  // first_edition | first_edition_holofoil
         bump('first_edition_review');
         continue;
       }

@@ -135,6 +135,7 @@ export class AutoLinkAdminService {
       const free = products.filter((p) => (p._count.inventoryItems === 0 ? true : (skip('product_with_pieces'), false)));
       const ids = free.map((p) => p.id);
       // Filas de precio del job (solo `tcgcsv_singles` no manuales). Si el producto tiene otras (manual/otra fuente), no se borra (FK) y se cuenta.
+      // MONEY-REF-EXEMPT: solo cuenta filas ajenas al job (manual/otra fuente) que impiden borrar el producto; no devuelve ningún monto que se cobre, ofrezca o valúe.
       const others = await tx.priceReference.findMany({ where: { cardProductId: { in: ids }, OR: [{ isManualOverride: true }, { source: { not: 'tcgcsv_singles' } }] }, select: { cardProductId: true } });
       const blocked = new Set(others.map((o) => o.cardProductId as string));
       const del = free.filter((p) => (blocked.has(p.id) ? (skip('manual_or_other_source'), false) : true));
