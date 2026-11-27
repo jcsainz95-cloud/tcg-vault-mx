@@ -728,7 +728,29 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   };
 
   const setColumns: Column<RemoteSetDTO>[] = [
-    { key: 'name', header: t('set'), render: (s) => <span lang="en">{s.name}</span> },
+    {
+      key: 'name',
+      header: t('set'),
+      // F1 (§AUTO-ENLACE): el resultado de la acción vive JUNTO a la fila pulsada, no al final de la tabla.
+      render: (s) => (
+        <div className="flex min-w-0 flex-col gap-2">
+          <span lang="en">{s.name}</span>
+          {repairSetMutation.variables?.id === s.id && (
+            <div data-testid={`set-result-${s.id}`} className="font-normal">
+              {repairPhase != null && (
+                <p role="status" className="text-sm text-muted">
+                  {t(repairPhase === 'catalog' ? 'repairSet.phase1' : 'repairSet.phase2', { name: s.name })}
+                </p>
+              )}
+              {repairView != null && repairPhase == null && renderNotice(repairView)}
+              {repairSetMutation.isError && (
+                <p role="alert" className="text-sm text-danger">{getError(repairSetMutation.error)}</p>
+              )}
+            </div>
+          )}
+        </div>
+      ),
+    },
     {
       key: 'release',
       header: t('releaseDate'),
@@ -943,20 +965,6 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
             />
           ))}
       </QueryState>
-
-      {repairPhase != null && repairSetMutation.variables && (
-        <Banner variant="info" role="status">
-          {t(repairPhase === 'catalog' ? 'repairSet.phase1' : 'repairSet.phase2', {
-            name: repairSetMutation.variables.name,
-          })}
-        </Banner>
-      )}
-      {repairView != null && repairPhase == null && renderNotice(repairView)}
-      {repairSetMutation.isError && (
-        <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-          {getError(repairSetMutation.error)}
-        </Banner>
-      )}
 
       {/* Confirmación de la acción 2 (§32.7): el diálogo es donde vive la explicación de las dos
           fases — parte de lo que decían las `*Hint` muertas, ahora en una superficie que se ve. */}

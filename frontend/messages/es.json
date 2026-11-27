@@ -4485,13 +4485,13 @@
         },
         "unlinkedPrice": {
           "title": "{cards, plural, one {# carta sin precio ligado} other {# cartas sin precio ligado}} en {sets, plural, one {# set} other {# sets}}",
-          "lead": "Estas cartas no tienen su precio de mercado ligado, por eso salen «Sin mercado». Reintentar solo toca cartas sin ligar; las ya ligadas no cambian.",
+          "lead": "Estas cartas no tienen su precio de mercado ligado, por eso salen «Sin mercado». «Actualizar este set» liga las que faltan y actualiza sus precios en un solo paso; las ya ligadas no cambian.",
           "row": "{unlinked} de {total} sin ligar",
           "collisions": "{n} coincidencias dudosas",
           "omitted": "{n} omitidos",
-          "retry": "Reintentar enlace",
-          "retrying": "Enlazando…",
-          "aria": "Reintentar enlace de {name}",
+          "retry": "Actualizar este set",
+          "retrying": "Actualizando…",
+          "aria": "Actualizar este set: {name}",
           "ok": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}} en {name}.",
           "none": "No se pudo ligar ninguna carta en {name}: {reason}.",
           "cardsCount": "{n, plural, one {# carta} other {# cartas}}",
@@ -4502,6 +4502,7 @@
             "ownerConflict": "el producto ya pertenece a otra carta",
             "noGroup": "este set no tiene grupo de precios",
             "tcgcsvSource": "su fuente de precios no permite ligar",
+            "notInProvider": "la fuente de precios no tiene este set",
             "nameMismatch": "el nombre no coincide",
             "noLocalCard": "el producto no tiene carta en tu catálogo",
             "alreadyLinked": "la carta ya estaba ligada",
@@ -4525,7 +4526,25 @@
           "rate": "Espera {minutes, plural, one {# minuto} other {# minutos}} antes de reintentar este set.",
           "rateGeneric": "Espera unos minutos antes de reintentar este set.",
           "upstream": "La fuente de precios no respondió, intenta más tarde.",
-          "conflictsCount": "{n} con dueño distinto"
+          "conflictsCount": "{n} con dueño distinto",
+          "pricedOnly": "No hubo cartas nuevas por ligar en {name}.",
+          "priced": "{n, plural, one {Se actualizó # precio} other {Se actualizaron # precios}}.",
+          "groupUsed": "Grupo de precios: {name}.",
+          "groupLine": "Grupo de precios: {name} ({via})",
+          "groupNone": "Grupo de precios: sin grupo asignado",
+          "nextAttempt": "se reintenta solo el {when}",
+          "via": {"auto": "automático", "confirmed": "confirmado", "promo_table": "tabla de promos"},
+          "setReason": {
+            "group_ambiguous": "hay varios grupos de precios posibles y no se sabe cuál es",
+            "group_none": "no se encontró un grupo de precios para este set",
+            "collisions": "hay números repetidos y no se sabe cuál es cuál",
+            "name_mismatch": "los nombres de las cartas no coinciden",
+            "promo_route": "es un set de promos y sigue su propia ruta",
+            "wotc_pending": "espera tu decisión sobre las ediciones antiguas",
+            "provider_failing": "la fuente de precios está fallando; se reintenta sola",
+            "tcgcsv_source": "su fuente de precios no permite ligar",
+            "not_in_provider": "la fuente de precios no tiene este set"
+          }
         },
         "degradedTitle": "La lista está incompleta",
         "degradedBody": "La lista está incompleta porque pokemontcg.io no respondió: solo se muestran los sets que ya están en tu catálogo. Se vuelve a intentar sola; puedes reintentar ahora si quieres verla ya.",
@@ -4555,8 +4574,8 @@
           "secondHalfCta": "Terminar la segunda mitad"
         },
         "repairSet": {
-          "label": "Sincronizar este set",
-          "aria": "Sincronizar {name}: cartas, imágenes y precios",
+          "label": "Actualizar este set",
+          "aria": "Actualizar {name}: cartas, imágenes y precios",
           "phase1": "{name} — fase 1 de 2: trayendo cartas e imágenes…",
           "phase2": "{name} — fase 2 de 2: variantes y precios…"
         },

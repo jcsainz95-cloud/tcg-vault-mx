@@ -88,9 +88,9 @@ function expectWarning(notice: HTMLElement) {
   expect(notice.className).toContain('border-accent');
 }
 
-/** Dispara la acción de fila («Sincronizar este set») del set de la fixture. */
+/** Dispara la acción de fila («Actualizar este set») del set de la fixture. */
 async function repairSurgingSparks() {
-  const [btn] = await screen.findAllByRole('button', { name: /Sincronizar Surging Sparks/ });
+  const [btn] = await screen.findAllByRole('button', { name: /Actualizar Surging Sparks/ });
   fireEvent.click(btn);
 }
 
@@ -106,7 +106,7 @@ afterEach(() => {
 
 /* ══════════════════ SUPERFICIE 1 · la acción de fila (§32.5c — aquí se corrige D2) ══════════════ */
 
-describe('§32.5c · «Sincronizar este set» — la superficie que quemó al dueño', () => {
+describe('§32.5c · «Actualizar este set» — la superficie que quemó al dueño', () => {
   /**
    * ⭐⭐ **CS-1, el encargo entero en un test.** Un set que no resuelve en TCGCSV devuelve
    * `pricesUpserted: 0` y `cardProductsUpserted: 0`. Antes eso salía **verde** con
@@ -233,7 +233,7 @@ describe('§32.5c · «Sincronizar este set» — la superficie que quemó al du
    */
   it('§32.1: el botón de la fila también está disponible en un set NO importado', async () => {
     renderWithProviders(<Harness />, 'es');
-    const [btn] = await screen.findAllByRole('button', { name: /Sincronizar Temporal Forces/ });
+    const [btn] = await screen.findAllByRole('button', { name: /Actualizar Temporal Forces/ });
     expect(btn).not.toBeDisabled();
   });
 });
@@ -724,7 +724,7 @@ describe('§32.2 / §32.10 · la forma de la sección', () => {
     renderWithProviders(<Harness />, 'es');
     expect(await screen.findByRole('button', { name: /Importar sets nuevos/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sincronizar todo \(forzar\)/ })).toBeInTheDocument();
-    expect((await screen.findAllByRole('button', { name: /Sincronizar Surging Sparks/ })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole('button', { name: /Actualizar Surging Sparks/ })).length).toBeGreaterThan(0);
     // ⛔ §32.12.2: nada de menús kebab en ESTA tabla.
     expect(document.querySelector('[aria-haspopup="menu"]')).toBeNull();
     expect(screen.queryByRole('menuitem')).toBeNull();

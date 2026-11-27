@@ -4485,13 +4485,13 @@
         },
         "unlinkedPrice": {
           "title": "{cards, plural, one {# card without a linked price} other {# cards without a linked price}} in {sets, plural, one {# set} other {# sets}}",
-          "lead": "These cards have no market price linked, which is why they show «No market». Retrying only touches unlinked cards; already linked ones do not change.",
+          "lead": "These cards have no market price linked, which is why they show «No market». «Update this set» links the missing ones and updates their prices in one step; already linked ones do not change.",
           "row": "{unlinked} of {total} not linked",
           "collisions": "{n} doubtful matches",
           "omitted": "{n} skipped",
-          "retry": "Retry link",
-          "retrying": "Linking…",
-          "aria": "Retry link for {name}",
+          "retry": "Update this set",
+          "retrying": "Updating…",
+          "aria": "Update this set: {name}",
           "ok": "{n, plural, one {# card was linked} other {# cards were linked}} in {name}.",
           "none": "No card could be linked in {name}: {reason}.",
           "cardsCount": "{n, plural, one {# card} other {# cards}}",
@@ -4502,6 +4502,7 @@
             "ownerConflict": "the product already belongs to another card",
             "noGroup": "this set has no price group",
             "tcgcsvSource": "its price source does not allow linking",
+            "notInProvider": "the price source does not have this set",
             "nameMismatch": "the name does not match",
             "noLocalCard": "the product has no card in your catalog",
             "alreadyLinked": "the card was already linked",
@@ -4525,7 +4526,25 @@
           "rate": "Wait {minutes, plural, one {# minute} other {# minutes}} before retrying this set.",
           "rateGeneric": "Wait a few minutes before retrying this set.",
           "upstream": "The price source did not respond, try again later.",
-          "conflictsCount": "{n} with a different owner"
+          "conflictsCount": "{n} with a different owner",
+          "pricedOnly": "There were no new cards to link in {name}.",
+          "priced": "{n, plural, one {# price updated} other {# prices updated}}.",
+          "groupUsed": "Price group: {name}.",
+          "groupLine": "Price group: {name} ({via})",
+          "groupNone": "Price group: none assigned",
+          "nextAttempt": "retries on its own on {when}",
+          "via": {"auto": "automatic", "confirmed": "confirmed", "promo_table": "promo table"},
+          "setReason": {
+            "group_ambiguous": "several price groups are possible and it is unclear which one",
+            "group_none": "no price group was found for this set",
+            "collisions": "repeated card numbers, so it is unclear which is which",
+            "name_mismatch": "card names do not match",
+            "promo_route": "it is a promo set and follows its own route",
+            "wotc_pending": "waiting for your decision on the old editions",
+            "provider_failing": "the price source is failing; it retries on its own",
+            "tcgcsv_source": "its price source does not allow linking",
+            "not_in_provider": "the price source does not have this set"
+          }
         },
         "degradedTitle": "The list is incomplete",
         "degradedBody": "The list is incomplete because pokemontcg.io did not respond: only the sets already in your catalog are shown. It retries by itself; you can retry now if you want to see it right away.",
@@ -4555,8 +4574,8 @@
           "secondHalfCta": "Finish the second half"
         },
         "repairSet": {
-          "label": "Sync this set",
-          "aria": "Sync {name}: cards, images and prices",
+          "label": "Update this set",
+          "aria": "Update {name}: cards, images and prices",
           "phase1": "{name} — phase 1 of 2: bringing in cards and images…",
           "phase2": "{name} — phase 2 of 2: variants and prices…"
         },

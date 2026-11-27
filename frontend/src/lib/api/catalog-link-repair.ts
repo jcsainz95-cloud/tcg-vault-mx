@@ -19,8 +19,24 @@ export type PieceExcludedKey =
   | 'customerVault' | 'status' | 'reserved' | 'order' | 'shipment' | 'dispute' | 'movement'
   | 'ambiguousFinishes' | 'changedConcurrently' | 'other';
 
+/** §AUTO-ENLACE contrato §2: motivo por set. */
+export type LinkSetReason =
+  | 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route'
+  | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider';
+export const LINK_SET_REASONS: readonly LinkSetReason[] = [
+  'group_ambiguous', 'group_none', 'collisions', 'name_mismatch', 'promo_route',
+  'wotc_pending', 'provider_failing', 'tcgcsv_source', 'not_in_provider',
+];
+/** Grupo de la fuente de precios (TCGCSV) usado por el set (solo lectura). */
+export interface LinkGroupUsed { groupId: number; name: string; via: 'auto' | 'confirmed' | 'promo_table' }
+
 export interface LinkRepairResult {
   linked: number;
+  /** §AUTO-ENLACE §4: precios escritos en la MISMA llamada. `null` = backend previo (no se sabe). */
+  priced: number | null;
+  groupUsed: LinkGroupUsed | null;
+  reason: LinkSetReason | null;
+  nextAttemptAt: string | null;
   /** Con `linked === 0`: hasta 2 motivos relevantes para CARTAS (con su cuenta; `null` = motivo del set entero). */
   reasons: Array<{ key: LinkRepairReasonKey; count: number | null }>;
   piecesCorrected: number;
@@ -29,6 +45,10 @@ export interface LinkRepairResult {
 
 interface RawLinkRepair {
   linked?: number;
+  priced?: number;
+  groupUsed?: { groupId?: number; name?: string; via?: string } | null;
+  reason?: string | null;
+  nextAttemptAt?: string | null;
   collisions?: number;
   conflicts?: number;
   omitted?: Array<{ reason: string; count: number }>;
@@ -55,9 +75,19 @@ const EXCLUDED_KEY: Record<string, PieceExcludedKey> = {
   changed_concurrently: 'changedConcurrently',
 };
 
+export function readGroupUsed(g: { groupId?: number; name?: string; via?: string } | null | undefined): LinkGroupUsed | null {
+  if (!g || typeof g.name !== 'string' || !Number.isFinite(Number(g.groupId))) return null;
+  const via = g.via === 'confirmed' || g.via === 'promo_table' ? g.via : 'auto';
+  return { groupId: Number(g.groupId), name: g.name, via };
+}
+
 export function readLinkRepair(raw: RawLinkRepair): LinkRepairResult {
   const linked = Number(raw.linked) || 0;
   const base = {
+    priced: raw.priced == null ? null : Number(raw.priced) || 0,
+    groupUsed: readGroupUsed(raw.groupUsed),
+    reason: (LINK_SET_REASONS as readonly string[]).includes(raw.reason ?? '') ? (raw.reason as LinkSetReason) : null,
+    nextAttemptAt: raw.nextAttemptAt ?? null,
     piecesCorrected: Number(raw.piecesCorrected) || 0,
     piecesExcluded: (raw.piecesExcluded ?? [])
       .filter((e) => Number(e.count) > 0)
