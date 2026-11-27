@@ -77,7 +77,10 @@ describe('E2E — búsqueda de cartas (§BUSCADOR-CARTAS, tabla de 32 filas)', (
   });
 
   it('3: «078» ⇒ número 78 primero, luego 178/278 (contiene)', async () => {
-    const r = await search('078');
+    // «078» también es subcadena de nombres/números AJENOS (p. ej. la `run` hex de 8 dígitos de las suites de deseos): ese bloque
+    // (lo que production ya encontraba) va primero POR DISEÑO (B-1), así que con pageSize 20 ≥20 ajenos vacían la página.
+    // Se pide una página holgada; el orden relativo de lo nuestro (lo que esta fila prueba) no cambia.
+    const r = await search('078', { pageSize: 200 });
     expect(r.ids.slice(0, 6)).toEqual(['pal-78', 'pre-78', 'svi-78', 'nk131-78', 'pal-178', 'pal-278']);
   });
 
