@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
-import { getAutoLinkRuns, unlinkSet, type RunSet } from '@/lib/api/catalog-link-review';
+import { getAutoLinkRuns, unlinkSet, type RunSet, type UnlinkResult } from '@/lib/api/catalog-link-review';
 import { asApiError } from '@/lib/api-client';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
@@ -24,12 +24,12 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<RunSet | null>(null);
-  const [undone, setUndone] = useState<string[]>([]);
+  const [undone, setUndone] = useState<Record<string, UnlinkResult>>({});
   const q = useQuery({ queryKey: ['auto-link-runs'], queryFn: () => getAutoLinkRuns(7), enabled: open, retry: false });
   const undo = useMutation({
     mutationFn: (setId: string) => unlinkSet(setId),
-    onSuccess: (_d, setId) => {
-      setUndone((u) => [...u, setId]);
+    onSuccess: (d, setId) => {
+      setUndone((u) => ({ ...u, [setId]: d }));
       setTarget(null);
       qc.invalidateQueries({ queryKey: ['link-exceptions'] });
       qc.invalidateQueries({ queryKey: ['catalog-sync-status'] });
@@ -37,9 +37,13 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
   });
   const money = (c: number | null) => (c == null ? t('noPrice') : formatMoneyCents(c, locale));
   const at = (iso: string) => (iso ? format.dateTime(new Date(iso), { dateStyle: 'short', timeStyle: 'short' }) : '');
+  const tc = useTranslations('admin.m2.catalog.cardReview.finish');
+  const finishName = (raw: string) => { const f = raw === 'reverse_holo' ? 'reverse_holofoil' : raw; return tc.has(f as never) ? tc(f as never) : raw; };
+  const abortText = (code: string) => (tf(`abortReason.${code}`) === `admin.m2.catalog.autoLinkRuns.abortReason.${code}` ? code : tf(`abortReason.${code}`));
   const undoErr = (e: unknown) => {
     const a = asApiError(e);
     if (a?.status === 404) return t('undoUnavailable');
+    if (a?.code === 'NOTHING_TO_UNLINK') return t('nothingToUnlink');
     if (a?.status === 429) return t('undoRate');
     return `${t('undoErr')} ${getError(e)}`;
   };
@@ -70,7 +74,7 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
               <p className="font-medium">
                 {t('run', { when: at(r.at), linked: r.linked, priced: r.priced })}
                 {r.held > 0 && ` · ${t('held', { n: r.held })}`}
-                {r.aborted && ` · ${t('aborted')}`}
+                {r.aborted != null && ` · ${t('aborted')}: ${abortText(r.aborted)}`}
               </p>
               <ul className="mt-1 space-y-2">
                 {r.sets.map((s) => (
@@ -85,14 +89,14 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
                       <ul className="text-muted">
                         {s.sample.map((x, i) => (
                           <li key={i} className="break-words">
-                            {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${x.finish})` : ''}: {x.previousPriceCents == null ? t('noPrice') : money(x.previousPriceCents)} → {money(x.newPriceCents)}
+                            {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${finishName(x.finish)})` : ''}: {x.previousPriceCents == null ? t('noPrice') : money(x.previousPriceCents)} → {money(x.newPriceCents)} <span className="whitespace-nowrap">({t('marketLabel')})</span>
                           </li>
                         ))}
                       </ul>
                     )}
-                    {canUnlink && s.setId && (
-                      undone.includes(s.setId)
-                        ? <p role="status" className="mt-1">{t('undone')}</p>
+                    {canUnlink && s.setId && s.linked > 0 && (
+                      undone[s.setId]
+                        ? <p role="status" className="mt-1" data-testid="auto-link-undone">{t('undone', { n: undone[s.setId].unlinked, prices: undone[s.setId].pricesRemoved })}</p>
                         : <Button size="sm" variant="secondary" className="mt-1" aria-label={t('undoAria', { name: s.name })} onClick={() => { undo.reset(); setTarget(s); }}>{t('undo')}</Button>
                     )}
                   </li>

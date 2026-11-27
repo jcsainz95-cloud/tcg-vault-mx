@@ -4587,9 +4587,14 @@
             "not_in_provider": "la fuente de precios no tiene este set",
             "price_sanity": "los precios nuevos se veían raros y no se publicó nada; se reintenta en 7 días",
             "finish_surge": "la fuente trae demasiados acabados nuevos de golpe; se reevalúa mañana",
-            "reverted": "lo deshiciste; no se vuelve a tocar por 30 días"
+            "reverted": "lo deshiciste; no se vuelve a tocar por 30 días",
+            "no_source_product": "la fuente no tiene producto para estas cartas; se vuelve a mirar en cada corrida",
+            "b3_unverified": "ligado por coincidencia de nombre; su precio espera a que confirmes el grupo"
           },
           "autoNext": "Se reintenta solo a las {when}",
+          "b3Hint": "Este set se ligó por coincidencia de nombre y su precio quedó retenido: no se publica nada hasta que confirmes el grupo una vez. El mejor candidato va arriba; las muestras de abajo son lo que se publicaría.",
+          "marketLabel": "mercado (sin margen ni IVA)",
+          "noSourceCount": "{n} sin producto en la fuente",
           "candidates": {
             "aria": "Grupos de precios candidatos para {name}",
             "best": "Mejor candidato",
@@ -4734,17 +4739,20 @@
           "pricePending": "pendiente (se calcula en el siguiente barrido)"
         },
         "cardReview": {
-          "open": "Revisar {n} cartas",
+          "open": "Revisar {n, plural, one {# carta} other {# cartas}}",
           "close": "Cerrar revisión",
           "openAria": "Revisar cartas de {name}",
           "loading": "Cargando cartas…",
           "retry": "Reintentar",
           "empty": "No quedan cartas por revisar en este set.",
           "noCandidates": "El proveedor no tiene un producto con ese número.",
+          "marketLabel": "mercado (sin margen ni IVA)",
+          "noSource": "{n, plural, one {# carta sin producto en la fuente: no hay nada que revisar.} other {# cartas sin producto en la fuente: no hay nada que revisar.}}",
           "noPrice": "sin precio",
           "this": "Es esta",
           "thisAria": "Es esta: ligar {card} con {product}",
-          "done": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}} y se puso su precio.",
+          "done": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}}{priced, plural, =0 { y no se publicó su precio: queda retenido hasta que lo revises.} other { y se puso su precio.}}",
+          "donePartial": "{n, plural, one {Se ligó # carta} other {Se ligaron # cartas}}: {priced} con precio y {held} retenidas hasta que las revises.",
           "reason": {
             "name_mismatch": "el nombre no coincide",
             "collision": "número repetido"
@@ -4786,7 +4794,13 @@
           },
           "undo": "Deshacer este set",
           "undoAria": "Deshacer el enlace automático de {name}",
-          "undone": "Se deshizo este set.",
+          "undone": "Se deshizo este set: se quitaron {n, plural, one {# enlace} other {# enlaces}} y {prices, plural, one {# precio} other {# precios}}.",
+          "nothingToUnlink": "No hay nada que deshacer: este set no tiene enlaces puestos por el job.",
+          "marketLabel": "mercado (sin margen ni IVA)",
+          "abortReason": {
+            "lock_busy": "había otra tarea de precios corriendo",
+            "call_budget": "se acabó el tope de consultas del día"
+          },
           "undoTitle": "¿Deshacer {name}?",
           "undoBody": "Se quitan los enlaces y precios que puso el job en este set. Tus precios manuales y lo que confirmaste tú no se tocan; las piezas quedan sin precio hasta que se corrija.",
           "undoConfirm": "Sí, deshacer",

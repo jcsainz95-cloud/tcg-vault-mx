@@ -56,6 +56,8 @@ let mockReviewItems: FinishReviewItem[] = [
     currentFinish: 'holofoil', targetFinish: 'first_edition_holofoil', currentPriceCents: 3700, targetPriceCents: null, blockedReason: 'no_target_price', hasManualPrice: false },
   { inventoryItemId: 'fr-0003', folio: 'TH-000233', cardId: 'c-gym-3', cardName: "Lt. Surge's Raichu", setName: 'Gym Heroes', number: '9', status: 'in_stock',
     currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 47300, targetPriceCents: 107600, blockedReason: 'has_sale', hasManualPrice: false },
+  { inventoryItemId: 'fr-0004', folio: 'TH-000234', cardId: 'c-gym-4', cardName: "Blaine's Vulpix", setName: 'Gym Challenge', number: '31', status: 'in_stock',
+    currentFinish: 'normal', targetFinish: 'first_edition', currentPriceCents: 9900, targetPriceCents: 21500, blockedReason: null, hasManualPrice: false },
 ];
 export function mockFinishReview(): FinishReviewPage {
   return { pending: mockReviewItems.length, items: mockReviewItems, nextCursor: null };
@@ -94,16 +96,16 @@ export function mockLinkExceptions(): LinkExceptions {
     sets: [
       { setId: MOCK_SET_CLASSIC, name: '30th Celebration Classic Collection', unlinked: 11, total: 30, reason: 'name_mismatch',
         groupUsed: { groupId: 24380, name: 'Classic Collection', via: 'auto' }, nextAttemptAt: new Date(now + 4 * 3_600_000).toISOString(),
-        lastAttemptAt: new Date(now - 20 * 3_600_000).toISOString(), tries: 2, canConfirm: true,
+        lastAttemptAt: new Date(now - 20 * 3_600_000).toISOString(), tries: 2, canConfirm: true, reviewable: null, noSourceProduct: null, sample: [],
         candidates: [
           { groupId: 24380, name: 'Classic Collection', publishedOn: '2026-06-12', productCount: 34, score: 0.92 },
           { groupId: 24381, name: 'Classic Collection Promos', publishedOn: '2026-06-12', productCount: 8, score: 0.41 },
         ] },
       { setId: MOCK_SET_SV, name: 'Scarlet & Violet', unlinked: 3, total: 258, reason: 'collisions',
-        groupUsed: { groupId: 22873, name: null, via: 'confirmed' }, nextAttemptAt: null, lastAttemptAt: null, tries: 1, canConfirm: true,
+        groupUsed: { groupId: 22873, name: null, via: 'confirmed' }, nextAttemptAt: null, lastAttemptAt: null, tries: 1, canConfirm: true, reviewable: null, noSourceProduct: null, sample: [],
         candidates: [{ groupId: 22873, name: 'SV01: Scarlet & Violet Base Set', publishedOn: '2023-03-31', productCount: 400, score: 0.88 }] },
       { setId: MOCK_SET_PROMOS, name: 'Scarlet & Violet Promos', unlinked: 4, total: 120, reason: 'promo_route',
-        groupUsed: { groupId: 22872, name: null, via: 'promo_table' }, nextAttemptAt: null, lastAttemptAt: null, tries: 0, canConfirm: false, candidates: [] },
+        groupUsed: { groupId: 22872, name: null, via: 'promo_table' }, nextAttemptAt: null, lastAttemptAt: null, tries: 0, canConfirm: false, reviewable: null, noSourceProduct: null, sample: [], candidates: [] },
     ],
   };
 }
@@ -136,7 +138,7 @@ export function mockCardConfirm(_setId: string, cardId: string, productId: numbe
 export function mockAutoLinkRuns(): AutoLinkRun[] {
   const at = new Date(Date.now() - 20 * 3_600_000).toISOString();
   return [{
-    runId: 'run-1', at, setsTried: 2, linked: 87, priced: 87, held: 3, aborted: false,
+    runId: 'run-1', at, setsTried: 2, linked: 87, priced: 87, held: 3, aborted: null,
     sets: [
       { setId: MOCK_SET_CLASSIC, name: '30th Celebration Classic Collection', groupId: 24380, via: 'b3', linked: 30, priced: 30, held: 0, finishesAdded: 0,
         sample: [{ cardName: 'Charizard', number: '4', finish: 'holofoil', newPriceCents: 1240900, previousPriceCents: null }] },

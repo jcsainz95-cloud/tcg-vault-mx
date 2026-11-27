@@ -75,7 +75,11 @@ test.describe('admin · M2 · Actualizar este set', () => {
     const review = page.getByTestId('finish-review');
     await expect(review).toContainText('piezas antiguas por confirmar');
     await review.getByRole('button', { name: /Marcar Rocket's Snorlax como 1\.ª edición/ }).click();
-    await expect(review.getByTestId('finish-review-result')).toContainText('ahora es 1.ª edición, precio MX$3,897.00');
+    // Con precio manual: el servidor lo conserva (MX$1,131.00) y la UI avisa; no muestra el precio destino.
+    await expect(review.getByTestId('finish-review-result')).toContainText('Se conservó tu precio manual (MX$1,131.00)');
+    // Sin precio manual: toma el precio de la 1.ª edición que manda el servidor.
+    await review.getByRole('button', { name: /Marcar Blaine's Vulpix como 1\.ª edición/ }).click();
+    await expect(review.getByTestId('finish-review-result')).toContainText('ahora es 1.ª edición, precio MX$215.00');
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   });
 });

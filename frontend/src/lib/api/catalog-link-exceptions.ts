@@ -5,6 +5,8 @@
 import { apiRequest } from '../api-client';
 import { LINK_SET_REASONS, readGroupUsed, type LinkGroupUsed, type LinkSetReason } from './catalog-link-repair';
 
+/** §10.1: muestra retenida de un set `b3_unverified` (precio de MERCADO, sin margen ni IVA). */
+export interface HeldSample { cardName: string; number: string | null; finish: string; newPriceCents: number | null }
 export interface LinkCandidate { groupId: number; name: string; publishedOn: string | null; productCount: number | null; score: number | null }
 /** Resumen del job (contrato §2 `summary`). Campos tolerantes: `null` = backend aún no lo manda. */
 export interface LinkExceptionsSummary {
@@ -33,6 +35,12 @@ export interface LinkExceptionSet {
   /** Mejor primero, máx. 5. */
   candidates: LinkCandidate[];
   canConfirm: boolean;
+  /** §10.4: cartas con candidato posible (las que entran en «Revisar N cartas»). `null` = el servidor aún no lo manda. */
+  reviewable?: number | null;
+  /** §10.4: cartas sin producto en la fuente (informativo, sin botón). */
+  noSourceProduct?: number | null;
+  /** §10.1: ≤ 5 muestras retenidas para juzgar el grupo. */
+  sample?: HeldSample[];
 }
 export interface LinkExceptions {
   unlinkedCards: number;
@@ -41,7 +49,7 @@ export interface LinkExceptions {
 }
 
 /** Motivos sin botón: la fuente no permite ligar. */
-export const NO_BUTTON_REASONS: readonly LinkSetReason[] = ['tcgcsv_source', 'not_in_provider'];
+export const NO_BUTTON_REASONS: readonly LinkSetReason[] = ['tcgcsv_source', 'not_in_provider', 'no_source_product'];
 
 interface RawExceptions {
   summary?: Partial<Record<'unlinkedCards' | 'unlinkedSets' | 'repairedYesterday' | 'pricedYesterday' | 'waitingDecision' | 'pendingConfirm', number>> & {
@@ -50,7 +58,8 @@ interface RawExceptions {
   sets?: Array<{
     setId?: string; name?: string; unlinked?: number; total?: number; reason?: string;
     groupUsed?: { groupId?: number; name?: string; via?: string } | null; nextAttemptAt?: string | null;
-    lastAttemptAt?: string | null; tries?: number; canConfirm?: boolean;
+    lastAttemptAt?: string | null; tries?: number; canConfirm?: boolean; reviewable?: number; noSourceProduct?: number;
+    sample?: Array<{ cardName?: string; number?: string | null; finish?: string; newPriceCents?: number | null }>;
     candidates?: Array<{ groupId?: number; name?: string; publishedOn?: string | null; productCount?: number; score?: number }>;
   }>;
 }
@@ -97,6 +106,12 @@ export function readLinkExceptions(raw: RawExceptions): LinkExceptions {
           score: c.score == null ? null : Number(c.score) || 0,
         })),
       canConfirm: s.canConfirm === true,
+      reviewable: numOrNull(s.reviewable),
+      noSourceProduct: numOrNull(s.noSourceProduct),
+      sample: (s.sample ?? []).slice(0, 5).map((x) => ({
+        cardName: typeof x.cardName === 'string' ? x.cardName : '', number: typeof x.number === 'string' && x.number ? x.number : null,
+        finish: typeof x.finish === 'string' ? x.finish : '', newPriceCents: numOrNull(x.newPriceCents),
+      })),
     }));
   return {
     unlinkedCards: Number(raw.summary?.unlinkedCards) || 0,

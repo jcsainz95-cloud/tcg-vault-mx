@@ -435,7 +435,7 @@ registerLinkReviewMock({
   confirm: (setId, cardId, productId) =>
     MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockCardConfirm(setId, cardId, productId)); } catch (e) { rej(e); } }, 300)) : null,
   runs: () => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockAutoLinkRuns()), 200)) : null),
-  unlink: () => (MOCKS_BUILD && config.useMocks ? new Promise<void>((res) => setTimeout(res, 300)) : null),
+  unlink: () => (MOCKS_BUILD && config.useMocks ? new Promise<{ unlinked: number; pricesRemoved: number }>((res) => setTimeout(() => res({ unlinked: 30, pricesRemoved: 30 }), 300)) : null),
 });
 registerLinkRepairMock((setId) =>
   MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkRepair(setId)); } catch (e) { rej(e); } }, 400)) : null);

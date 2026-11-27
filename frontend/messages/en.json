@@ -4587,9 +4587,14 @@
             "not_in_provider": "the price source does not have this set",
             "price_sanity": "the new prices looked off and nothing was published; retried in 7 days",
             "finish_surge": "the source brings too many new finishes at once; re-evaluated tomorrow",
-            "reverted": "you undid it; it will not be touched for 30 days"
+            "reverted": "you undid it; it will not be touched for 30 days",
+            "no_source_product": "the source has no product for these cards; checked again on every run",
+            "b3_unverified": "linked by name match; its price waits until you confirm the group"
           },
           "autoNext": "Retries on its own at {when}",
+          "b3Hint": "This set was linked by name match and its price is held: nothing is published until you confirm the group once. The best candidate is on top; the samples below are what would be published.",
+          "marketLabel": "market (before margin and VAT)",
+          "noSourceCount": "{n} without a product in the source",
           "candidates": {
             "aria": "Candidate price groups for {name}",
             "best": "Best candidate",
@@ -4734,17 +4739,20 @@
           "pricePending": "pending (calculated on the next sweep)"
         },
         "cardReview": {
-          "open": "Review {n} cards",
+          "open": "Review {n, plural, one {# card} other {# cards}}",
           "close": "Close review",
           "openAria": "Review cards of {name}",
           "loading": "Loading cards…",
           "retry": "Retry",
           "empty": "No cards left to review in this set.",
           "noCandidates": "The provider has no product with that number.",
+          "marketLabel": "market (before margin and VAT)",
+          "noSource": "{n, plural, one {# card has no product in the source: nothing to review.} other {# cards have no product in the source: nothing to review.}}",
           "noPrice": "no price",
           "this": "This one",
           "thisAria": "This one: link {card} to {product}",
-          "done": "{n, plural, one {# card linked} other {# cards linked}} and priced.",
+          "done": "{n, plural, one {# card linked} other {# cards linked}}{priced, plural, =0 { and its price was not published: it stays held until you review it.} other { and its price was set.}}",
+          "donePartial": "{n, plural, one {# card linked} other {# cards linked}}: {priced} priced and {held} held until you review them.",
           "reason": {
             "name_mismatch": "name does not match",
             "collision": "repeated number"
@@ -4786,7 +4794,13 @@
           },
           "undo": "Undo this set",
           "undoAria": "Undo the automatic link of {name}",
-          "undone": "This set was undone.",
+          "undone": "This set was undone: {n, plural, one {# link} other {# links}} and {prices, plural, one {# price} other {# prices}} removed.",
+          "nothingToUnlink": "Nothing to undo: this set has no links made by the job.",
+          "marketLabel": "market (before margin and VAT)",
+          "abortReason": {
+            "lock_busy": "another price task was running",
+            "call_budget": "the daily call limit ran out"
+          },
           "undoTitle": "Undo {name}?",
           "undoBody": "The links and prices the job set in this set are removed. Your manual prices and anything you confirmed are untouched; pieces stay without a price until fixed.",
           "undoConfirm": "Yes, undo",

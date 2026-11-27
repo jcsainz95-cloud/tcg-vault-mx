@@ -293,6 +293,22 @@ describe('§AUTO-ENLACE F3 · Confirmar candidato', () => {
     expect(res.closest('li')?.textContent).toContain('Scarlet');
     expect(res.textContent).toMatch(/Confirmado en Scarlet: 9 cartas ligadas y 18 precios actualizados\./);
   });
+  it('§10: b3_unverified explica la retención, muestra muestras de mercado y no_source_product no cuenta ni tiene «Revisar»', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({
+      ...EXC3,
+      sets: [
+        { ...EXC3.sets[0], reason: 'b3_unverified', sample: [{ cardName: 'Pikachu', number: '25', finish: 'holofoil', newPriceCents: 12300 }] },
+        { ...EXC3.sets[0], setId: UUID1 + 'x', name: 'Sin fuente', unlinked: 4, reason: 'no_source_product', canConfirm: false, candidates: [] },
+      ],
+    });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    const held = await screen.findByTestId('b3-held');
+    expect(held.textContent).toMatch(/precio quedó retenido/);
+    expect(held.textContent).toMatch(/Pikachu #25.*MX\$123\.00 \(mercado \(sin margen ni IVA\)\)/);
+    expect(screen.getByText(/Sin fuente/).closest('li')?.textContent).toMatch(/la fuente no tiene producto/);
+    expect(screen.getByText(/Sin fuente/).closest('li')?.querySelector('button')).toBeNull();
+    expect(screen.getByRole('status').textContent).toMatch(/^11 cartas sin precio ligado en 1 set/);
+  });
   it('422 GROUP_NOT_FOUND se explica en claro', async () => {
     vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue(EXC3);
     vi.spyOn(exc, 'confirmLinkException').mockRejectedValue(new ApiClientError(422, { code: 'GROUP_NOT_FOUND', message: 'x', details: {} }));

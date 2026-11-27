@@ -24,11 +24,11 @@ export type PieceExcludedKey =
 export type LinkSetReason =
   | 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route'
   | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider'
-  | 'price_sanity' | 'finish_surge' | 'reverted';
+  | 'price_sanity' | 'finish_surge' | 'reverted' | 'no_source_product' | 'b3_unverified';
 export const LINK_SET_REASONS: readonly LinkSetReason[] = [
   'group_ambiguous', 'group_none', 'collisions', 'name_mismatch', 'promo_route',
   'wotc_pending', 'provider_failing', 'tcgcsv_source', 'not_in_provider',
-  'price_sanity', 'finish_surge', 'reverted',
+  'price_sanity', 'finish_surge', 'reverted', 'no_source_product', 'b3_unverified',
 ];
 /** Grupo de la fuente de precios (TCGCSV) usado por el set (solo lectura). */
 /** `name` puede venir null (grupo sin nombre conocido): se muestra con `groupLabel`, nunca se descarta. */

@@ -14,7 +14,11 @@ import { useErrorMessage } from '@/components/ui/QueryState';
  * §AUTO-ENLACE §9.4 — «Revisar N cartas»: cartas de un set con nombre distinto o número repetido, con los productos
  * candidatos del proveedor. «Es esta» liga y precia SOLO esa carta; la fila se quita en sitio. Precio = el del servidor.
  */
-export function CardReviewPanel({ setId, setName, count }: { setId: string; setName: string; count: number }) {
+export interface CardReviewProgress { linked: number; priced: number }
+/** El servidor llama `reverse_holofoil` al acabado que otras fuentes llaman `reverse_holo`. */
+const FINISH_ALIAS: Record<string, string> = { reverse_holo: 'reverse_holofoil', reverseholo: 'reverse_holofoil' };
+
+export function CardReviewPanel({ setId, setName, count, onProgress }: { setId: string; setName: string; count: number; onProgress?: (p: CardReviewProgress) => void }) {
   const t = useTranslations('admin.m2.catalog.cardReview');
   const tf = t as unknown as (k: string, v?: Record<string, unknown>) => string;
   const locale = useLocale() as AppLocale;
@@ -26,7 +30,10 @@ export function CardReviewPanel({ setId, setName, count }: { setId: string; setN
   const confirm = useMutation({
     mutationFn: (v: { cardId: string; productId: number }) => confirmCardLink(setId, v.cardId, v.productId),
     onSuccess: (r) => {
-      setDone((d) => ({ ...d, [r.cardId]: r.priced }));
+      const next = { ...done, [r.cardId]: r.priced };
+      setDone(next);
+      // Sube el avance al padre: la fila del set puede desaparecer al refrescar y el mensaje no debe irse con ella.
+      onProgress?.({ linked: Object.keys(next).length, priced: Object.values(next).filter((n) => n > 0).length });
       qc.invalidateQueries({ queryKey: ['link-exceptions'] });
       qc.invalidateQueries({ queryKey: ['catalog-sync-status'] });
     },
@@ -39,8 +46,12 @@ export function CardReviewPanel({ setId, setName, count }: { setId: string; setN
     if (a?.status === 503 || a?.code === 'UPSTREAM_ERROR') return t('err.upstream');
     return `${t('err.generic')} ${getError(e)}`;
   };
-  const pending = (q.data?.items ?? []).filter((c) => !(c.cardId in done));
-  const finishes = (f: string) => tf(`finish.${f}`) === `admin.m2.catalog.cardReview.finish.${f}` ? f : tf(`finish.${f}`);
+  // §10.4: `no_source_product` es informativo (sin candidatos, sin botón) y no cuenta como «por revisar».
+  const noSource = (q.data?.items ?? []).filter((c) => c.reason === 'no_source_product');
+  const pending = (q.data?.items ?? []).filter((c) => c.reason !== 'no_source_product' && !(c.cardId in done));
+  const finishes = (raw: string) => { const f = FINISH_ALIAS[raw] ?? raw; return tf(`finish.${f}`) === `admin.m2.catalog.cardReview.finish.${f}` ? raw : tf(`finish.${f}`); };
+  const doneN = Object.keys(done).length;
+  const donePriced = Object.values(done).filter((n) => n > 0).length;
 
   return (
     <div className="mt-2" data-testid="card-review">
@@ -68,7 +79,7 @@ export function CardReviewPanel({ setId, setName, count }: { setId: string; setN
                       <p className="min-w-0 text-xs break-words">
                         {c.name} ↔ <span className="font-medium">{p.name}</span>{p.number ? ` #${p.number}` : ''}
                         {p.finishes.length > 0 && ` · ${p.finishes.map(finishes).join(', ')}`}
-                        {` · ${p.priceCents == null ? t('noPrice') : formatMoneyCents(p.priceCents, locale)}`}
+                        {` · ${p.priceCents == null ? t('noPrice') : `${formatMoneyCents(p.priceCents, locale)} (${t('marketLabel')})`}`}
                       </p>
                       <Button
                         size="sm"
@@ -89,8 +100,11 @@ export function CardReviewPanel({ setId, setName, count }: { setId: string; setN
               </li>
             ))}
           </ul>
-          {Object.keys(done).length > 0 && (
-            <p role="status" className="mt-2 border-l-2 border-ink pl-2 text-sm" data-testid="card-review-done">{t('done', { n: Object.keys(done).length })}</p>
+          {noSource.length > 0 && <p className="mt-2 text-xs text-muted" data-testid="card-review-no-source">{t('noSource', { n: noSource.length })}</p>}
+          {doneN > 0 && (
+            <p role="status" className="mt-2 border-l-2 border-ink pl-2 text-sm" data-testid="card-review-done">
+              {donePriced > 0 && donePriced < doneN ? t('donePartial', { n: doneN, priced: donePriced, held: doneN - donePriced }) : t('done', { n: doneN, priced: donePriced })}
+            </p>
           )}
         </div>
       )}
