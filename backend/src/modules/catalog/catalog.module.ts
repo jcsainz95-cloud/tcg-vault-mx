@@ -33,6 +33,9 @@ import { CatalogStaleAlertService } from './catalog-stale-alert.service';
 import { CatalogAutoWatchService } from './catalog-auto-watch.service';
 import { PromoCollectionLinkService } from './promo-collection-link.service';
 import { PromoSetProductsService } from './promo-set-products.service';
+import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
+import { LinkExceptionsService } from './link-exceptions.service';
+import { CatalogAutoLinkService } from './catalog-auto-link.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.service';
@@ -55,6 +58,10 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     CardProductResolverService,
     CardLinkRepairService,
     TcgcsvCatalogClient,
+    // §AUTO-ENLACE fase 2: tanda diaria que liga y precia sola + caché de 24 h de `listGroups`.
+    TcgcsvGroupsCache,
+    CatalogAutoLinkService,
+    LinkExceptionsService,
     // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV que pokemontcg.io no tiene.
     TcgcsvSetImportService,
     TcgcsvGroupDiscoveryService,
@@ -91,6 +98,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     SetValueSnapshotJobService,
     CatalogPriceSyncJobService,
     CatalogAutoWatchService,
+    CatalogAutoLinkService,
   ],
 })
 export class CatalogModule {}

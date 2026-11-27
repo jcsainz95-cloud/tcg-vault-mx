@@ -20,6 +20,8 @@ import { planCardLinks } from './card-link-plan';
 import { promoGroupFor } from './promo-set-groups';
 import { PromoSetProductsService } from './promo-set-products.service';
 import type { PromoSkipped } from './promo-set-plan';
+import type { TcgcsvCallBudget } from './tcgcsv-call-budget';
+import type { TcgcsvGroupRef } from '../pricing/pricing.types';
 
 /**
  * CardProductResolverService (v1.29, ARCHITECTURE §4.27d) — REEMPLAZA a `StructuralFinishResolverService`.
@@ -58,7 +60,18 @@ export class CardProductResolverService {
    * de observabilidad (o `null` si no se resolvió el groupId). NO lanza por fallo remoto/parse del
    * fetch — best-effort; el llamador (`importSet`) además lo envuelve en try/catch.
    */
-  async resolveCardProductsForSet(localSetId: string, opts: { onlyUnlinked?: boolean } = {}): Promise<{
+  async resolveCardProductsForSet(
+    localSetId: string,
+    opts: {
+      onlyUnlinked?: boolean;
+      /** §AUTO-ENLACE fase 2: presupuesto de llamadas de la tanda (cuenta, reintenta una vez y corta). Sin él, llamadas directas como siempre. */
+      budget?: TcgcsvCallBudget;
+      /** `listGroups` ya descargado en esta corrida (no se vuelve a llamar). */
+      groups?: readonly TcgcsvGroupRef[];
+      /** Tope de cartas NUEVAS a ligar en este set (lo que sobra queda para mañana, `batch_cap`). */
+      maxLinks?: number;
+    } = {},
+  ): Promise<{
     groupId: number;
     joined: number;
     products: number;
@@ -101,15 +114,16 @@ export class CardProductResolverService {
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
-      select: { id: true, name: true, pptSetId: true, externalId: true },
+      select: { id: true, name: true, pptSetId: true, externalId: true, releaseDate: true, printedTotal: true },
     });
     if (!set) return null;
     // P-PROMOS (§5.12): los sets `tcgcsv:` los puebla SU importador (cartas, sellos y precios por productId). Este
     // resolver uniría por número y pisaría un `CardProduct stamped` como `promo` ⇒ NO los recorre (refresh-variants).
     if (isTcgcsvOrigin(set.externalId)) return null;
 
-    const groupId = await this.resolveGroupId(set);
-    if (groupId == null) return null;
+    const resolved = await this.resolveGroup(set, opts.groups);
+    if (resolved == null) return null;
+    const groupId = resolved.groupId;
 
     const promo = promoGroupFor(set.externalId);
     if (promo) {
@@ -120,12 +134,13 @@ export class CardProductResolverService {
       return { ...pr, groupName: null, groupVia: 'promo_table' as const };
     }
 
-    const [products, prices] = await Promise.all([
-      this.tcgcsv.getProducts(groupId),
-      this.tcgcsv.getPrices(groupId),
-    ]);
+    const viaBudget = <T>(fn: () => Promise<T>): Promise<T> => (opts.budget ? opts.budget.call(fn) : fn());
+    // Secuencial con presupuesto (el contador y el disyuntor deben ver cada llamada en orden); sin presupuesto, en paralelo como siempre.
+    const [products, prices] = opts.budget
+      ? [await viaBudget(() => this.tcgcsv.getProducts(groupId)), await viaBudget(() => this.tcgcsv.getPrices(groupId))]
+      : await Promise.all([this.tcgcsv.getProducts(groupId), this.tcgcsv.getPrices(groupId)]);
     const derived = deriveCardProductsFromTcgcsv(products, prices, { variantEnabled: await patternClassifyEnabled(this.settings) });
-    const groupName = await this.groupNameOf(groupId);
+    const groupName = await this.groupNameOf(groupId, opts.groups);
     if (derived.length === 0) {
       this.logger.warn(
         `card-product: grupo ${groupId} (set ${set.name}) no produjo ningún producto con acabado ` +
@@ -143,7 +158,7 @@ export class CardProductResolverService {
         omittedProducts: 0,
         touchedCardIds: [],
         groupName,
-        groupVia: 'auto',
+        groupVia: resolved.via,
       };
     }
 
@@ -182,6 +197,7 @@ export class CardProductResolverService {
     let pricesWritten = 0;
     let pricesPending = 0;
     let finishNotInProduct = 0;
+    let batchCapped = 0;
 
     for (const dp of derived) {
       // Join por productId EXACTO (ancla tcgplayerId del set_base). Sin ancla → número normalizado
@@ -190,6 +206,11 @@ export class CardProductResolverService {
       const owner = link ? { id: link.cardId } : undefined;
       if (!owner) {
         if (!(opts.onlyUnlinked && ownerOf.has(dp.productId))) unjoined += 1;
+        continue;
+      }
+      // §AUTO-ENLACE fase 2: tope de cartas ligadas por tanda; lo que sobra se liga mañana (no se pierde: sigue sin ligar).
+      if (opts.maxLinks != null && !ownerOf.has(dp.productId) && joined >= opts.maxLinks) {
+        batchCapped += 1;
         continue;
       }
       joined += 1;
@@ -278,21 +299,21 @@ export class CardProductResolverService {
       reasonCounts: plan.unlinked.reduce<Record<string, number>>((acc, u) => {
         if (u.reason !== 'skipped_linked') acc[u.reason] = (acc[u.reason] ?? 0) + 1;
         return acc;
-      }, finishNotInProduct > 0 ? { finish_not_in_product: finishNotInProduct } : {}),
+      }, { ...(finishNotInProduct > 0 ? { finish_not_in_product: finishNotInProduct } : {}), ...(batchCapped > 0 ? { batch_cap: batchCapped } : {}) }),
       examples: plan.unlinked
         .filter((u) => u.reason !== 'skipped_linked')
         .slice(0, 20)
         .map((u) => ({ cardId: ownerOf.get(u.productId) ?? null, number: derived.find((d) => d.productId === u.productId)?.number ?? null, reason: u.reason })),
       touchedCardIds: [...touched],
       groupName,
-      groupVia: 'auto',
+      groupVia: resolved.via,
     };
   }
 
   /** Nombre que TCGCSV da al grupo (para mostrarlo al dueño); `null` si `listGroups` falla o no lo trae. Nunca lanza. */
-  private async groupNameOf(groupId: number): Promise<string | null> {
+  private async groupNameOf(groupId: number, groups?: readonly TcgcsvGroupRef[]): Promise<string | null> {
     try {
-      return (await this.tcgcsv.listGroups()).find((g) => g.groupId === groupId)?.name ?? null;
+      return (groups ?? (await this.tcgcsv.listGroups())).find((g) => g.groupId === groupId)?.name ?? null;
     } catch {
       return null;
     }
@@ -394,20 +415,23 @@ export class CardProductResolverService {
    * `docs/BACKEND_NOTES.md`: no corre desatendido (import/`--force`) y un set que no resuelve por
    * NOMBRE aquí tampoco resuelve en el barrido diario de precio, que ya deja esa fila cada día.
    */
-  private async resolveGroupId(set: {
-    id: string;
-    name: string;
-    pptSetId: string | null;
-    externalId: string;
-  }): Promise<number | null> {
+  private async resolveGroupId(set: { id: string; name: string; pptSetId: string | null; externalId: string }): Promise<number | null> {
+    return (await this.resolveGroup(set))?.groupId ?? null;
+  }
+
+  /** Igual que `resolveGroupId`, con cómo se eligió el grupo (§AUTO-ENLACE F4) y la lista de grupos ya bajada de la tanda si la hay. */
+  private async resolveGroup(
+    set: { id: string; name: string; pptSetId: string | null; externalId: string; releaseDate?: string | null; printedTotal?: number | null },
+    groups?: readonly TcgcsvGroupRef[],
+  ): Promise<{ groupId: number; via: 'auto' | 'promo_table' } | null> {
     const cached = this.groupIdCache.get(set.id);
-    if (cached != null) return cached;
+    if (cached != null) return { groupId: cached, via: 'auto' };
 
     // P-PROMOS-VIEJAS: tabla fija > pptSetId numérico > nombre, en la función compartida con la ruta de estructura.
-    const match = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
+    const match = await resolveTcgcsvGroupForSet(set, async () => groups ?? (await this.tcgcsv.listGroups()));
     if (match.groupId != null) {
       this.groupIdCache.set(set.id, match.groupId);
-      return match.groupId;
+      return { groupId: match.groupId, via: match.via === 'promo_table' ? 'promo_table' : 'auto' };
     }
 
     this.logger.warn(

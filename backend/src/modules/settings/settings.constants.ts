@@ -435,6 +435,8 @@ export const SettingKey = {
   // `pattern_classify_enabled`: `on|off` (default `on`); `off` = reversa funcional: el job reclasifica `variant → set_base` y la lectura vuelve al
   // comportamiento previo. (v2, DECISIONES §PRICE-PATTERN 6.2: el dial `pattern_correction_cap` se RETIRÓ; el freno es la constante `PATTERN_RUN_MAX`.)
   PATTERN_CLASSIFY_ENABLED: 'pattern_classify_enabled',
+  // §AUTO-ENLACE fase 2: `on|off`; dueño 2026-11-27 «La reparación automática prendida» ⇒ NACE `on` (default); super_admin lo apaga con PUT /admin/settings.
+  AUTO_LINK_ENABLED: 'auto_link_enabled',
 
   // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los SIETE diales de la lista de deseos (siempre activa: sin interruptor) =====
   // `GET/PUT /admin/settings` (`super_admin`; operador ⇒ 403 MONEY_OUT_FORBIDDEN). Mover un dial no reescribe nada guardado:
@@ -706,6 +708,7 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: 15,
   [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: 15,
   [SettingKey.PATTERN_CLASSIFY_ENABLED]: 'on',
+  [SettingKey.AUTO_LINK_ENABLED]: 'on',
   // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
   [SettingKey.WISHLIST_MAX_IVA_MODE]: 'with_iva',
@@ -1441,6 +1444,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: validatePositiveIntDial('minutes'),
   [SettingKey.PATTERN_CLASSIFY_ENABLED]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
+  [SettingKey.AUTO_LINK_ENABLED]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: validateIntRange(1, 200),
   [SettingKey.WISHLIST_MAX_IVA_MODE]: (v) =>
@@ -1581,6 +1586,7 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   discountCodeBlockMin: SettingKey.DISCOUNT_CODE_BLOCK_MIN,
   // §PRICE-PATTERN: `super_admin` (⛔ no son diales del dueño de §Z).
   patternClassifyEnabled: SettingKey.PATTERN_CLASSIFY_ENABLED,
+  autoLinkEnabled: SettingKey.AUTO_LINK_ENABLED,
   // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
   wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,
   wishlistMaxIvaMode: SettingKey.WISHLIST_MAX_IVA_MODE,

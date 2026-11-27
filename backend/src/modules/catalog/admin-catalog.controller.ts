@@ -6,6 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
 import { CardLinkRepairService } from './card-link-repair.service';
+import { LinkExceptionsService } from './link-exceptions.service';
 import { SetSearchKeyService } from './set-search-key.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
@@ -76,6 +77,7 @@ export class AdminCatalogController {
     private readonly tcgcsvImport: TcgcsvSetImportService,
     private readonly linkRepair: CardLinkRepairService,
     private readonly searchKeys: SetSearchKeyService,
+    private readonly linkExceptions: LinkExceptionsService,
   ) {}
 
   @Get('remote-sets')
@@ -101,6 +103,8 @@ export class AdminCatalogController {
     return {
       ...this.sync.getSyncStatus(),
       unlinkedPrice: await this.linkRepair.unlinkedPrice(),
+      // §AUTO-ENLACE fase 2: contador «quedan X · ayer Y» (contrato §5).
+      summary: await this.linkExceptions.summary(),
       // §BUSCADOR-CARTAS §3: cobertura de claves impresas de set («k de N sets sin clave»), aditivo.
       searchKeys: await this.searchKeys.coverage(),
     };

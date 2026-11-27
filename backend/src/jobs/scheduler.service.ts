@@ -30,6 +30,7 @@ import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job'
 import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
 import { CatalogAutoWatchService } from '../modules/catalog/catalog-auto-watch.service';
+import { CatalogAutoLinkService } from '../modules/catalog/catalog-auto-link.service';
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { MarketingSearchMissService } from '../modules/marketing/marketing-search-miss.service';
 import { DemandMatchService } from '../modules/demand/demand-match.service';
@@ -196,6 +197,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // §BOVEDA-COBRADA-SIN-PIEZAS: reparación diaria (09:20 UTC) de pedidos liquidados con piezas sin asignar. Idempotente y sin dinero.
     @Optional() private readonly vaultOrphanRepair?: VaultOrphanRepairService,
     @Optional() private readonly usersPhoneBackfill?: UsersPhoneBackfillService,
+    // §AUTO-ENLACE fase 2: tanda diaria `catalog-auto-link` (al final por la misma razón: listas posicionales de los specs).
+    @Optional() private readonly catalogAutoLink?: CatalogAutoLinkService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -330,6 +333,17 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
     // AUTO: backfill de contentKey (reanudable) + alerta > 48 h sin exito del catalogo; cada 15 min (el paso es barato cuando no hay nada).
     const autoWatchCron = this.config.get<string>('CATALOG_AUTO_WATCH_CRON') ?? '*/15 * * * *';
+    // §AUTO-ENLACE fase 2: `catalog-auto-link` 05:00 (zona del scheduler = UTC: ningún `repeat` de este archivo lleva `tz`, igual que
+    // `catalog-metadata-sync` 01:00) en la cola del catálogo (concurrency 1 ⇒ nunca a la vez que el import de metadatos) y UN reintento a las 09:30
+    // solo si la corrida de las 05:00 se saltó por candado tomado. Fail-closed por el dial `auto_link_enabled` (nace `on`). Antes de `price-sync` 06:15 y
+    // `price-ingest` 00:00/12:00 UTC; el candado `pg_advisory` compartido evita que se pisen.
+    if (this.catalogAutoLink && this.catalogQueue) {
+      const autoLinkCron = this.config.get<string>('CATALOG_AUTO_LINK_CRON') ?? '0 5 * * *';
+      const autoLinkRetryCron = this.config.get<string>('CATALOG_AUTO_LINK_RETRY_CRON') ?? '30 9 * * *';
+      await this.catalogQueue.add('catalog-auto-link', {}, this.repeat('catalog-auto-link', autoLinkCron));
+      await this.catalogQueue.add('catalog-auto-link-retry', {}, this.repeat('catalog-auto-link-retry', autoLinkRetryCron));
+    }
+
     if (this.catalogAutoWatch) await this.queue.add('catalog-auto-watch', {}, this.repeatEvery('catalog-auto-watch', autoWatchCron));
 
     // ⭐💰 D2d (§M4-SHIP.19.10): Skydropx. Crons por env (devops ajusta sin redeploy); los tres son no-op con el dial
@@ -613,6 +627,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       // 💰 C1 (§M4-SHIP.19.33.9): avisos al dueño. `run()` toma `now` del reloj del módulo; `run({})` = ayer en México.
       case 'catalog-auto-watch':
         return this.catalogAutoWatch?.run() ?? null;
+      case 'catalog-auto-link':
+        return this.catalogAutoLink?.tick('cron') ?? null;
+      case 'catalog-auto-link-retry':
+        return this.catalogAutoLink?.tick('retry') ?? null;
       case 'spend-watch':
         return this.spendWatch?.run() ?? null;
       case 'spend-digest':

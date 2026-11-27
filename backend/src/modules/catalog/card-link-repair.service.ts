@@ -8,6 +8,8 @@ import { isSchedulerDisabled } from '../../config/test-env';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { isTcgcsvOrigin, SET_ID_PATTERN } from './tcgcsv-card-name';
 import { safeErrorTag } from '../shipments/guest-mail-link';
+import { BudgetExhaustedError, CircuitOpenError, DeadlineError, TcgcsvCallBudget } from './tcgcsv-call-budget';
+import type { TcgcsvGroupRef } from '../pricing/pricing.types';
 
 export type NotLinkableReason = 'no_group' | 'tcgcsv_source' | 'promo_route';
 /** §AUTO-ENLACE §2 (mismo enum del contrato; la FASE 1 emite el subconjunto que mide). */
@@ -120,10 +122,19 @@ export interface LinkRepairSetResult {
   /** I-1: «Disponible de nuevo a las HH:MM» (enfriamiento del botón, +10 min). `nextAttemptAt` queda como alias (contrato §7.4). */
   availableAgainAt: string | null;
   nextAttemptAt: string | null;
+  /** Grupos candidatos (mejor primero, máx. 5) cuando el set no resolvió grupo; fase 3. */
+  candidates?: { groupId: number; name: string; publishedOn: string | null; productCount: number | null; score: number }[];
   piecesCorrected: number;
   piecesExcluded: { reason: string; count: number }[];
   examples: { cardId: string | null; number: string | null; reason: string }[];
   error?: string;
+}
+
+/** §AUTO-ENLACE fase 2: contexto de la tanda del job (presupuesto de llamadas, `listGroups` ya bajado, tope de cartas). */
+export interface AutoLinkContext {
+  budget: TcgcsvCallBudget;
+  groups: readonly TcgcsvGroupRef[];
+  maxLinks: number;
 }
 
 export interface LinkRepairRun {
@@ -435,8 +446,13 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     return new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, message, { retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
   }
 
+  /** §AUTO-ENLACE fase 2: el intento de UN set dentro de la tanda del job (mismo cuerpo que el botón; presupuesto y tope de la tanda). */
+  attemptSetAuto(setId: string, ctx: AutoLinkContext): Promise<LinkRepairSetResult> {
+    return this.attemptSet(setId, 'auto', null, ctx);
+  }
+
   /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
-  private async attemptSet(setId: string, trigger: string, actorUserId: string | null): Promise<LinkRepairSetResult> {
+  private async attemptSet(setId: string, trigger: string, actorUserId: string | null, ctx?: AutoLinkContext): Promise<LinkRepairSetResult> {
     const blank = (name: string): LinkRepairSetResult => ({
       setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, availableAgainAt: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
     });
@@ -444,7 +460,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     if (!set) return { ...blank(setId), error: 'not_found' };
     const res = blank(set.name);
     try {
-      const r = isTcgcsvOrigin(set.externalId) ? null : await this.resolver.resolveCardProductsForSet(setId, { onlyUnlinked: true });
+      const r = isTcgcsvOrigin(set.externalId) ? null : await this.resolver.resolveCardProductsForSet(setId, { onlyUnlinked: true, budget: ctx?.budget, groups: ctx?.groups, maxLinks: ctx?.maxLinks });
       if (!r) {
         if (isTcgcsvOrigin(set.externalId)) {
           res.notLinkable = 'tcgcsv_source';
@@ -492,6 +508,11 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
       });
     } catch (e) {
       res.error = safeErrorTag(e); // AE-4: etiqueta/código, nunca el texto crudo del proveedor (ni en bitácora ni en `lastError`)
+      // Corte de la tanda (tope/plazo/disyuntor): no es un fallo del set, no suma a su racha ni deja fila `failed`.
+      if (e instanceof BudgetExhaustedError || e instanceof DeadlineError || e instanceof CircuitOpenError) {
+        res.error = e.message;
+        return res;
+      }
       // m-13: el intento fallido queda registrado (con el error) ⇒ el set pasa al final de la rotación y cuenta su racha.
       await this.audit
         .log({ actorUserId, action: ACTION, entityType: 'CardSet', entityId: setId, after: { setId, failed: true, error: res.error.slice(0, 200), trigger } })
