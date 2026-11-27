@@ -127,9 +127,9 @@
 
 ### catalog
 - GET `/admin/catalog/remote-sets` · admin
-- GET `/admin/catalog/sync-status` · admin
+- GET `/admin/catalog/sync-status` · admin — enlaces/precio automáticos y excepciones ⇒ `API_CONTRACT_AUTOENLACE.md`
 - POST `/admin/catalog/unify-rarities` · admin
-- POST `/admin/catalog/sync` · admin — respuesta incluye `shadowed: string[]` (ids de sets omitidos por sombra `tcgcsv:`)
+- POST `/admin/catalog/sync` · admin — `shadowed: string[]`
 - POST `/admin/catalog/refresh-variants` · admin
 - GET `/admin/catalog/refresh-variants-status` · admin
 - POST `/admin/catalog/refresh-variants-all` · admin
