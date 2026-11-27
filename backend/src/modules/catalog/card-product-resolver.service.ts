@@ -19,7 +19,7 @@ import {
 // FUENTE ÚNICA del match set local ↔ grupo TCGCSV (S-D3 / §4.27d). Ver `resolveGroupId`: esta
 // escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
 // de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
-import { resolveTcgcsvGroupForSet, scoreGroupCandidates, shouldRetainTcgcsvPrice, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
+import { releaseTcgcsvRow, resolveTcgcsvGroupForSet, scoreGroupCandidates, type GroupCandidate, type RetainedPriceRow } from '../pricing/providers/tcgcsv-group-match';
 import { priorRefKey, priorTcgcsvRefKeys } from '../pricing/providers/tcgcsv-prior-refs';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
 import { planCardLinks } from './card-link-plan';
@@ -341,12 +341,13 @@ export class CardProductResolverService {
     const verdictOf = (j: PriceJob): GateVerdict | undefined => verdicts.get(variantKey({ cardId: j.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: j.finish }));
     const sanity = AutoLinkPriceGate.sanity(verdicts.values());
     const unknown = unknownSubtypes.length;
-    // §10.1: grupo elegido por la regla B3 (sin segunda fuente que lo confirme) ⇒ lo SIN referencia previa no se publica hasta que el dueño confirme el grupo.
-    // §12: la MISMA función que usa el provider de price-ingest; «previa» = solo referencia TCGCSV (la base del candado puede venir de tcgdex y NO libera).
-    if (gating && resolved.via === 'b3') {
-      const prior = await priorTcgcsvRefKeys(this.prisma, [...verdicts.values()].map((v) => v.cardId));
-      for (const v of verdicts.values()) if (shouldRetainTcgcsvPrice({ groupId: resolved.groupId, via: resolved.via }, prior.has(priorRefKey(v.cardId, v.finish)))) v.b3Unverified = true;
-    }
+    // §10.1/§13: grupo elegido por la regla B3 (sin segunda fuente que lo confirme) ⇒ la fila cuyo PRODUCTO|subtipo no tiene referencia TCGCSV previa no se
+    // publica hasta que el dueño confirme el grupo. APLICA EN TODA LLAMADA (con o sin `onlyUnlinked`, con o sin candado) y falla CERRADA (§13.3):
+    // «previa» = `productId|subtipo` TCGCSV de la fila a emitir; la base del candado (tcgdex) y otros productos de la carta NO liberan.
+    const resolution = { groupId, via: resolved.via };
+    const prior = resolved.via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, [...jobs, ...adds].map((j) => j.productId)) : new Set<string>();
+    const releaseJob = (j: PriceJob, cardProductId: string): RetainedPriceRow<{ cardId: string; cardProductId: string; finish: Finish; marketUsdCents: number }> | null =>
+      releaseTcgcsvRow(resolution, prior.has(priorRefKey(j.productId, j.finish)), { cardId: j.cardId, cardProductId, finish: j.finish, marketUsdCents: j.usd });
     if (gating && sanity.tripped && resolved.via !== 'confirmed') {
       // (ii) grupo equivocado: ≥ 20 % de las variantes con referencia previa retenidas ⇒ el set entero NO se publica (0 enlaces, 0 precios, 0 casos).
       this.logger.warn(`card-product: set ${set.name} (grupo ${groupId}) frenado por cordura (${sanity.held}/${sanity.checked} variantes con salto); 0 escrituras.`);
@@ -383,7 +384,8 @@ export class CardProductResolverService {
     };
     const publish = async (j: PriceJob, cpid: string): Promise<void> => {
       const v = verdictOf(j);
-      if (v?.b3Unverified) {
+      const rel = releaseJob(j, cpid);
+      if (!rel) {
         retainB3(j); // NO se escribe `PriceReference` (ni la lee el cliente por ninguna vía); el enlace sí queda
         return;
       }
@@ -392,7 +394,7 @@ export class CardProductResolverService {
         heldVerdicts.push(v);
         return;
       }
-      await this.upsertVariantPrice(j.cardId, cpid, j.finish, j.usd, fxSnap);
+      await this.upsertVariantPrice(rel, fxSnap);
       noteWritten(j, v);
     };
 
@@ -433,25 +435,26 @@ export class CardProductResolverService {
     const addsByCard = new Map<string, PriceJob[]>();
     for (const a of adds) addsByCard.set(a.cardId, [...(addsByCard.get(a.cardId) ?? []), a]);
     for (const [cardId, list] of addsByCard) {
-      const ok: { j: PriceJob; v?: GateVerdict }[] = [];
+      const ok: { j: PriceJob; v?: GateVerdict; rel: RetainedPriceRow<{ cardId: string; cardProductId: string; finish: Finish; marketUsdCents: number }> }[] = [];
       for (const j of list) {
         const v = verdictOf(j);
-        if (v?.b3Unverified) {
+        const rel = releaseJob(j, j.cardProductId!);
+        if (!rel) {
           retainB3(j);
         } else if (v?.held) {
           heldCount += 1;
           heldVerdicts.push(v);
           notApplied('price_jump');
-        } else ok.push({ j, v });
+        } else ok.push({ j, v, rel });
       }
       if (ok.length === 0) continue;
       await withPriceWriteShared(this.prisma, async (tx) => {
-        for (const { j } of ok) {
+        for (const { j, rel } of ok) {
           const cp = await tx.cardProduct.findUnique({ where: { id: j.cardProductId! }, select: { finishes: true } });
           if (!cp) continue;
           const union = orderFinishes([...(cp.finishes as Finish[]), j.finish]);
           await tx.cardProduct.update({ where: { id: j.cardProductId! }, data: { finishes: union } });
-          await this.upsertVariantPrice(j.cardId, j.cardProductId!, j.finish, j.usd, fxSnap, tx);
+          await this.upsertVariantPrice(rel, fxSnap, tx);
         }
         await unionAvailableFinishes(tx, cardId, ok.map((o) => o.j.finish));
         await this.audit?.log({ actorUserId: null, action: 'catalog.finish_reconciled', entityType: 'Card', entityId: cardId, after: { cardId, added: ok.map((o) => o.j.finish), setId: localSetId } }, tx);
@@ -520,9 +523,17 @@ export class CardProductResolverService {
    */
   async writeConfirmedLink(
     tx: Prisma.TransactionClient,
-    args: { cardId: string; dp: DerivedCardProduct; held: ReadonlySet<Finish>; fx: { rate: number; bufferPct: number } },
+    args: {
+      cardId: string;
+      dp: DerivedCardProduct;
+      held: ReadonlySet<Finish>;
+      fx: { rate: number; bufferPct: number };
+      /** §13: cómo se resolvió el grupo (nulo/desconocido ⇒ retiene) y las referencias TCGCSV previas `productId|subtipo` del producto. */
+      resolution: { groupId: number | null; via: string | null } | null;
+      prior: ReadonlySet<string>;
+    },
   ): Promise<{ cardProductId: string; priced: Finish[] } | null> {
-    const { cardId, dp, held, fx } = args;
+    const { cardId, dp, held, fx, resolution, prior } = args;
     await CardProductResolverService.lockCardLink(tx, cardId);
     if ((await tx.cardProduct.count({ where: { cardId } })) > 0) return null;
     const made = await tx.cardProduct.createMany({ data: [{ cardId, tcgplayerProductId: dp.productId, kind: dp.kind, name: dp.name, finishes: dp.finishes }], skipDuplicates: true });
@@ -532,7 +543,9 @@ export class CardProductResolverService {
     for (const pf of dp.pricesByFinish) {
       const usd = pf.marketPrice == null || pf.marketPrice <= 0 ? 0 : Math.round(pf.marketPrice * 100);
       if (usd <= 0 || held.has(pf.finish)) continue;
-      await this.upsertVariantPrice(cardId, cp.id, pf.finish, usd, fx, tx);
+      const rel = releaseTcgcsvRow(resolution, prior.has(priorRefKey(dp.productId, pf.finish)), { cardId, cardProductId: cp.id, finish: pf.finish, marketUsdCents: usd });
+      if (!rel) continue; // §13: grupo B3 sin confirmar y sin referencia previa de este producto|subtipo
+      await this.upsertVariantPrice(rel, fx, tx);
       priced.push(pf.finish);
     }
     await this.finishReconciler.reconcile([cardId], tx);
@@ -603,15 +616,13 @@ export class CardProductResolverService {
    * Respeta el override manual del admin (no clobbea). Money-safe: solo se llama con market > 0.
    */
   private async upsertVariantPrice(
-    cardId: string,
-    cardProductId: string,
-    finish: Finish,
-    marketUsdCents: number,
+    row: RetainedPriceRow<{ cardId: string; cardProductId: string; finish: Finish; marketUsdCents: number }>,
     fx: { rate: number; bufferPct: number },
     db?: Prisma.TransactionClient,
   ): Promise<void> {
+    const { cardId, cardProductId, finish, marketUsdCents } = row;
     // §PRICE-PATTERN 6.6 (IMP-B): escritura de mercado ⇒ candado COMPARTIDO con la prueba del job (`pricing/price-write-lock.ts`).
-    if (!db) return withPriceWriteShared(this.prisma, (tx) => this.upsertVariantPrice(cardId, cardProductId, finish, marketUsdCents, fx, tx));
+    if (!db) return withPriceWriteShared(this.prisma, (tx) => this.upsertVariantPrice(row, fx, tx));
     await lockPriceWriteShared(db);
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';

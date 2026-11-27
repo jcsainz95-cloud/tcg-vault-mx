@@ -6,44 +6,58 @@
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
+import { analyze, buildProgram } from './static/b3-retention-ast';
 import { resolveTcgcsvGroupForSet, shouldRetainTcgcsvPrice } from '../src/modules/pricing/providers/tcgcsv-group-match';
 
 const SRC = join(__dirname, '..', 'src');
 const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : f.endsWith('.ts') && !f.endsWith('.spec.ts') ? [join(d, f)] : []));
 const strip = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-/** Escritores de `PriceReference` con `source:'tcgcsv_singles'` y por qué cada uno es seguro. */
-const CONTROLLED: Record<string, { reason: string; mustCall?: boolean }> = {
-  'modules/pricing/price-ingest.service.ts': { reason: 'persiste las filas que emite TcgcsvSinglesBulkPriceProvider (el punto de retención §12.2-ii)' },
-  'modules/catalog/card-product-resolver.service.ts': { reason: 'job / link-repair / confirmación por carta: marca b3Unverified con shouldRetainTcgcsvPrice', mustCall: true },
-  'modules/catalog/tcgcsv-set-import.service.ts': { reason: 'import explícito del dueño de un grupo TCGCSV como set propio (externalId tcgcsv-*): el grupo es la entrada, no se resuelve por B3' },
-  'modules/catalog/promo-set-products.service.ts': { reason: 'grupos de la tabla fija PTCG_PROMO_GROUPS (via promo_table, nunca b3)' },
-  'modules/pricing/stamped-ingest.service.ts': { reason: 'productos de liga de grupos fijos (§IDS), no del mapeo set→grupo' },
-};
+describe('§13.4 escritores de PriceReference TCGCSV (estático por AST + type checker, no por el literal)', () => {
+  const MUTANT_HEAD = "import { PrismaClient, PriceSource } from '@prisma/client';\nimport { PricingService } from '../pricing/pricing.service';\n";
+  const ROW = "cardId: 'c', productType: 'raw' as const, gradeKey: 'raw:NM', finish: 'normal' as const, priceMxnCents: 1, capturedDate: new Date()";
+  const mutants: Record<string, string> = {
+    'src/modules/__mutants__/m-const.ts': `${MUTANT_HEAD}const SRC = 'tcgcsv_singles' as const;\nexport async function w(db: PrismaClient) { await db.priceReference.create({ data: { ${ROW}, source: SRC } }); }\n`,
+    'src/modules/__mutants__/m-param.ts': `${MUTANT_HEAD}export async function w(db: PrismaClient, src: PriceSource) { await db.priceReference.create({ data: { ${ROW}, source: src } }); }\n`,
+    'src/modules/__mutants__/m-spread.ts': `${MUTANT_HEAD}const base = { source: 'tcgcsv_singles' as const };\nexport async function w(db: PrismaClient) { await db.priceReference.upsert({ where: { id: 'x' }, create: { ${ROW}, ...base }, update: { ...base } }); }\n`,
+    'src/modules/__mutants__/m-persist.ts': `${MUTANT_HEAD}export async function w(p: PricingService) { await p.persistMarketReference('c', 'normal', { marketCents: 1, currency: 'USD', source: 'tcgcsv_singles' as any }, { rate: 1, bufferPct: 0 }); }\n`,
+  };
+  // Control verde: el mismo escritor, pero que consume `RetainedPriceRow`, NO se señala.
+  const control = {
+    'src/modules/__mutants__/ok-branded.ts': `import { PrismaClient } from '@prisma/client';\nimport type { RetainedPriceRow } from '../pricing/providers/tcgcsv-group-match';\nexport async function w(db: PrismaClient, _row: RetainedPriceRow<{ x: number }>) { await db.priceReference.create({ data: { ${ROW}, source: 'tcgcsv_singles' } }); }\n`,
+  };
+  const program = buildProgram({ ...mutants, ...control });
+  const real = analyze(program, (rel) => !rel.startsWith('modules/__mutants__/'));
+  const mutated = analyze(program, (rel) => rel.startsWith('modules/__mutants__/'));
 
-describe('§12 punto único de retención B3 (estático)', () => {
-  const writers = walk(SRC)
-    .map((f) => ({ rel: relative(SRC, f), txt: strip(readFileSync(f, 'utf8')) }))
-    .filter((f) => /source:\s*'tcgcsv_singles'/.test(f.txt) && /persistMarketReference\s*\(|priceReference\.(create|createMany|upsert|update|updateMany)\s*\(/.test(f.txt))
-    .map((f) => f.rel)
-    .sort();
-
-  it('los únicos escritores de PriceReference TCGCSV son los declarados (un escritor nuevo debe declararse y aplicar la regla)', () => {
-    expect(writers).toEqual(Object.keys(CONTROLLED).sort());
+  it('en src/ NINGÚN escritor de PriceReference con fuente que pueda ser TCGCSV deja de consumir RetainedPriceRow (salvo la lista cerrada EXEMPT)', () => {
+    expect(real).toEqual([]);
   });
 
-  it('el provider de price-ingest y el resolver del job aplican shouldRetainTcgcsvPrice antes de emitir/publicar', () => {
-    const provider = strip(readFileSync(join(SRC, 'modules/pricing/providers/tcgcsv-singles-bulk.provider.ts'), 'utf8'));
-    expect(provider).toMatch(/shouldRetainTcgcsvPrice\(\{ groupId, via \}/);
-    expect(provider).toMatch(/reason: 'b3_unverified'/);
-    for (const [rel, c] of Object.entries(CONTROLLED)) if (c.mustCall) expect(strip(readFileSync(join(SRC, rel), 'utf8'))).toMatch(/shouldRetainTcgcsvPrice\(/);
-    const confirm = strip(readFileSync(join(SRC, 'modules/catalog/card-link-confirm.service.ts'), 'utf8'));
-    expect(confirm).toMatch(/shouldRetainTcgcsvPrice\(/);
+  it.each(Object.keys(mutants))('mutante %s ⇒ el análisis lo señala (rojo)', (file) => {
+    expect(mutated.filter((v) => `src/${v.file}` === file).length).toBeGreaterThan(0);
   });
 
-  it('set-price-sync y catalog-price-sync no escriben PriceReference TCGCSV (no están entre los escritores y no llaman a persistMarketReference con esa fuente)', () => {
+  it('el control con RetainedPriceRow NO se señala', () => {
+    expect(mutated.filter((v) => v.file === 'modules/__mutants__/ok-branded.ts')).toEqual([]);
+  });
+
+  it('shouldRetainTcgcsvPrice y releaseTcgcsvRow son el único origen de la marca (nadie más llama a RELEASED.add / forja el tipo)', () => {
+    const offenders = walk(SRC).filter((f) => /\bas\s+RetainedPriceRow\b/.test(strip(readFileSync(f, 'utf8'))) && !f.endsWith('tcgcsv-group-match.ts'));
+    expect(offenders.map((f) => relative(SRC, f))).toEqual([]);
+  });
+
+  it('los escritores controlados aplican la retención: provider, resolver, confirmación y stamped-ingest', () => {
+    const read = (rel: string): string => strip(readFileSync(join(SRC, rel), 'utf8'));
+    expect(read('modules/pricing/providers/tcgcsv-singles-bulk.provider.ts')).toMatch(/releaseTcgcsvRow\(\{ groupId, via \}/);
+    expect(read('modules/pricing/providers/tcgcsv-singles-bulk.provider.ts')).toMatch(/reason: 'b3_unverified'/);
+    expect(read('modules/catalog/card-product-resolver.service.ts')).toMatch(/releaseTcgcsvRow\(resolution,/);
+    expect(read('modules/catalog/card-link-confirm.service.ts')).toMatch(/shouldRetainTcgcsvPrice\(/);
+    expect(read('modules/pricing/stamped-ingest.service.ts')).toMatch(/b3_unverified/);
+  });
+
+  it('set-price-sync y catalog-price-sync no escriben PriceReference TCGCSV', () => {
     for (const rel of ['jobs/set-price-sync.service.ts', 'jobs/catalog-price-sync.service.ts', 'modules/catalog/catalog-sync.service.ts']) {
-      expect(writers).not.toContain(rel);
       expect(strip(readFileSync(join(SRC, rel), 'utf8'))).not.toMatch(/tcgcsv_singles/);
     }
   });
@@ -58,8 +72,16 @@ describe('§12.2 shouldRetainTcgcsvPrice', () => {
     ['ppt_set_id', false, false],
     ['name', false, false],
     ['auto', false, false],
+    ['desconocido', false, true], // §13.3: valor desconocido ⇒ retiene
+    ['desconocido', true, true],
+    [null, false, true], // sin veredicto ⇒ retiene
   ])('via %s, referencia previa TCGCSV %s ⇒ retiene %s', (via, prior, expected) => {
     expect(shouldRetainTcgcsvPrice({ groupId: 1, via }, prior)).toBe(expected);
+  });
+
+  it('§13.3 resolución nula/indefinida ⇒ retiene (falla cerrada), aun con referencia previa', () => {
+    expect(shouldRetainTcgcsvPrice(null, true)).toBe(true);
+    expect(shouldRetainTcgcsvPrice(undefined, false)).toBe(true);
   });
 
   it('el resolver de grupo devuelve SIEMPRE {groupId, via} cuando resuelve', async () => {

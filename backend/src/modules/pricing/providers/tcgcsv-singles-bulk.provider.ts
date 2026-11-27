@@ -4,7 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceResult, BulkPriceRow } from '../pricing.types';
 import { TcgcsvCatalogClient, deriveCardProductsFromTcgcsv } from './tcgcsv-singles.provider';
 import { SetUnresolvedSignal } from '../pricing.types';
-import { TcgcsvGroupMatchFailure, resolveTcgcsvGroupForSet, shouldRetainTcgcsvPrice } from './tcgcsv-group-match';
+import { TcgcsvGroupMatchFailure, resolveTcgcsvGroupForSet, releaseTcgcsvRow } from './tcgcsv-group-match';
 import { priorRefKey, priorTcgcsvRefKeys } from './tcgcsv-prior-refs';
 
 /**
@@ -128,7 +128,7 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
 
     // §12 (retención B3, ÚNICO punto de aplicación para todo escritor que consuma este provider): grupo `via:'b3'` ⇒ la variante sin referencia
     // TCGCSV previa NO emite fila. Solo se consulta si el grupo es B3 (los demás no retienen nunca).
-    const prior = via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, existing.map((e) => e.cardId)) : new Set<string>();
+    const prior = via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, existing.map((e) => e.tcgplayerProductId)) : new Set<string>();
     let b3Held = 0;
     const rows: BulkPriceRow[] = [];
     let fetchedRaw = 0;
@@ -178,21 +178,23 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
           skipped += 1;
           continue;
         }
-        if (shouldRetainTcgcsvPrice({ groupId, via }, prior.has(priorRefKey(cp.cardId, pf.finish)))) {
-          skipped += 1;
-          b3Held += 1;
-          continue;
-        }
-        rows.push({
+        // §13.4(b): la fila sale marcada `RetainedPriceRow` (solo así la persiste `price-ingest`); `null` ⇒ retenida (b3 sin referencia previa de ESTE producto|subtipo).
+        const out = releaseTcgcsvRow({ groupId, via }, prior.has(priorRefKey(dp.productId, pf.finish)), {
           externalId: cp.card.externalId,
           cardId: cp.cardId,
           cardProductId: cp.id,
           finish: pf.finish,
           marketCents,
-          currency: 'USD', // TCGCSV publica SIEMPRE USD (precios TCGplayer) ⇒ el ingest aplica FX+colchón.
+          currency: 'USD' as const, // TCGCSV publica SIEMPRE USD (precios TCGplayer) ⇒ el ingest aplica FX+colchón.
           // El subTypeName se mapeó por `TCGCSV_SUBTYPE_TO_FINISH` (espejo estricto), no un alias supuesto.
           finishAliasVerified: true,
-        });
+        } satisfies BulkPriceRow);
+        if (out == null) {
+          skipped += 1;
+          b3Held += 1;
+          continue;
+        }
+        rows.push(out);
       }
     }
 

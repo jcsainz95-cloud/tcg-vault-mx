@@ -18,6 +18,7 @@ import {
 } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
+import { isRetainedRow, tcgcsvPersistInput } from './providers/tcgcsv-group-match';
 import { StampedIngestService } from './stamped-ingest.service';
 // v1.91⟨precios⟩ (M-75, §PRE.A/6): TCGdex (tcgdex+cardmarket) + cola de revisión del candado.
 import { TcgdexBulkProvider } from './providers/tcgdex-bulk.provider';
@@ -982,10 +983,15 @@ export class PriceIngestService {
             skipped += 1;
             continue;
           }
+          // §13.4(b): solo se persiste una fila que el provider liberó por `shouldRetainTcgcsvPrice` (sin marca ⇒ no se escribe).
+          if (!isRetainedRow(row)) {
+            skipped += 1;
+            continue;
+          }
           await this.pricing.persistMarketReference(
             row.cardId,
             row.finish,
-            { marketCents: row.marketCents, currency: row.currency, source: 'tcgcsv_singles' },
+            tcgcsvPersistInput(row),
             fx,
             row.cardProductId,
             tx,

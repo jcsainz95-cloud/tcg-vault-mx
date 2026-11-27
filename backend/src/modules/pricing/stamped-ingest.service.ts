@@ -6,6 +6,8 @@ import { baseMatchKey, catalogMatchKey, STAMPED_SOURCE_GROUPS, stampTypeOf } fro
 import { deriveStructuralFinishes, tcgcsvSubTypeToFinish, TcgcsvPriceRow, TcgcsvSingleProductRef } from './pricing.types';
 import { TcgcsvCatalogClient } from './providers/tcgcsv-singles.provider';
 import { PricingService } from './pricing.service';
+import { releaseTcgcsvRow, resolveTcgcsvGroupForSet, shouldRetainTcgcsvPrice } from './providers/tcgcsv-group-match';
+import type { TcgcsvGroupRef } from './pricing.types';
 
 /** El log de un grupo (§IDS.3): `{grupo, colgados, ambiguos, sinPareja, sinTipo, conPrecio}` + `sinNumero` y `ocupados`. */
 export interface StampedGroupLog {
@@ -18,6 +20,8 @@ export interface StampedGroupLog {
   /** El `productId` ya existe como `CardProduct` de otro kind (p. ej. una promo): no se toca (IDS-D2 punto 3). */
   ocupados: number;
   conPrecio: number;
+  /** §13.2: cartas de sets con grupo `via:'b3'` sin confirmar: ni se cuelga la liga ni se precia (`b3_unverified`). Solo aparece si hubo. */
+  omitted?: { reason: 'b3_unverified'; count: number }[];
   error?: string;
 }
 
@@ -80,6 +84,30 @@ export class StampedIngestService {
     return { logs, written };
   }
 
+  /**
+   * §13.2/§13.3 — `true` ⇒ la carta pertenece a un set cuyo grupo de precios resuelve `via:'b3'` (sin confirmar) o no se pudo determinar (falla CERRADA:
+   * set ausente/error ⇒ retiene). Un set SIN grupo resoluble no es B3 (nada de B3 que confirmar). Cachea por set dentro de `cache`.
+   */
+  private async cardInB3UnverifiedSet(cardId: string, cache: Map<string, boolean>, groups: () => Promise<readonly TcgcsvGroupRef[]>): Promise<boolean> {
+    try {
+      // PROJECTION-EXEMPT: lectura interna de los datos del set para resolver su grupo (no es salida al cliente).
+      const card = await this.prisma.card.findUnique({
+        where: { id: cardId },
+        select: { set: { select: { id: true, name: true, pptSetId: true, externalId: true, series: true, releaseDate: true, cardGroupId: true, cardGroupVia: true } } },
+      });
+      if (!card?.set) return true;
+      const hit = cache.get(card.set.id);
+      if (hit != null) return hit;
+      const res = await resolveTcgcsvGroupForSet(card.set, groups);
+      const retain = res.groupId == null ? false : shouldRetainTcgcsvPrice({ groupId: res.groupId, via: res.via }, false);
+      cache.set(card.set.id, retain);
+      return retain;
+    } catch (e) {
+      this.logger.warn(`stamped-ingest: no se pudo resolver el grupo del set de la carta ${cardId} (${e instanceof Error ? e.message : String(e)}); se retiene.`);
+      return true;
+    }
+  }
+
   /** El índice `catalogMatchKey ⇒ {cardId}` de los productos `set_base|other` del catálogo (una lectura). */
   async buildCatalogIndex(): Promise<CatalogMatchIndex> {
     // PROJECTION-EXEMPT: lectura interna del empate (nombre del producto, número y total de la carta).
@@ -123,6 +151,10 @@ export class StampedIngestService {
       ).map((r) => [r.tcgplayerProductId, r]),
     );
     const now = new Date();
+    const b3Cache = new Map<string, boolean>();
+    let groupsOnce: Promise<readonly TcgcsvGroupRef[]> | null = null;
+    const groups = (): Promise<readonly TcgcsvGroupRef[]> => (groupsOnce ??= this.tcgcsv.listGroups());
+    let b3Omitted = 0;
     for (const p of products) {
       if (p.number == null || p.number.trim() === '') {
         log.sinNumero += 1;
@@ -143,6 +175,10 @@ export class StampedIngestService {
       let owner: { cardId: string; internalId: string } | null = null;
       if (prev && prev.kind !== 'stamped') {
         log.ocupados += 1;
+        continue;
+      }
+      if (prev && (await this.cardInB3UnverifiedSet(prev.cardId, b3Cache, groups))) {
+        b3Omitted += 1; // §13.2: ni se refresca ni se precia mientras el grupo B3 no esté confirmado
         continue;
       }
       if (prev) {
@@ -171,6 +207,10 @@ export class StampedIngestService {
           log.ambiguos += 1;
           continue;
         }
+        if (await this.cardInB3UnverifiedSet(cards[0], b3Cache, groups)) {
+          b3Omitted += 1; // §13.2: ni se cuelga ni se precia
+          continue;
+        }
         const created = await this.prisma.$transaction(async (tx) => {
           const cp = await tx.cardProduct.create({
             data: { cardId: cards[0], tcgplayerProductId: p.productId, kind: 'stamped', name: p.name, finishes, stampType: cls.type, stampLabel: cls.label, sourceGroupId: groupId },
@@ -186,6 +226,7 @@ export class StampedIngestService {
       if (w.length > 0) log.conPrecio += 1;
       for (const finish of w) written.push({ cardId: owner.cardId, tcgplayerProductId: p.productId, finish });
     }
+    if (b3Omitted > 0) log.omitted = [{ reason: 'b3_unverified', count: b3Omitted }];
     return { log, written };
   }
 
@@ -197,6 +238,8 @@ export class StampedIngestService {
   async writePrices(cardId: string, cardProductInternalId: string, rows: TcgcsvPriceRow[], fx: { rate: number; bufferPct: number }): Promise<Finish[]> {
     const out: Finish[] = [];
     const seen = new Set<Finish>();
+    // §13.2: defensa también en el `attach`/refresh: carta de set B3 sin confirmar (o sin poder determinarlo) ⇒ 0 precios.
+    if (await this.cardInB3UnverifiedSet(cardId, new Map(), () => this.tcgcsv.listGroups())) return out;
     for (const r of rows) {
       const finish = tcgcsvSubTypeToFinish(r.subTypeName);
       if (finish == null || seen.has(finish)) continue;
@@ -204,7 +247,7 @@ export class StampedIngestService {
       if (r.marketPrice == null || !(r.marketPrice > 0)) continue;
       const usdCents = Math.round(r.marketPrice * 100);
       if (usdCents <= 0) continue;
-      await this.pricing.persistMarketReference(cardId, finish, { marketCents: usdCents, currency: 'USD', source: 'tcgcsv_singles' }, fx, cardProductInternalId);
+      await this.pricing.persistMarketReference(cardId, finish, releaseTcgcsvRow({ groupId: null, via: 'confirmed' }, false, { marketCents: usdCents, currency: 'USD' as const, source: 'tcgcsv_singles' as const })!, fx, cardProductInternalId);
       out.push(finish);
     }
     return out;

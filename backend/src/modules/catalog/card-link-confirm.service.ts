@@ -183,9 +183,9 @@ export class CardLinkConfirmService {
     const held = new Set<Finish>(heldVerdicts.map((v) => v.finish));
     void variantKey;
     // §12: grupo B3 sin confirmar ⇒ el enlace se escribe, pero las variantes sin referencia TCGCSV previa NO se publican (misma función que price-ingest).
-    const prior = via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, [cardId]) : new Set<string>();
+    const prior = via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, [productId]) : new Set<string>();
     const writeHeld = new Set<Finish>(held);
-    for (const p of priceable) if (shouldRetainTcgcsvPrice({ groupId, via }, prior.has(priorRefKey(cardId, p.finish)))) writeHeld.add(p.finish);
+    for (const p of priceable) if (shouldRetainTcgcsvPrice({ groupId, via }, prior.has(priorRefKey(productId, p.finish)))) writeHeld.add(p.finish);
 
     let result: { cardProductId: string; priced: Finish[] } | null = null;
     let notWritten: 'taken' | 'cooldown' | 'already' | null = null;
@@ -208,7 +208,7 @@ export class CardLinkConfirmService {
             notWritten = 'cooldown';
             return null;
           }
-          const w = await this.resolver.writeConfirmedLink(tx, { cardId, dp, held: writeHeld, fx });
+          const w = await this.resolver.writeConfirmedLink(tx, { cardId, dp, held: writeHeld, fx, resolution: { groupId, via }, prior });
           if (!w) {
             notWritten = 'taken';
             return null;

@@ -1,3 +1,4 @@
+import { tcgcsvRow } from './helpers/tcgcsv-row';
 /**
  * pricing.money-ref-kind.spec.ts — **M-43 (v1.50.3-f): la NATURALEZA de la fila de precio.**
  * ARCHITECTURE §4.38(l.4), API_CONTRACT rev v1.50.3-f, §11 `v1.50.3-f-graded-estimate-kind`.
@@ -341,7 +342,7 @@ describe('M-43 — reglas de ESCRITURA: la naturaleza la fija el escritor (§4.3
     await svc.persistMarketReference(
       'card-fourth-raw',
       'normal',
-      { marketCents: 35_000, currency: 'MXN', source: 'tcgcsv_singles' },
+      tcgcsvRow(35_000, 'MXN'),
       { rate: 17.5, bufferPct: 3 },
     );
     expect(updated[0].data).toMatchObject({ refKind: 'market' });

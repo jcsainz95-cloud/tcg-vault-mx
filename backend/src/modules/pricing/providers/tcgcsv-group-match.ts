@@ -388,13 +388,52 @@ export function candidateForGroup(set: B3SetInfo, group: TcgcsvGroupRef): GroupC
 /** Cómo se resolvió el grupo TCGCSV de un set (§12.2). Solo `b3` está sin confirmar. */
 export type TcgcsvGroupVia = 'promo_table' | 'confirmed' | 'ppt_set_id' | 'name' | 'b3' | 'auto';
 
+/** Resoluciones que SÍ liberan (§13.3): explícitas o legado conocido. Cualquier otro valor (incluido `b3`, sin referencia previa) retiene. */
+const RELEASING_VIA: ReadonlySet<string> = new Set(['confirmed', 'promo_table', 'ppt_set_id', 'name', 'auto']);
+
 /**
- * §AUTO-ENLACE §12.2 — ÚNICA regla de retención B3 para TODO escritor de `PriceReference` de fuente TCGCSV: un grupo elegido por la regla B3
- * (`via:'b3'`, sin segunda fuente que lo confirme) NO publica el precio de una variante que no tenga ya una referencia TCGCSV previa.
- * «Referencia previa» = SOLO fuente `tcgcsv_singles` (tcgdex no libera).
+ * §AUTO-ENLACE §12.2/§13 — ÚNICA regla de retención B3 para TODO escritor de `PriceReference` de fuente TCGCSV. Falla CERRADA: sin resolución, sin `via`
+ * o con un `via` desconocido ⇒ RETIENE. Solo `confirmed`/`promo_table`/legado conocido liberan; `b3` (sin confirmar) libera únicamente la fila cuyo
+ * PRODUCTO+subtipo ya tiene referencia TCGCSV (`hasPriorTcgcsvRef` se calcula SOLO con el `productId|subtipo` de la fila a emitir; tcgdex y otros productos no cuentan).
  */
-export function shouldRetainTcgcsvPrice(resolution: { groupId: number | null; via: TcgcsvGroupVia | string | null }, hasPriorTcgcsvRef: boolean): boolean {
-  return resolution.via === 'b3' && !hasPriorTcgcsvRef;
+export function shouldRetainTcgcsvPrice(resolution: { groupId: number | null; via: TcgcsvGroupVia | string | null } | null | undefined, hasPriorTcgcsvRef: boolean): boolean {
+  const via = resolution?.via;
+  if (via == null) return true;
+  if (via === 'b3') return !hasPriorTcgcsvRef;
+  return !RELEASING_VIA.has(via);
+}
+
+declare const retainedBrand: unique symbol;
+/**
+ * §13.4(b) — fila de precio TCGCSV que YA pasó por `shouldRetainTcgcsvPrice` (y se libró). Es el ÚNICO tipo que acepta un escritor de `PriceReference`
+ * de fuente TCGCSV: la marca solo se obtiene de `releaseTcgcsvRow` (y se verifica en ejecución con `isRetainedRow`), así que escribir una fila sin pasar
+ * por el filtro no compila (ni escribe).
+ */
+export type RetainedPriceRow<T extends object = object> = T & { readonly [retainedBrand]: true };
+const RELEASED = new WeakSet<object>();
+
+/** Aplica `shouldRetainTcgcsvPrice`; si retiene ⇒ `null`; si libera ⇒ la MISMA fila marcada como `RetainedPriceRow`. */
+export function releaseTcgcsvRow<T extends object>(
+  resolution: { groupId: number | null; via: TcgcsvGroupVia | string | null } | null | undefined,
+  hasPriorTcgcsvRef: boolean,
+  row: T,
+): RetainedPriceRow<T> | null {
+  if (shouldRetainTcgcsvPrice(resolution, hasPriorTcgcsvRef)) return null;
+  RELEASED.add(row);
+  return row as RetainedPriceRow<T>;
+}
+
+/** Guardia de ejecución del tipo `RetainedPriceRow` (una fila sin marca no se escribe). */
+export function isRetainedRow<T extends object>(row: T): row is RetainedPriceRow<T> {
+  return RELEASED.has(row);
+}
+
+/** La entrada de `persistMarketReference` (fuente TCGCSV) derivada de una fila YA liberada; lanza si la fila no pasó por `releaseTcgcsvRow` (falla cerrada). */
+export function tcgcsvPersistInput(row: RetainedPriceRow<{ marketCents: number; currency: 'USD' | 'MXN' }>): RetainedPriceRow<{ marketCents: number; currency: 'USD' | 'MXN'; source: 'tcgcsv_singles' }> {
+  if (!RELEASED.has(row)) throw new Error('tcgcsv row without B3 retention verdict');
+  const out = { marketCents: row.marketCents, currency: row.currency, source: 'tcgcsv_singles' as const };
+  RELEASED.add(out);
+  return out as RetainedPriceRow<typeof out>;
 }
 
 /**

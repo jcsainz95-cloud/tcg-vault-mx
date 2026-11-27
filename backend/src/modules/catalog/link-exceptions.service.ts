@@ -1,3 +1,4 @@
+import type { TcgcsvGroupRef } from '../pricing/pricing.types';
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -204,6 +205,7 @@ export class LinkExceptionsService {
     const groups = this.groupsCache.peek();
     const nameOfGroup = (id: number): string | null => groups?.find((g) => g.groupId === id)?.name ?? null;
     const nextRun = summary.nextRunAt;
+    let freshGroups: TcgcsvGroupRef[] | null | undefined;
     const out: LinkExceptionSet[] = [];
     for (const r of rows) {
       const fixed = untryableReason(r);
@@ -253,8 +255,18 @@ export class LinkExceptionsService {
         // Mejor candidato primero: `candidates[0]` = el grupo que eligió B3 (con su puntaje y fecha reales; `productCount` null: no hay `getProducts` en una lectura).
         const chosen = groupUsed?.groupId ?? m?.cardGroupId ?? null;
         const meta3 = m ? { name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId } : null;
-        const scored = groups && meta3 ? scoreGroupCandidates(meta3, groups) : [];
-        const chosenGroup = chosen != null ? groups?.find((g) => g.groupId === chosen) : undefined;
+        // §13 (barato): con la caché de grupos fría, el candidato B3 saldría con puntaje 0 y fecha nula; se leen los grupos frescos (una llamada por TTL, solo si hay un set B3
+        // que mostrar; un fallo del proveedor conserva el comportamiento previo). Solo alimenta ESTE bloque: el resto de la lectura sigue sin salir a la red.
+        if (groups == null && freshGroups === undefined) {
+          try {
+            freshGroups = await this.groupsCache.get();
+          } catch {
+            freshGroups = null;
+          }
+        }
+        const gs = groups ?? freshGroups ?? null;
+        const scored = gs && meta3 ? scoreGroupCandidates(meta3, gs) : [];
+        const chosenGroup = chosen != null ? gs?.find((g) => g.groupId === chosen) : undefined;
         const first = chosen != null ? (scored.find((c) => c.groupId === chosen) ?? (chosenGroup && meta3 ? candidateForGroup(meta3, chosenGroup) : { groupId: chosen, name: nameOfGroup(chosen) ?? groupUsed?.name ?? '', publishedOn: null, productCount: null, score: 0 })) : null;
         candidates = [...(first ? [first] : []), ...scored.filter((c) => c.groupId !== chosen)].slice(0, 5);
         const smp = la?.after.b3Sample;

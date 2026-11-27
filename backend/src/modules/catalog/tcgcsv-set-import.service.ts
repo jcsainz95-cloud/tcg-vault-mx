@@ -21,6 +21,7 @@ import {
   tcgcsvSubTypeToFinish,
 } from '../pricing/pricing.types';
 import { PricingService } from '../pricing/pricing.service';
+import { releaseTcgcsvRow } from '../pricing/providers/tcgcsv-group-match';
 import { FxService } from '../pricing/fx.service';
 import { sanitizeSealedImageUrl, upgradeSealedImageUrl } from '../inventory/sealed-image-host';
 import { FinishReconciler } from './finish-reconciler.service';
@@ -463,7 +464,8 @@ export class TcgcsvSetImportService {
         await this.pricing.persistMarketReference(
           cardId,
           finish,
-          { marketCents: cents, currency: 'USD', source: 'tcgcsv_singles' },
+          // §13.4: import explícito del dueño de UN grupo TCGCSV (el grupo es la entrada) ⇒ equivale a `confirmed`; no pasa por el mapeo set→grupo.
+          releaseTcgcsvRow({ groupId: null, via: 'confirmed' }, false, { marketCents: cents, currency: 'USD' as const, source: 'tcgcsv_singles' as const })!,
           fx,
           cardProductId,
           tx,

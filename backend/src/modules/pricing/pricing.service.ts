@@ -1,3 +1,4 @@
+import { isRetainedRow, type RetainedPriceRow } from './providers/tcgcsv-group-match';
 import { primaryFinishOf } from '../../common/card-order';
 import { runSerializable } from '../../common/serializable-retry';
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -804,6 +805,11 @@ export interface SalePriceDecision extends CurvePriceResult {
  * 4. Si null y sin override → PendingPriceEntry (precio pendiente, escala al dueño).
  * Solo se pricea la bóveda (el llamador pasa cartas en bóveda).
  */
+/** §13.4(b) — entrada de `persistMarketReference`: TCGCSV solo como fila ya retenida/liberada. */
+export type PersistMarketInput =
+  | { marketCents: number; currency: 'USD' | 'MXN'; source: Exclude<PriceSourceStr, 'tcgcsv_singles'> }
+  | RetainedPriceRow<{ marketCents: number; currency: 'USD' | 'MXN'; source: 'tcgcsv_singles' }>;
+
 @Injectable()
 export class PricingService {
   private readonly logger = new Logger(PricingService.name);
@@ -2605,11 +2611,13 @@ export class PricingService {
     const provider = await this.providerFor(productType);
     const quote = provider ? await provider.fetchPrice({ card, productType, gradeKey, finish }) : null;
 
-    if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null)) {
+    if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null) || quote.source === 'tcgcsv_singles') {
+      // §13: una cotización TCGCSV no pasó por la retención B3 ⇒ no se escribe aquí (falla cerrada; el escritor de TCGCSV es el provider/resolver).
       // v1.80.8.4 (§M2 `M2-VQ`): sin cotización ⇒ `pending`, y NADA en la cola (ver docblock).
       return { status: 'pending' };
     }
 
+    const writeSource: Exclude<PriceSourceStr, 'tcgcsv_singles'> = quote.source; // ya descartada TCGCSV arriba (§13)
     let priceMxnCents: number;
     let priceUsdCents: number | null = null;
     let fxRate: number | null = null;
@@ -2648,7 +2656,7 @@ export class PricingService {
           productType,
           gradeKey,
           finish,
-          source: quote.source,
+          source: writeSource,
           priceUsdCents,
           fxRate,
           fxBufferPct,
@@ -2941,7 +2949,8 @@ export class PricingService {
   async persistMarketReference(
     cardId: string,
     finish: Finish,
-    market: { marketCents: number; currency: 'USD' | 'MXN'; source: PriceSourceStr },
+    // §13.4(b): una fila de fuente `tcgcsv_singles` SOLO entra como `RetainedPriceRow` (ya pasó por `shouldRetainTcgcsvPrice`); las demás fuentes, como siempre.
+    market: PersistMarketInput,
     fx: { rate: number; bufferPct: number },
     // v1.29 (M-31, §4.27f): el fallback PPT de singles y las gradeadas escriben con `cardProductId=null`
     // (el PRIMARIO tcgcsv_singles por producto lo escribe el CardProductResolver con su cardProductId).
@@ -2952,6 +2961,8 @@ export class PricingService {
     // §PRICE-PATTERN 6.6 (IMP-B): toda escritura de mercado toma el candado COMPARTIDO con la prueba del job (`price-write-lock.ts`). Cliente raíz ⇒
     // transacción corta; ya dentro de una (import, bucle por tandas) ⇒ solo toma el candado y sigue.
     if ('$transaction' in db) return withPriceWriteShared(db, (tx) => this.persistMarketReference(cardId, finish, market, fx, cardProductId, tx));
+    // Defensa en ejecución de §13.4(b): una fila TCGCSV sin marca de retención NO se escribe (el tipo ya lo impide al compilar).
+    if (market.source === 'tcgcsv_singles' && !isRetainedRow(market)) return;
     await lockPriceWriteShared(db);
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
@@ -3135,7 +3146,7 @@ export class PricingService {
     });
 
     const data = {
-      source: row.source as PriceSourceStr,
+      source: row.source,
       priceUsdCents,
       fxRate,
       fxBufferPct,
@@ -3255,7 +3266,7 @@ export class PricingService {
     cardId: string,
     gradeValue: string,
     finish: Finish,
-    market: { amountCents: number; currency: 'USD' | 'MXN'; source: PriceSourceStr },
+    market: { amountCents: number; currency: 'USD' | 'MXN'; source: Exclude<PriceSourceStr, 'tcgcsv_singles'> },
     fx: { rate: number; bufferPct: number },
   ): Promise<boolean> {
     // Money-safe redundante (el parser ya lo garantiza): un <= 0 NO es un estimado.
@@ -3393,6 +3404,7 @@ export class PricingService {
       for (const row of result.rows) {
         if (!(row.marketCents > 0)) continue; // money-safe: nunca 0/negativo.
         if (row.currency === 'USD' && fx == null) continue; // sin FX no se inventa el MXN.
+        if (row.source === 'tcgcsv_singles') continue; // §13: este fallback no consulta TCGCSV; una fila TCGCSV sin pasar por la retención B3 no se escribe (falla cerrada).
         try {
           await this.persistMarketReference(
             row.cardId,
@@ -3453,7 +3465,7 @@ export class PricingService {
     if (existing?.isManualOverride) return;
     const priceMxnCents = usdToMxnCents(market.marketCents, fx.rate, fx.bufferPct);
     const data = {
-      source: 'tcgcsv' as PriceSourceStr,
+      source: 'tcgcsv' as const, // sealed (fuente `tcgcsv`, no `tcgcsv_singles`)
       priceUsdCents: market.marketCents,
       fxRate: fx.rate,
       fxBufferPct: fx.bufferPct,

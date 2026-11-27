@@ -16,6 +16,9 @@ import { TcgcsvCatalogClient } from '../../src/modules/pricing/providers/tcgcsv-
 import { FxService } from '../../src/modules/pricing/fx.service';
 import { PriceIngestService } from '../../src/modules/pricing/price-ingest.service';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
+import { CardProductResolverService } from '../../src/modules/catalog/card-product-resolver.service';
+import { StampedIngestService } from '../../src/modules/pricing/stamped-ingest.service';
+import { TcgcsvGroupsCache } from '../../src/modules/catalog/tcgcsv-groups-cache';
 import { SchedulerService } from '../../src/jobs/scheduler.service';
 
 jest.setTimeout(240_000);
@@ -79,8 +82,11 @@ describe('E2E — §12 retención B3 en TODO escritor de PriceReference TCGCSV',
       expect(r.body.displayPriceCents ?? null).toBeNull();
     }
   }
-  const priorRef = (cardId: string, source: 'tcgcsv_singles' | 'tcgdex', mxn: number) =>
-    h.prisma.priceReference.create({ data: { cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source, priceUsdCents: null, priceMxnCents: mxn, capturedDate: day(3), refKind: 'market' } as never });
+  /** `own` ⇒ la referencia TCGCSV cuelga del producto set_base de la carta (la «previa» de §13.1); `cardProductId` explícito ⇒ de otro producto. */
+  const priorRef = async (cardId: string, source: 'tcgcsv_singles' | 'tcgdex', mxn: number, cardProductId?: string) => {
+    const own = source === 'tcgcsv_singles' && cardProductId === undefined ? (await h.prisma.cardProduct.findFirst({ where: { cardId, kind: 'set_base' }, select: { id: true } }))?.id : cardProductId;
+    return h.prisma.priceReference.create({ data: { cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source, cardProductId: source === 'tcgcsv_singles' ? own : undefined, priceUsdCents: null, priceMxnCents: mxn, capturedDate: day(3), refKind: 'market' } as never });
+  };
   const ingestSet = (setId: string) => h.api<any>('POST', '/admin/jobs/price-ingest', { token: admin, json: { setId } });
   const confirmGroup = (setId: string, groupId: number) => h.api<any>('POST', `/admin/catalog/link-exceptions/${setId}/confirm`, { token: admin, json: { groupId } });
 
@@ -164,6 +170,72 @@ describe('E2E — §12 retención B3 en TODO escritor de PriceReference TCGCSV',
     expect(await h.prisma.priceReference.count({ where: { cardId: f.cardIds[1], source: 'tcgdex' } })).toBe(1); // tcgdex intacta
     const ex = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
     expect(ex.body.sets.find((x: any) => x.setId === f.setId)).toMatchObject({ reason: 'b3_unverified', b3Published: 1, b3Held: 2 });
+  });
+
+  it('§13.1 la referencia de OTRO producto de la misma carta (liga/promo) NO libera la fila del grupo B3: 0 PriceReference del producto base en 11/11 cartas de 3/3 sets; la del otro producto queda intacta', async () => {
+    let held = 0;
+    let cards = 0;
+    let setsOk = 0;
+    for (const [tag, n] of [['o1', 5], ['o2', 3], ['o3', 3]] as const) {
+      const f = await mkB3(tag, n, { linked: true });
+      for (const cid of f.cardIds) {
+        const promo = await h.prisma.cardProduct.create({ data: { cardId: cid, tcgplayerProductId: base * 1000 + 500_000 + (seq += 1), kind: 'promo', name: 'otro producto', finishes: ['normal'] } });
+        await priorRef(cid, 'tcgcsv_singles', 2500, promo.id);
+      }
+      const baseCps = await h.prisma.cardProduct.findMany({ where: { cardId: { in: f.cardIds }, kind: 'set_base' }, select: { id: true, cardId: true } });
+      expect((await ingestSet(f.setId)).status).toBe(202);
+      const withRef = await h.prisma.priceReference.findMany({ where: { cardProductId: { in: baseCps.map((c) => c.id) } }, select: { cardId: true } });
+      held += baseCps.length - new Set(withRef.map((r) => r.cardId)).size;
+      cards += baseCps.length;
+      if (withRef.length === 0) setsOk += 1;
+      expect(await h.prisma.priceReference.count({ where: { cardId: { in: f.cardIds }, source: 'tcgcsv_singles', priceMxnCents: 2500 } })).toBe(n); // las de «otro producto» siguen
+    }
+    expect({ held, cards, setsOk }).toEqual({ held: 11, cards: 11, setsOk: 3 });
+  });
+
+  it('§13.3 resolver SIN onlyUnlinked (sync de set / refresh-variants) sobre set B3 sin confirmar ⇒ enlaza, 0 precios; HTTP refresh-variants igual', async () => {
+    const f = await mkB3('s', 3, { linked: false });
+    const set = await h.prisma.cardSet.findUniqueOrThrow({ where: { id: f.setId }, select: { externalId: true } });
+    const r = await h.app.get(CardProductResolverService).resolveCardProductsForSet(f.setId); // lo que llaman catalog-sync.service.ts:728 y :1647
+    expect(r).toMatchObject({ joined: 3, pricesWritten: 0, b3Retained: 3 });
+    expect(await tcgcsvRefs(f.cardIds)).toBe(0);
+    await h.prisma.cardProduct.deleteMany({ where: { cardId: { in: f.cardIds } } });
+    const http = await h.api<any>('POST', '/admin/catalog/refresh-variants', { token: admin, json: { setId: set.externalId } });
+    expect(http.status).toBe(200);
+    expect(await h.prisma.cardProduct.count({ where: { cardId: { in: f.cardIds } } })).toBe(3);
+    await expectNoTcgcsvPrice(f);
+  });
+
+  it('§13.2 stamped-ingest (grupos 1539 y 22880) sobre cartas de un set B3 sin confirmar ⇒ ni cuelga liga ni precia (omitted b3_unverified); con grupo confirmado SÍ', async () => {
+    const f = await mkB3('L', 3, { linked: true });
+    await h.prisma.cardSet.update({ where: { id: f.setId }, data: { printedTotal: 102 } });
+    const cps = await h.prisma.cardProduct.findMany({ where: { cardId: { in: f.cardIds } }, include: { card: true } });
+    for (const cp of cps) await h.prisma.cardProduct.update({ where: { id: cp.id }, data: { name: `${cp.card.name} - ${cp.card.number.padStart(3, '0')}/102` } });
+    const stamped = f.cardIds.map((_, i) => ({ productId: base * 1000 + 700_000 + i, name: `${['Pikachu', 'Eevee', 'Snorlax'][i]} - ${String(i + 1).padStart(3, '0')}/102 (League Challenge)`, number: `${String(i + 1).padStart(3, '0')}/102` }));
+    const prices = stamped.map((p) => ({ productId: p.productId, subTypeName: 'Normal', marketPrice: 3 }));
+    const svc = h.app.get(StampedIngestService);
+    const g = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), { rate: 18, bufferPct: 0 });
+    expect(g.log).toMatchObject({ colgados: 0, conPrecio: 0, omitted: [{ reason: 'b3_unverified', count: 3 }] });
+    expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: { in: stamped.map((p) => p.productId) } } })).toBe(0);
+    expect(await tcgcsvRefs(f.cardIds)).toBe(0);
+    // attach/refresh de un producto ya colgado por otra vía tampoco precia en el set dudoso
+    expect(await svc.writePrices(f.cardIds[0], cps[0].id, prices.slice(0, 1) as never, { rate: 18, bufferPct: 0 })).toEqual([]);
+    expect(await tcgcsvRefs(f.cardIds)).toBe(0);
+    // confirmado el grupo ⇒ la siguiente corrida sí cuelga y precia
+    expect((await confirmGroup(f.setId, f.groupId)).status).toBe(200);
+    const g2 = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), { rate: 18, bufferPct: 0 });
+    expect(g2.log).toMatchObject({ colgados: 3, conPrecio: 3 });
+  });
+
+  it('§13 (barato) candidato B3 con la caché de grupos FRÍA lee grupos frescos: puntaje > 0 y fecha de publicación (no 0 / null)', async () => {
+    const f = await mkB3('Q', 3, { linked: false });
+    await h.app.get(CatalogAutoLinkService).run({ retryDelayMs: 0, onlySetIds: [f.setId], maxSets: 5 }); // deja la fila `b3_unverified` en la bitácora
+    (h.app.get(TcgcsvGroupsCache) as unknown as { groups: unknown }).groups = null; // caché fría
+    const ex = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
+    const set = ex.body.sets.find((x: any) => x.setId === f.setId);
+    expect(set.reason).toBe('b3_unverified');
+    expect(set.candidates[0]).toMatchObject({ groupId: f.groupId, publishedOn: '2020-01-01' });
+    expect(set.candidates[0].score).toBeGreaterThan(0);
   });
 
   it('`confirm {groupId}` libera: el grupo pasa a `confirmed` y price-ingest ya publica todo', async () => {
