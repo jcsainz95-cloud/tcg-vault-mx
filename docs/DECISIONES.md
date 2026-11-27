@@ -818,6 +818,7 @@ Causa (diagnóstico a): TCGCSV da subtipos «1st Edition», «Unlimited», «Unl
 - AE-9 UI: un solo botón por fila; el resultado aparece en la misma fila sin desplazar la pantalla; la fila muestra el nombre del grupo TCGCSV usado o el mejor candidato; «Usar este grupo» liga y precia en una llamada y no vuelve a pedirse para ese set.
 - AE-10 No regresión: ≥ 100 cartas ya ligadas (≥ 3 sets) ⇒ 0 escrituras en `CardProduct`, `PriceReference`, `availableFinishes`, `ListingPrice`; piezas con ventas/reservas/bóveda de clientes intactas (CA-4 y corrección d).
 - AE-11 Rojo→verde: quitar «único `namesCompatible`» rompe AE-1; quitar el tope de llamadas rompe AE-6.
+- AE-12 (2026-11-27, medición backend bc6bbbc1, N=144 sets: 18 094→17 992, perdidos 102 = 0,56 %, 0 ganados, 0 cambios de dueño): se acepta conservar `[...]` en la segunda llave; tabla cerrada de equivalencias 1:1 (♂=M, ♀=F, ★=Star, δ=Delta, ◇=Prism Star, α/β/γ, (X)≡[X] de letra única) en ambos lados (recupera 87); los 12 textuales y 3 colisiones quedan como excepción fase 3 (`name_mismatch`/`collision`, una confirmación del dueño), sin regla nueva porque reabriría AE-1. Detalle: `API_CONTRACT_AUTOENLACE.md` §7 punto 8b.
 
 ### Reparto y fases (nadie construye encima mientras un gate mide)
 - **Fase 1 (rápida; backend + frontend en paralelo):** B2 + dpp (modo reparación) + B4 en `link-repair` (liga+precia, responde `priced`, `groupUsed`, `reason`) + F1/F2/F4 en M2 (un botón, resultado en la fila, nombre del grupo; el grupo usado se calcula, aún sin columna). Gate qa + seguridad-lead (pricing/inventory).
