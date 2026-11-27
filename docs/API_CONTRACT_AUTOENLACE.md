@@ -25,6 +25,12 @@ Orden: con inventario a la venta/en revisión primero, luego `unlinked` desc. So
 ## 4. POST `/admin/catalog/link-repair` `{ setId }` (cambio aditivo — el único botón «Actualizar este set»)
 Igual que hoy (`DECISIONES` §PRECIO-SIN-ENLACE «Correcciones» a) y además, en la MISMA llamada, precia el set (B4). Respuesta suma `priced:n`, `groupUsed:{groupId,name,via}|null`, `reason` (mismo enum de §2) y `nextAttemptAt`. `POST /admin/catalog/sync` ya no se llama desde la UI de enlace/precio.
 
+### 4b. Botón «Actualizar este set» en la tabla general de M2 (aditivo; sin endpoint nuevo)
+- `GET /admin/catalog/remote-sets`: cada fila suma `localSetId: string|null` (UUID del `CardSet` ya importado; `null` si no importado), `groupUsed:{groupId,name,via}|null` y `reason` (enum §2)|null. Se calculan SOLO de la BD local y del `listGroups` cacheado (0 llamadas nuevas a proveedores; si el cache falta ⇒ `groupUsed:null`, `reason:null`). Match remoto→local por el mismo `externalId` que ya usa `sync`.
+- `POST /admin/catalog/sync` `{ setId: <remoteId> }`: la respuesta suma `localSetId` (UUID creado o existente). No cambia nada más.
+- Flujo del botón (frontend, una sola acción, un solo resultado en la misma fila): (1) si `localSetId==null` ⇒ `sync` con el id remoto y se toma `localSetId` de su respuesta; si ya está importado NO se llama `sync` (las cartas nuevas del set las trae el job de metadatos; `link-repair` no importa cartas); (2) `POST /admin/catalog/link-repair {setId: localSetId}` (liga + precia, §4). Si (1) falla ⇒ se muestra el error y NO se llama (2). Resultado pintado = el de `link-repair` (`priced`, `groupUsed`, `reason`, `nextAttemptAt`) más «importadas N» si hubo `sync`. `refresh-variants` deja de llamarse desde este botón. Misma fila y mismo componente de resultado que la lista de §2.
+- Idempotencia/429: heredadas de `sync` y `link-repair`; el botón se deshabilita mientras corre.
+
 ## 5. `GET /admin/catalog/sync-status` (aditivo)
 `unlinkedPrice` se conserva por compatibilidad y suma `summary` idéntico al de §2. No se retira nada en esta entrega.
 
