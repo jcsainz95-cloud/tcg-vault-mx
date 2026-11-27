@@ -111,7 +111,8 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
   });
 
   it('CA-1/CA-2/CA-4/CA-3: repara 29 + 1 ya enlazada = 30/30, Metagross 11 Holofoil con precio; 0 diferencias en 110 ya enlazadas (incl. Charizard del mismo grupo); 2.ª corrida = 0 cambios', async () => {
-    const preLinked = (await h.prisma.card.findMany({ where: { id: { in: cardIds }, cardProducts: { some: {} } }, select: { id: true } })).map((c) => c.id);
+    // Charizard (producto ['normal'] + fuente Holofoil) es la excepción contractual §9.5: se mide aparte (más abajo); las demás no cambian.
+    const preLinked = (await h.prisma.card.findMany({ where: { id: { in: cardIds }, cardProducts: { some: {} }, name: { not: 'Charizard' } }, select: { id: true } })).map((c) => c.id);
     expect(preLinked.length).toBeGreaterThanOrEqual(100);
     const before = await snapshot(preLinked);
     // Pieza ya dada de alta como Normal sobre Metagross: SOLO se cuenta, no se migra.
@@ -130,8 +131,8 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
     await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.link_repair_deploy', 'catalog.link_repair_deploy_start'] } } });
     const r = await repair.run('deploy');
     const mineRun = r.sets.find((s) => s.setId === setId)!;
-    expect(mineRun).toMatchObject({ linked: 29, collisions: 0, conflicts: 0, omitted: [{ reason: 'finish_not_in_product', count: 1 }], notLinkable: null });
-    // B-1: Charizard (producto ['normal'], fuente Holofoil) se REPORTA, no se precia (sin fila Holofoil huérfana).
+    expect(mineRun).toMatchObject({ linked: 29, collisions: 0, conflicts: 0, omitted: [], finishesAdded: 1, held: 0, notLinkable: null });
+    // §9.5 (supersede B-1): Charizard (producto ['normal'], fuente Holofoil) YA NO da 0 escrituras: se UNE el acabado y se precia; ninguna pieza se toca.
     expect(r.errors).toBe(0);
     expect(r.inventory).toEqual({ corrected: 1, excluded: 2, ambiguous: 0 });
     expect(mineRun.piecesExcluded.sort((a, b) => a.reason.localeCompare(b.reason))).toEqual([{ reason: 'movement:sale', count: 1 }, { reason: 'status', count: 1 }]);
@@ -146,8 +147,12 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
     const withCp = await h.prisma.card.count({ where: { setId, id: { in: cardIds }, cardProducts: { some: {} }, externalId: { startsWith: `ccx-${run}-` } } });
     expect(withCp).toBe(30);
     const prices = await h.prisma.priceReference.count({ where: { source: 'tcgcsv_singles', cardId: { in: cardIds }, card: { externalId: { startsWith: `ccx-${run}-` } } } });
-    expect(prices).toBe(30); // 29 nuevas + la fila `normal` previa de Charizard; B-1: su Holofoil (ausente de `CardProduct.finishes`) NO se escribe
-    expect(await h.prisma.priceReference.count({ where: { cardProduct: { tcgplayerProductId: 714372 }, finish: 'holofoil' } })).toBe(0);
+    expect(prices).toBe(31); // 29 nuevas + la fila `normal` previa de Charizard + su Holofoil (§9.5)
+    expect(await h.prisma.priceReference.count({ where: { cardProduct: { tcgplayerProductId: 714372 }, finish: 'holofoil', source: 'tcgcsv_singles' } })).toBe(1);
+    const chari = await h.prisma.card.findFirstOrThrow({ where: { setId, name: 'Charizard' }, include: { cardProducts: true } });
+    expect(chari.cardProducts[0].finishes).toEqual(['normal', 'holofoil']);
+    expect(chari.availableFinishes).toEqual(['normal', 'holofoil']);
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.finish_reconciled', entityId: chari.id } })).toBe(1);
     const m = await h.prisma.card.findUniqueOrThrow({ where: { id: meta.id }, include: { cardProducts: true, priceReferences: true } });
     expect(m.availableFinishes).toEqual(['holofoil']);
     expect(m.cardProducts.map((c) => c.tcgplayerProductId)).toEqual([716157]);
@@ -161,7 +166,7 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
 
     // Auditoría `catalog.link_repair` + marcador de despliegue.
     const audit = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'catalog.link_repair', entityId: setId } });
-    expect(audit.after).toMatchObject({ setId, linked: 29, collisions: 0, conflicts: 0, omitted: 1, trigger: 'deploy' });
+    expect(audit.after).toMatchObject({ setId, linked: 29, collisions: 0, conflicts: 0, omitted: 0, finishesAdded: 1, trigger: 'deploy' });
     // Marcador: solo cuando TODO set reparable fue intentado (I-3); la BD compartida puede tener más de 20 pendientes ⇒ se rota.
     for (let i = 0; i < 6 && (await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_deploy' } })) === 0; i++) await repair.run('deploy');
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.link_repair_deploy' } })).toBe(1);
@@ -196,7 +201,7 @@ describe('E2E — §PRECIO-SIN-ENLACE card-link-repair', () => {
     expect((await call(adminToken, { setId: randomUUID() })).status).toBe(404);
     const res = await call(adminToken, { setId: setB });
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body).sort()).toEqual(['availableAgainAt', 'collisions', 'conflicts', 'examples', 'groupUsed', 'linked', 'nextAttemptAt', 'notLinkable', 'omitted', 'piecesCorrected', 'piecesExcluded', 'priced', 'reason', 'setId']);  // §7.4: availableAgainAt (+ alias nextAttemptAt); priced/groupUsed/reason de B4
+    expect(Object.keys(res.body).sort()).toEqual(['availableAgainAt', 'collisions', 'conflicts', 'examples', 'finishesAdded', 'groupUsed', 'held', 'linked', 'nextAttemptAt', 'notLinkable', 'omitted', 'piecesCorrected', 'piecesExcluded', 'priced', 'reason', 'sanity', 'setId']);  // §7.4: availableAgainAt (+ alias nextAttemptAt); priced/groupUsed/reason de B4
     expect(res.body).toMatchObject({ setId: setB, linked: 0, notLinkable: null, piecesCorrected: 0 });
     expect(res.body.conflicts as number).toBeGreaterThanOrEqual(25);
     expect((res.body.examples as { reason: string }[])[0].reason).toBe('owner_conflict');

@@ -1116,6 +1116,41 @@ export class PricingService {
   }
 
   /**
+   * §AUTO-ENLACE §9.6 — el MISMO árbitro y la MISMA base que `arbiterDetailForKeys`, pero con una cotización CANDIDATA aún NO escrita
+   * (la de `tcgcsv_singles` que el job/`link-repair`/confirmación quiere publicar). Sirve para decidir el candado ANTES de tocar
+   * `PriceReference` (una variante retenida no debe ser legible por la lectura legada). Sin escribir nada. `baselineMxnCents` = base
+   * congelada del caso vigente, o la robusta de las cotizaciones de días anteriores; `null` ⇒ la variante nunca tuvo valor sano.
+   */
+  async arbiterPreviewWithCandidates(
+    items: { key: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }; candidate: ArbiterCandidate }[],
+  ): Promise<Map<string, { result: ReturnType<typeof resolveRobustMarket>; baselineMxnCents: number | null }>> {
+    const out = new Map<string, { result: ReturnType<typeof resolveRobustMarket>; baselineMxnCents: number | null }>();
+    if (items.length === 0) return out;
+    const keys = items.map((i) => i.key);
+    const dials = await this.loadArbiterDialsSafe();
+    const fx = await this.fxSnapshotSafe();
+    const nowIso = new Date().toISOString().slice(0, 10);
+    const byKey = await this.admittedQuoteRowsByKey(keys, dials);
+    const frozen = new Map<string, number | null>();
+    for (const [k, c] of await this.vigenteReviewCases(keys)) frozen.set(k, c.baselineMxnCents);
+    for (const it of items) {
+      const k = variantKey(it.key);
+      const rows = byKey.get(k) ?? [];
+      const toCand = (rs: RefRow[]): ArbiterCandidate[] => arbiterCandidatesBySource(rs, (r) => this.liveMxnCents(r, fx));
+      const others = toCand(rows).filter((c) => c.source !== it.candidate.source);
+      const result = resolveRobustMarket([...others, it.candidate], dials, nowIso);
+      let baseline: number | null;
+      if (frozen.has(k)) baseline = frozen.get(k) ?? null;
+      else {
+        const prior = rows.filter((r) => r.capturedDate.toISOString().slice(0, 10) < nowIso);
+        baseline = prior.length > 0 ? resolveRobustMarket(toCand(prior), dials, nowIso).robustMarketMxnCents : null;
+      }
+      out.set(k, { result, baselineMxnCents: baseline });
+    }
+    return out;
+  }
+
+  /**
    * v1.x-fx-live — Convierte UNA fila `PriceReference` al MXN VIGENTE.
    *
    * Regla de distinción "referencia de mercado viva" vs "precio histórico/aceptado":

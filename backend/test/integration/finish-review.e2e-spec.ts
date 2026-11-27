@@ -9,6 +9,7 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { SettingKey } from '../../src/modules/settings/settings.constants';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
+import { SettingsService } from '../../src/modules/settings/settings.service';
 import { SEALED_SALE_PRICE_INCLUDE } from '../../src/common/money';
 
 jest.setTimeout(180_000);
@@ -197,7 +198,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     expect(r.body.after).toEqual({ finish: 'first_edition', unitPriceCents: null, manualPriceKept: false });
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.finish_review_price_pending', entityId: id } })).toBe(1);
     const item = (await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id }, include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE } })) as never;
-    const sale = (await lps.salesFor([item], await h.app.get(require('../../src/modules/settings/settings.service').SettingsService).getIvaDials())).get(id)!;
+    const sale = (await lps.salesFor([item], await h.app.get(SettingsService).getIvaDials())).get(id)!;
     // la fila vieja sigue en la tabla pero ya no es «vigente»: el lector no la usa
     expect(sale.kind === 'priced' ? sale.decision.unitPriceCents : null).not.toBe(old.unitPriceCents);
   });

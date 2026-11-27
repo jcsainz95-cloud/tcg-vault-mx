@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
@@ -11,6 +12,8 @@ import { AUTO_LINK_PRICE_LOCK_KEY } from './auto-link-lock';
 import { TcgcsvCallBudget } from './tcgcsv-call-budget';
 import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
+import { SANITY_WAIT_DAYS } from './auto-link-price-gate.service';
+import { FINISH_ADD_RUN_CAP } from './card-product-resolver.service';
 
 /** Topes de UNA tanda (DECISIONES §AUTO-ENLACE 1; contrato §1). */
 export const AUTO_LINK_MAX_SETS = 8;
@@ -35,7 +38,10 @@ export interface AutoLinkRunResult {
   tcgcsvCalls: number;
   durationMs: number;
   aborted?: string;
-  sets: { setId: string; linked: number; priced: number; reason: string | null; error?: string }[];
+  /** §9.6 (iii): id de la corrida (liga la fila `auto_link_run` con las filas `auto_link` de sus sets). */
+  runId?: string;
+  held?: number;
+  sets: { setId: string; linked: number; priced: number; reason: string | null; held?: number; finishesAdded?: number; error?: string }[];
 }
 
 export interface AutoLinkRunOptions {
@@ -124,7 +130,9 @@ export class CatalogAutoLinkService {
     const started = now();
     const maxMs = opts.maxMs ?? AUTO_LINK_MAX_MS;
     const budget = new TcgcsvCallBudget({ max: opts.maxCalls ?? AUTO_LINK_MAX_CALLS, retryDelayMs: opts.retryDelayMs, deadlineAt: started + maxMs, now });
-    const out: AutoLinkRunResult = { ran: true, setsTried: 0, linked: 0, priced: 0, remainingBefore: 0, remainingAfter: 0, tcgcsvCalls: 0, durationMs: 0, sets: [] };
+    const runId = randomUUID();
+    const finishBudget = { remaining: FINISH_ADD_RUN_CAP };
+    const out: AutoLinkRunResult = { ran: true, runId, held: 0, setsTried: 0, linked: 0, priced: 0, remainingBefore: 0, remainingAfter: 0, tcgcsvCalls: 0, durationMs: 0, sets: [] };
     const finish = async (aborted?: string): Promise<AutoLinkRunResult> => {
       out.remainingAfter = await this.remainingUnlinked();
       out.tcgcsvCalls = budget.used;
@@ -132,7 +140,7 @@ export class CatalogAutoLinkService {
       if (aborted) out.aborted = aborted;
       await this.audit.log({
         actorUserId: null, action: RUN_ACTION, entityType: 'CardSet',
-        after: { setsTried: out.setsTried, linked: out.linked, priced: out.priced, remainingBefore: out.remainingBefore, remainingAfter: out.remainingAfter, tcgcsvCalls: out.tcgcsvCalls, durationMs: out.durationMs, trigger: opts.trigger ?? 'cron', ...(aborted ? { aborted } : {}) },
+        after: { setsTried: out.setsTried, linked: out.linked, priced: out.priced, remainingBefore: out.remainingBefore, remainingAfter: out.remainingAfter, tcgcsvCalls: out.tcgcsvCalls, durationMs: out.durationMs, trigger: opts.trigger ?? 'cron', runId, held: out.held ?? 0, ...(aborted ? { aborted } : {}) },
       });
       this.logger.log(`catalog-auto-link: sets=${out.setsTried} ligadas=${out.linked} con precio=${out.priced} quedan ${out.remainingBefore}→${out.remainingAfter} llamadas=${out.tcgcsvCalls} ${out.durationMs}ms${aborted ? ` ABORTADA(${aborted})` : ''}.`);
       return out;
@@ -159,13 +167,14 @@ export class CatalogAutoLinkService {
       if (linkedSoFar >= (opts.maxCards ?? AUTO_LINK_MAX_CARDS)) return finish('card_cap');
       if (budget.remaining < 2) return finish('call_cap'); // un set = productos + precios
       if (!(await this.claim(s.setId))) continue; // ya intentado hoy
-      const r = await this.repair.attemptSetAuto(s.setId, { budget, groups, maxLinks: (opts.maxCards ?? AUTO_LINK_MAX_CARDS) - linkedSoFar });
+      const r = await this.repair.attemptSetAuto(s.setId, { budget, groups, maxLinks: (opts.maxCards ?? AUTO_LINK_MAX_CARDS) - linkedSoFar, finishBudget });
       out.setsTried += 1;
       out.linked += r.linked;
       out.priced += r.priced;
       linkedSoFar += r.linked;
-      out.sets.push({ setId: s.setId, linked: r.linked, priced: r.priced, reason: r.reason, ...(r.error ? { error: r.error } : {}) });
-      await this.recordSet(s.setId, r, s.previousNoProgress, now());
+      out.held = (out.held ?? 0) + r.held;
+      out.sets.push({ setId: s.setId, linked: r.linked, priced: r.priced, reason: r.reason, held: r.held, finishesAdded: r.finishesAdded, ...(r.error ? { error: r.error } : {}) });
+      await this.recordSet(s.setId, r, s.previousNoProgress, now(), runId);
     }
     return finish(budget.tripped ? 'circuit_open' : undefined);
   }
@@ -226,10 +235,12 @@ export class CatalogAutoLinkService {
     });
   }
 
-  private async recordSet(setId: string, r: LinkRepairSetResult, previousNoProgress: number, nowMs: number): Promise<void> {
-    const progress = r.linked > 0 || r.priced > 0;
+  private async recordSet(setId: string, r: LinkRepairSetResult, previousNoProgress: number, nowMs: number, runId?: string): Promise<void> {
+    const progress = r.linked > 0 || r.priced > 0 || r.finishesAdded > 0;
     const noProgress = !r.error && !progress;
-    const nextAttemptAt = noProgress ? new Date(utcDayStart(new Date(nowMs)).getTime() + backoffDays(previousNoProgress) * 86_400_000).toISOString() : null;
+    // §9.6 (ii): un set frenado por cordura espera 7 días (grupo equivocado: reintentar mañana daría el mismo resultado).
+    const waitDays = r.reason === 'price_sanity' ? SANITY_WAIT_DAYS : backoffDays(previousNoProgress);
+    const nextAttemptAt = noProgress ? new Date(utcDayStart(new Date(nowMs)).getTime() + waitDays * 86_400_000).toISOString() : null;
     await this.audit.log({
       actorUserId: null,
       action: ACTION,
@@ -239,6 +250,8 @@ export class CatalogAutoLinkService {
         setId, groupId: r.groupUsed?.groupId ?? null, via: r.groupUsed?.via ?? null, groupName: r.groupUsed?.name ?? null,
         linked: r.linked, priced: r.priced, collisions: r.collisions, conflicts: r.conflicts, omitted: r.omitted, notLinkable: r.notLinkable,
         reason: r.reason, noProgress, nextAttemptAt, tries: noProgress ? previousNoProgress + 1 : 0,
+        ...(runId ? { runId } : {}), held: r.held, finishesAdded: r.finishesAdded, ...(r.sanity ? { sanity: r.sanity } : {}),
+        linkedCardIds: r.linkedCardIds, sample: r.samples,
         ...(r.candidates?.length ? { candidates: r.candidates } : {}),
         ...(r.error ? { error: r.error } : {}),
       },

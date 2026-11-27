@@ -160,9 +160,12 @@ export class AdminCatalogController {
   @Post('link-repair')
   @HttpCode(200)
   async doLinkRepair(@Body() dto: LinkRepairDto, @CurrentUser() user: { id: string; role: Role }) {
-    const { name: _name, error: _error, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
+    // `linkedCardIds`/`samples` son de la bitácora del job (≤ 600 ids): no viajan por HTTP.
+    const { name: _name, error: _error, linkedCardIds: _ids, samples: _samples, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
     void _name;
     void _error;
+    void _ids;
+    void _samples;
     return res;
   }
 

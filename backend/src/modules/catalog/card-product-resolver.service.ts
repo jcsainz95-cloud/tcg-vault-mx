@@ -4,7 +4,11 @@ import { lockPriceWriteShared, withPriceWriteShared } from '../pricing/price-wri
 import { SettingsService } from '../settings/settings.service';
 import { patternClassifyEnabled } from '../pricing/pattern-dials';
 import { PrismaService } from '../../prisma/prisma.service';
-import { FinishReconciler } from './finish-reconciler.service';
+import { FinishReconciler, unionAvailableFinishes } from './finish-reconciler.service';
+import { AuditService } from '../audit/audit.service';
+import { AutoLinkPriceGate, type GateVerdict } from './auto-link-price-gate.service';
+import { orderFinishes } from '../../common/card-order';
+import { variantKey } from '../../common/variant-key';
 import { FxService } from '../pricing/fx.service';
 import { usdToMxnCents } from '../../common/money';
 import {
@@ -39,6 +43,9 @@ import type { TcgcsvGroupRef } from '../pricing/pricing.types';
  * Los Deck Exclusives/promo se persisten como su propio `CardProduct` (kind deck_exclusive/promo) y NO
  * funden acabados con la carta de set — se exponen como productos vendibles separados (§4.27e).
  */
+/** §9.5 (vi): tope de acabados añadidos por corrida. */
+export const FINISH_ADD_RUN_CAP = 200;
+
 @Injectable()
 export class CardProductResolverService {
   private readonly logger = new Logger(CardProductResolverService.name);
@@ -53,6 +60,9 @@ export class CardProductResolverService {
     @Optional() private readonly promoProducts?: PromoSetProductsService,
     // §PRICE-PATTERN: dial `pattern_classify_enabled` (apagado ⇒ no se crea ningún `variant`).
     @Optional() private readonly settings?: SettingsService,
+    // §AUTO-ENLACE §9.5/9.6: candado de precios y bitácora (opcionales: los specs viejos construyen el resolver sin ellos ⇒ comportamiento previo).
+    @Optional() private readonly gate?: AutoLinkPriceGate,
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   /**
@@ -70,6 +80,8 @@ export class CardProductResolverService {
       groups?: readonly TcgcsvGroupRef[];
       /** Tope de cartas NUEVAS a ligar en este set (lo que sobra queda para mañana, `batch_cap`). */
       maxLinks?: number;
+      /** §9.5 (vi): acabados que aún se pueden añadir en esta corrida (el job comparte el contador entre sets; sin él, 200 por llamada). */
+      finishBudget?: { remaining: number };
     } = {},
   ): Promise<{
     groupId: number;
@@ -111,6 +123,15 @@ export class CardProductResolverService {
     /** §AUTO-ENLACE F4: grupo TCGCSV usado (nombre del proveedor) y cómo se eligió; el nombre es `null` si `listGroups` no respondió. */
     groupName?: string | null;
     groupVia?: 'auto' | 'confirmed' | 'promo_table';
+    /** §9.6: variantes retenidas por el candado (no escritas); acabados añadidos (§9.5); freno por acabados; cordura del set. */
+    held?: number;
+    finishesAdded?: number;
+    finishSurge?: boolean;
+    sanity?: { checked: number; held: number };
+    /** `true` ⇒ el set entero NO se publicó (grupo equivocado): 0 enlaces, 0 precios. */
+    sanityAborted?: boolean;
+    /** ≤ 5 precios publicados (para `auto-link-runs`). */
+    samples?: { cardName: string; number: string; finish: Finish; newPriceCents: number; previousPriceCents: number | null }[];
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
@@ -139,7 +160,8 @@ export class CardProductResolverService {
     const [products, prices] = opts.budget
       ? [await viaBudget(() => this.tcgcsv.getProducts(groupId)), await viaBudget(() => this.tcgcsv.getPrices(groupId))]
       : await Promise.all([this.tcgcsv.getProducts(groupId), this.tcgcsv.getPrices(groupId)]);
-    const derived = deriveCardProductsFromTcgcsv(products, prices, { variantEnabled: await patternClassifyEnabled(this.settings) });
+    const unknownSubtypes: string[] = [];
+    const derived = deriveCardProductsFromTcgcsv(products, prices, { variantEnabled: await patternClassifyEnabled(this.settings), unknownSubtypes });
     const groupName = await this.groupNameOf(groupId, opts.groups);
     if (derived.length === 0) {
       this.logger.warn(
@@ -159,6 +181,9 @@ export class CardProductResolverService {
         touchedCardIds: [],
         groupName,
         groupVia: resolved.via,
+        held: 0,
+        finishesAdded: 0,
+        ...(unknownSubtypes.length > 0 ? { reasonCounts: { unknown_subtype: unknownSubtypes.length } } : {}),
       };
     }
 
@@ -190,21 +215,21 @@ export class CardProductResolverService {
 
     // FX una vez por corrida (§4.15f / §4.27e) — REUSA el módulo Banxico existente, no se inventa FX.
     const fxSnap = await this.fx.getCurrent();
+    const mxnOf = (usdCents: number): number => usdToMxnCents(usdCents, fxSnap.rate, fxSnap.bufferPct);
+    const usdOf = (marketPrice: number | null): number => (marketPrice == null || marketPrice <= 0 ? 0 : Math.round(marketPrice * 100));
+    const cardInfo = new Map(localCards.map((c) => [c.id, { name: c.name, number: c.number }]));
 
-    const touched = new Set<string>();
+    // ── Fase 1 (sin escribir): qué se liga, qué acabados se añaden y qué precios se quieren publicar ──
+    interface PriceJob { cardId: string; cardProductId: string | null; productId: number; finish: Finish; usd: number; kind: 'new' | 'linked' | 'finish_add' }
+    const toLink: { dp: (typeof derived)[number]; cardId: string }[] = [];
     let joined = 0;
     let unjoined = 0;
-    let pricesWritten = 0;
-    let pricesPending = 0;
-    let finishNotInProduct = 0;
     let batchCapped = 0;
-
     for (const dp of derived) {
       // Join por productId EXACTO (ancla tcgplayerId del set_base). Sin ancla → número normalizado
       // ÚNICO (típico: Deck Exclusives). El número solo ENRUTA a qué carta colgar; NO funde acabados.
       const link = plan.links.get(dp.productId);
-      const owner = link ? { id: link.cardId } : undefined;
-      if (!owner) {
+      if (!link) {
         if (!(opts.onlyUnlinked && ownerOf.has(dp.productId))) unjoined += 1;
         continue;
       }
@@ -214,77 +239,184 @@ export class CardProductResolverService {
         continue;
       }
       joined += 1;
+      toLink.push({ dp, cardId: link.cardId });
+    }
 
-      // Upsert de CardProduct por tcgplayerProductId (REEMPLAZO money-safe de finishes/kind/name).
-      // Reclasificar HACIA o DESDE `variant` es del job `pattern-reclassify` (freno + auditoría + recálculo): aquí se conserva el kind actual.
-      const prevK = prevKind.get(dp.productId);
-      const kind = prevK && (prevK === 'variant') !== (dp.kind === 'variant') ? prevK : dp.kind;
-      const cardProduct = await this.prisma.cardProduct.upsert({
-        where: { tcgplayerProductId: dp.productId },
-        create: {
-          cardId: owner.id,
-          tcgplayerProductId: dp.productId,
-          kind: dp.kind,
-          name: dp.name,
-          finishes: dp.finishes,
-        },
-        update: { cardId: owner.id, kind, name: dp.name, finishes: dp.finishes },
-        select: { id: true },
-      });
-      touched.add(owner.id);
-
-      // Precio POR VARIANTE (§4.27e): marketPrice de ESA variante → MXN Banxico. Ausente/≤0 ⇒ NO se
-      // escribe fila (estructura ≠ precio): la celda queda «—»/null + PRICE_PENDING, jamás 0 inventado.
+    const gating = opts.onlyUnlinked === true && this.gate != null;
+    const jobs: PriceJob[] = [];
+    let pricesPending = 0;
+    for (const { dp, cardId } of toLink) {
       for (const pf of dp.pricesByFinish) {
-        if (pf.marketPrice == null || pf.marketPrice <= 0) {
+        const usd = usdOf(pf.marketPrice);
+        if (usd <= 0) {
           pricesPending += 1; // estructura sin precio ⇒ «—»/PRICE_PENDING (money-safe, jamás 0)
           continue;
         }
-        const marketUsdCents = Math.round(pf.marketPrice * 100);
-        if (marketUsdCents <= 0) {
-          pricesPending += 1;
-          continue;
-        }
-        await this.upsertVariantPrice(owner.id, cardProduct.id, pf.finish, marketUsdCents, fxSnap);
-        pricesWritten += 1;
+        jobs.push({ cardId, cardProductId: null, productId: dp.productId, finish: pf.finish, usd, kind: 'new' });
       }
     }
 
     // §AUTO-ENLACE B4: en modo reparación, los productos YA enlazados (sin dueño distinto) también se precian en la misma
-    // corrida con el mismo escritor de siempre (`upsertVariantPrice`, respeta override manual); no se toca ningún CardProduct.
+    // corrida con el mismo escritor de siempre (`upsertVariantPrice`, respeta override manual). §9.5: un acabado que la fuente trae y el
+    // producto no, se AÑADE (solo unión) bajo las reglas de seguridad de abajo.
+    const finishNotApplied: Record<string, number> = {};
+    const notApplied = (reason: string): void => void (finishNotApplied[reason] = (finishNotApplied[reason] ?? 0) + 1);
+    let adds: PriceJob[] = [];
+    let finishSurge = false;
     if (opts.onlyUnlinked) {
       const skipped = new Set(plan.unlinked.filter((u) => u.reason === 'skipped_linked').map((u) => u.productId));
       const inSet = new Set(localCards.map((c) => c.id));
       const cpId = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.id]));
-      // B-1: solo se precian acabados ya presentes en `CardProduct.finishes`. Un acabado nuevo de la fuente NO se escribe
-      // aquí (no hay reconciliación de estructura en la reparación): lo trae «Sincronizar este set»; evita filas huérfanas.
       const finishesOf = new Map(existingOwners.map((o) => [o.tcgplayerProductId, new Set<string>(o.finishes as string[])]));
       for (const dp of derived) {
         const ownerId = ownerOf.get(dp.productId);
         const cpid = cpId.get(dp.productId);
         if (!skipped.has(dp.productId) || !ownerId || !cpid || !inSet.has(ownerId)) continue;
         for (const pf of dp.pricesByFinish) {
+          const usd = usdOf(pf.marketPrice);
           if (!finishesOf.get(dp.productId)?.has(pf.finish)) {
-            finishNotInProduct += 1; // se REPORTA (`finish_not_in_product`); la carta queda PRICE_PENDING en ese acabado
+            if (usd <= 0) {
+              notApplied('no_price'); // acabado nuevo sin precio de mercado: no se añade (jamás un acabado sin precio)
+              continue;
+            }
+            adds.push({ cardId: ownerId, cardProductId: cpid, productId: dp.productId, finish: pf.finish, usd, kind: 'finish_add' });
             continue;
           }
-          const cents = pf.marketPrice == null || pf.marketPrice <= 0 ? 0 : Math.round(pf.marketPrice * 100);
-          if (cents <= 0) {
+          if (usd <= 0) {
             pricesPending += 1;
             continue;
           }
-          await this.upsertVariantPrice(ownerId, cpid, pf.finish, cents, fxSnap);
-          pricesWritten += 1;
+          jobs.push({ cardId: ownerId, cardProductId: cpid, productId: dp.productId, finish: pf.finish, usd, kind: 'linked' });
         }
+      }
+      // (v) freno por set: acabados añadidos > 25 % de las cartas ligadas del set (N ≥ 8) ⇒ ningún acabado de este set se escribe hoy (mañana se reevalúa).
+      const linkedCards = localCards.filter((c) => c._count.cardProducts > 0).length;
+      if (adds.length > 0 && linkedCards >= 8 && adds.length * 4 > linkedCards) {
+        finishSurge = true;
+        for (let i = 0; i < adds.length; i += 1) notApplied('finish_surge');
+        adds = [];
+      }
+      // (iii) override manual de MERCADO de ese (carta, acabado): no se toca.
+      if (adds.length > 0) {
+        const manual = await this.prisma.priceReference.findMany({
+          where: { isManualOverride: true, cardId: { in: [...new Set(adds.map((a) => a.cardId))] }, finish: { in: [...new Set(adds.map((a) => a.finish))] } },
+          select: { cardId: true, finish: true },
+        });
+        const manualKeys = new Set(manual.map((m) => `${m.cardId}|${m.finish}`));
+        const kept = adds.filter((a) => !manualKeys.has(`${a.cardId}|${a.finish}`));
+        for (let i = 0; i < adds.length - kept.length; i += 1) notApplied('manual_override');
+        adds = kept;
+      }
+      // (vi) tope por corrida: ≤ 200 acabados añadidos (el job comparte el contador entre sets).
+      const cap = opts.finishBudget ?? { remaining: FINISH_ADD_RUN_CAP };
+      if (adds.length > cap.remaining) {
+        for (let i = 0; i < adds.length - cap.remaining; i += 1) notApplied('finish_cap');
+        adds = adds.slice(0, Math.max(0, cap.remaining));
+      }
+      cap.remaining -= adds.length;
+    }
+
+    // ── Fase 2: el candado de precios (mismo que `price-ingest`) ANTES de escribir nada ──
+    const verdicts = gating ? await this.gate!.evaluate([...jobs, ...adds].map((j) => ({ cardId: j.cardId, finish: j.finish, candidateMxnCents: mxnOf(j.usd) }))) : new Map<string, GateVerdict>();
+    const verdictOf = (j: PriceJob): GateVerdict | undefined => verdicts.get(variantKey({ cardId: j.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: j.finish }));
+    const sanity = AutoLinkPriceGate.sanity(verdicts.values());
+    const unknown = unknownSubtypes.length;
+    if (gating && sanity.tripped && resolved.via !== 'confirmed') {
+      // (ii) grupo equivocado: ≥ 20 % de las variantes con referencia previa retenidas ⇒ el set entero NO se publica (0 enlaces, 0 precios, 0 casos).
+      this.logger.warn(`card-product: set ${set.name} (grupo ${groupId}) frenado por cordura (${sanity.held}/${sanity.checked} variantes con salto); 0 escrituras.`);
+      return {
+        groupId, joined: 0, products: derived.length, pricesWritten: 0, pricesPending: 0, unjoined: 0, cardsTouched: 0, collisions: 0, omittedProducts: 0,
+        touchedCardIds: [], groupName, groupVia: resolved.via, held: sanity.held, finishesAdded: 0, sanity: { checked: sanity.checked, held: sanity.held }, sanityAborted: true,
+        reasonCounts: { price_sanity: sanity.held },
+      };
+    }
+
+    // ── Fase 3: escrituras ──
+    const touched = new Set<string>();
+    let pricesWritten = 0;
+    let heldCount = 0;
+    const heldVerdicts: GateVerdict[] = [];
+    const writtenKeys: { cardId: string; finish: Finish }[] = [];
+    const samples: { cardName: string; number: string; finish: Finish; newPriceCents: number; previousPriceCents: number | null }[] = [];
+    const noteWritten = (j: PriceJob, v?: GateVerdict): void => {
+      pricesWritten += 1;
+      writtenKeys.push({ cardId: j.cardId, finish: j.finish });
+      if (samples.length < 5) {
+        const ci = cardInfo.get(j.cardId);
+        samples.push({ cardName: ci?.name ?? '', number: ci?.number ?? '', finish: j.finish, newPriceCents: mxnOf(j.usd), previousPriceCents: v?.hasBase ? v.baselineMxnCents : null });
+      }
+    };
+    const publish = async (j: PriceJob, cpid: string): Promise<void> => {
+      const v = verdictOf(j);
+      if (v?.held) {
+        heldCount += 1; // variante retenida: NO se escribe `PriceReference` (ni la lee el cliente por ninguna vía)
+        heldVerdicts.push(v);
+        return;
+      }
+      await this.upsertVariantPrice(j.cardId, cpid, j.finish, j.usd, fxSnap);
+      noteWritten(j, v);
+    };
+
+    for (const { dp, cardId } of toLink) {
+      // Upsert de CardProduct por tcgplayerProductId (REEMPLAZO money-safe de finishes/kind/name).
+      // Reclasificar HACIA o DESDE `variant` es del job `pattern-reclassify` (freno + auditoría + recálculo): aquí se conserva el kind actual.
+      const prevK = prevKind.get(dp.productId);
+      const kind = prevK && (prevK === 'variant') !== (dp.kind === 'variant') ? prevK : dp.kind;
+      const cardProduct = await this.prisma.cardProduct.upsert({
+        where: { tcgplayerProductId: dp.productId },
+        create: { cardId, tcgplayerProductId: dp.productId, kind: dp.kind, name: dp.name, finishes: dp.finishes },
+        update: { cardId, kind, name: dp.name, finishes: dp.finishes },
+        select: { id: true },
+      });
+      touched.add(cardId);
+      // Precio POR VARIANTE (§4.27e): marketPrice de ESA variante → MXN Banxico. Ausente/≤0 ⇒ NO se escribe fila.
+      for (const j of jobs) if (j.kind === 'new' && j.productId === dp.productId) await publish(j, cardProduct.id);
+    }
+    for (const j of jobs) if (j.kind === 'linked') await publish(j, j.cardProductId!);
+
+    // §9.5 unión de acabados: por carta, UNA transacción (CardProduct.finishes ∪, Card.availableFinishes ∪, precio, bitácora).
+    let finishesAdded = 0;
+    const addsByCard = new Map<string, PriceJob[]>();
+    for (const a of adds) addsByCard.set(a.cardId, [...(addsByCard.get(a.cardId) ?? []), a]);
+    for (const [cardId, list] of addsByCard) {
+      const ok: { j: PriceJob; v?: GateVerdict }[] = [];
+      for (const j of list) {
+        const v = verdictOf(j);
+        if (v?.held) {
+          heldCount += 1;
+          heldVerdicts.push(v);
+          notApplied('price_jump');
+        } else ok.push({ j, v });
+      }
+      if (ok.length === 0) continue;
+      await withPriceWriteShared(this.prisma, async (tx) => {
+        for (const { j } of ok) {
+          const cp = await tx.cardProduct.findUnique({ where: { id: j.cardProductId! }, select: { finishes: true } });
+          if (!cp) continue;
+          const union = orderFinishes([...(cp.finishes as Finish[]), j.finish]);
+          await tx.cardProduct.update({ where: { id: j.cardProductId! }, data: { finishes: union } });
+          await this.upsertVariantPrice(j.cardId, j.cardProductId!, j.finish, j.usd, fxSnap, tx);
+        }
+        await unionAvailableFinishes(tx, cardId, ok.map((o) => o.j.finish));
+        await this.audit?.log({ actorUserId: null, action: 'catalog.finish_reconciled', entityType: 'Card', entityId: cardId, after: { cardId, added: ok.map((o) => o.j.finish), setId: localSetId } }, tx);
+      });
+      for (const { j, v } of ok) {
+        noteWritten(j, v);
+        finishesAdded += 1;
       }
     }
 
+    if (gating) {
+      await this.gate!.recordHeld(heldVerdicts);
+      await this.gate!.recordWritten(writtenKeys);
+    }
     await this.finishReconciler.reconcile([...touched]);
     this.logger.log(
       `card-product: set ${set.name} (grupo ${groupId}) — products=${derived.length}, joined=${joined}, ` +
-        `cardsTouched=${touched.size}, pricesWritten=${pricesWritten}, unjoined=${unjoined} ` +
+        `cardsTouched=${touched.size}, pricesWritten=${pricesWritten}, held=${heldCount}, finishesAdded=${finishesAdded}, unjoined=${unjoined} ` +
         `(conservan su valor previo, money-safe).`,
     );
+    const notAppliedTotal = Object.values(finishNotApplied).reduce((n, v) => n + v, 0);
     return {
       groupId,
       joined,
@@ -299,7 +431,12 @@ export class CardProductResolverService {
       reasonCounts: plan.unlinked.reduce<Record<string, number>>((acc, u) => {
         if (u.reason !== 'skipped_linked') acc[u.reason] = (acc[u.reason] ?? 0) + 1;
         return acc;
-      }, { ...(finishNotInProduct > 0 ? { finish_not_in_product: finishNotInProduct } : {}), ...(batchCapped > 0 ? { batch_cap: batchCapped } : {}) }),
+      }, {
+        ...(notAppliedTotal > 0 ? { finish_not_in_product: notAppliedTotal } : {}),
+        ...(batchCapped > 0 ? { batch_cap: batchCapped } : {}),
+        ...(heldCount > 0 ? { price_jump: heldCount } : {}),
+        ...(unknown > 0 ? { unknown_subtype: unknown } : {}),
+      }),
       examples: plan.unlinked
         .filter((u) => u.reason !== 'skipped_linked')
         .slice(0, 20)
@@ -307,6 +444,11 @@ export class CardProductResolverService {
       touchedCardIds: [...touched],
       groupName,
       groupVia: resolved.via,
+      held: heldCount,
+      finishesAdded,
+      finishSurge,
+      sanity: gating ? { checked: sanity.checked, held: sanity.held } : undefined,
+      samples,
     };
   }
 

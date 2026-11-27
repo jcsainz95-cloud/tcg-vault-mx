@@ -14,7 +14,7 @@ import type { TcgcsvGroupRef } from '../pricing/pricing.types';
 
 export type NotLinkableReason = 'no_group' | 'tcgcsv_source' | 'promo_route';
 /** §AUTO-ENLACE §2 (mismo enum del contrato; la FASE 1 emite el subconjunto que mide). */
-export type LinkExceptionReason = 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route' | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider';
+export type LinkExceptionReason = 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route' | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider' | 'price_sanity' | 'finish_surge' | 'reverted';
 export interface GroupUsed {
   groupId: number;
   name: string | null;
@@ -128,6 +128,14 @@ export interface LinkRepairSetResult {
   piecesCorrected: number;
   piecesExcluded: { reason: string; count: number }[];
   examples: { cardId: string | null; number: string | null; reason: string }[];
+  /** §9.6: variantes retenidas por el candado (`omitted: price_jump`); §9.5: acabados añadidos; cordura del set. */
+  held: number;
+  finishesAdded: number;
+  sanity?: { checked: number; held: number };
+  /** ≤ 5 precios publicados (alimenta `auto-link-runs`). */
+  samples: { cardName: string; number: string; finish: string; newPriceCents: number; previousPriceCents: number | null }[];
+  /** Cartas ligadas por esta corrida (≤ 600; solo bitácora, para `unlink`). */
+  linkedCardIds: string[];
   error?: string;
 }
 
@@ -136,6 +144,8 @@ export interface AutoLinkContext {
   budget: TcgcsvCallBudget;
   groups: readonly TcgcsvGroupRef[];
   maxLinks: number;
+  /** §9.5 (vi): acabados que aún puede añadir la corrida (contador compartido entre sets). */
+  finishBudget?: { remaining: number };
 }
 
 export interface LinkRepairRun {
@@ -472,13 +482,13 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
   /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
   private async attemptSet(setId: string, trigger: string, actorUserId: string | null, ctx?: Partial<AutoLinkContext>): Promise<LinkRepairSetResult> {
     const blank = (name: string): LinkRepairSetResult => ({
-      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, availableAgainAt: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
+      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, availableAgainAt: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [], held: 0, finishesAdded: 0, samples: [], linkedCardIds: [],
     });
     const set = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { name: true, externalId: true } });
     if (!set) return { ...blank(setId), error: 'not_found' };
     const res = blank(set.name);
     try {
-      const r = isTcgcsvOrigin(set.externalId) ? null : await this.resolver.resolveCardProductsForSet(setId, { onlyUnlinked: true, budget: ctx?.budget, groups: ctx?.groups, maxLinks: ctx?.maxLinks });
+      const r = isTcgcsvOrigin(set.externalId) ? null : await this.resolver.resolveCardProductsForSet(setId, { onlyUnlinked: true, budget: ctx?.budget, groups: ctx?.groups, maxLinks: ctx?.maxLinks, finishBudget: ctx?.finishBudget });
       if (!r) {
         if (isTcgcsvOrigin(set.externalId)) {
           res.notLinkable = 'tcgcsv_source';
@@ -508,7 +518,12 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
           .filter(([reason]) => reason !== 'collision' && reason !== 'owner_conflict')
           .map(([reason, count]) => ({ reason, count }));
         res.examples = r.examples ?? [];
-        res.reason = res.collisions > 0 ? 'collisions' : res.omitted.some((o) => o.reason === 'name_mismatch') ? 'name_mismatch' : null;
+        res.held = r.held ?? 0;
+        res.finishesAdded = r.finishesAdded ?? 0;
+        res.sanity = r.sanity;
+        res.samples = (r.samples ?? []).map((x) => ({ ...x }));
+        res.linkedCardIds = (r.touchedCardIds ?? []).slice(0, 600);
+        res.reason = r.sanityAborted ? 'price_sanity' : res.collisions > 0 ? 'collisions' : res.omitted.some((o) => o.reason === 'name_mismatch') ? 'name_mismatch' : r.finishSurge ? 'finish_surge' : null;
         if (res.linked > 0) {
           const inv = await this.correctInventoryFinish(r.touchedCardIds ?? [], trigger);
           res.piecesCorrected = inv.corrected;
@@ -524,7 +539,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
           setId, linked: res.linked, collisions: res.collisions, conflicts: res.conflicts,
           omitted: res.omitted.reduce((n, o) => n + o.count, 0), omittedReasons: res.omitted, notLinkable: res.notLinkable,
           priced: res.priced, groupUsed: res.groupUsed, reason: res.reason, ...(res.candidates?.length ? { candidates: res.candidates } : {}),
-          piecesCorrected: res.piecesCorrected, trigger,
+          piecesCorrected: res.piecesCorrected, held: res.held, finishesAdded: res.finishesAdded, ...(res.sanity ? { sanity: res.sanity } : {}), trigger,
         },
       });
     } catch (e) {
@@ -584,7 +599,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         continue;
       }
       // §AUTO-ENLACE fase 4 (Q1 = A): pasar una pieza a «1.ª edición» NUNCA es automático (cambia el precio); se decide por pieza en `finish-review`.
-      if (i.card.availableFinishes[0] === 'first_edition') {
+      if (i.card.availableFinishes[0] === 'first_edition' || i.card.availableFinishes[0] === 'first_edition_holofoil') {
         bump('first_edition_review');
         continue;
       }
