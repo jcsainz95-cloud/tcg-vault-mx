@@ -84,6 +84,32 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     expect(r.unlinked).toEqual([{ productId: 1, reason: 'skipped_linked' }]);
   });
 
+  it('§7.8b: símbolos y Unown ligan por llave igual; lo distinto NO (♂≠F, (J)≠[K], Pikachu≠Pikachu Star)', () => {
+    const ok: [string, string, string][] = [
+      ['Nidoran M', '83', 'Nidoran ♂'],
+      ['Nidoran F', '82', 'Nidoran ♀'],
+      ['Latias Star', '105', 'Latias ★'],
+      ['Gyarados Star (Delta Species)', '102', 'Gyarados ★ δ'],
+      ['Azumarill (Delta Species)', '19', 'Azumarill δ'],
+      ['Delta Rainbow Energy', '98', 'δ Rainbow Energy'],
+      ['Giratina Prism Star', '58', 'Giratina ◇'],
+      ['Miracle Sphere Alpha', '129', 'Miracle Sphere α'],
+      ['Unown (J)', '76', 'Unown [J]'],
+      ['Unown (A)', '1', 'Unown'],
+    ];
+    for (const [pn, num, cn] of ok) {
+      const r = plan([prod(1, pn, `${num}/100`)], [card('c1', num, cn)]);
+      expect([pn, cn, r.links.get(1)?.cardId]).toEqual([pn, cn, 'c1']);
+    }
+    const no: [string, string][] = [['Nidoran M', 'Nidoran ♀'], ['Unown (J)', 'Unown [K]'], ['Pikachu', 'Pikachu ★'], ['Pikachu Star', 'Pikachu']];
+    for (const [pn, cn] of no) {
+      const r = plan([prod(1, pn, '9/100')], [card('c1', '9', cn)]);
+      expect([pn, cn, r.links.size]).toEqual([pn, cn, 0]);
+    }
+    // Los textuales siguen siendo excepción.
+    expect(plan([prod(1, "Boss's Orders - 172/193", '172/193')], [card('c1', '172', "Boss's Orders (Ghetsis)")]).unlinked).toEqual([{ productId: 1, reason: 'name_mismatch' }]);
+  });
+
   it('§7.8 respaldo: parseo fallido + «[...]», « - NNN/NNN» y paréntesis finales ⇒ llave igual a la local; nunca una tercera', () => {
     const casos: [string, string][] = [
       ['Pikachu - 058/102 (Secret) (Full Art)', 'Pikachu'],

@@ -60,7 +60,17 @@ export function isNameParen(label: string): boolean {
  */
 export function linkNameKey(raw: string | null | undefined): string {
   const s = (raw ?? '').replace(/\(([^()]*)\)/g, (m, l: string) => (isNameParen(l) ? ' ' : m));
-  return normalizeMatchText(s);
+  // «Gyarados ★ δ» ≡ «Gyarados Star (Delta Species)»: la `δ` FINAL equivale al paréntesis `(Delta Species)` que se quita (NAME_PARENS).
+  return normalizeMatchText(symbolsToWords(s)).replace(/ delta$/, '');
+}
+
+/**
+ * §AUTO-ENLACE §7.8b — tabla CERRADA de símbolos del nombre (ambos lados, tras minúsculas y quitar acentos y ANTES de quitar
+ * puntuación): ♂→m, ♀→f, ★→star, δ→delta, ◇→prism star, α→alpha, β→beta, γ→gamma (cada uno por su palabra entre espacios).
+ */
+const SYMBOL_WORDS: Readonly<Record<string, string>> = { '♂': 'm', '♀': 'f', '★': 'star', '☆': 'star', 'δ': 'delta', '◇': 'prism star', 'α': 'alpha', 'β': 'beta', 'γ': 'gamma' };
+function symbolsToWords(s: string): string {
+  return s.toLowerCase().replace(/[♂♀★☆δ◇αβγ]/g, (c) => ` ${SYMBOL_WORDS[c]} `);
 }
 
 /**
@@ -74,7 +84,7 @@ export function stripProductNameSuffixes(raw: string, keepKeepParens = true, str
     prev = s;
     s = s.replace(/\s*\([^()]*\)\s*$/, (m) => {
       const label = m.trim().slice(1, -1);
-      const keep = keepKeepParens ? isNameParen(label) : NAME_PARENS.includes(normParen(label));
+      const keep = (!stripBrackets && /^[A-Za-z!?]$/.test(label.trim())) || (keepKeepParens ? isNameParen(label) : NAME_PARENS.includes(normParen(label)));
       return keep ? m : '';
     }).trim();
     s = s.replace(new RegExp(String.raw`(?:^|\s+)-\s*${NUM}(?:\s*/\s*${NUM})?\s*$`), '').trim();
