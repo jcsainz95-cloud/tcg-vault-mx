@@ -14,6 +14,7 @@ import { ADDRESS_BOOK_GATE_NAMESPACE } from '../src/modules/users/users.service'
 import { RESERVATION_GATE_NAMESPACE } from '../src/modules/orders/reservation';
 import { VAULT_GATE_NAMESPACE } from '../src/modules/vault/vault-placement.rules';
 import { LINK_REPAIR_GATE_NAMESPACE } from '../src/modules/catalog/card-link-repair.service';
+import { CARD_LINK_LOCK_NAMESPACE } from '../src/modules/catalog/card-product-resolver.service';
 import { ALTA_LIGA_NAMESPACE, IDS_ATTACH_NAMESPACE } from '../src/modules/inventory/inventory-versions.service';
 import { OPERATOR_REFUND_GATE_NAMESPACE } from '../src/modules/payments/refunds/refund-ledger.service';
 import { BANNER_COUNTER_LOCK_NAMESPACE } from '../src/modules/measurement/banner-response.service';
@@ -111,6 +112,7 @@ describe('censo de namespaces de candado consultivo de dos claves', () => {
     VAULT_GATE_NAMESPACE,
     IDS_ATTACH_NAMESPACE,
     LINK_REPAIR_GATE_NAMESPACE,
+    CARD_LINK_LOCK_NAMESPACE, // §AUTO-ENLACE §9.4/9.8: serializa «ligar esta carta» entre el job y las confirmaciones
     ALTA_LIGA_NAMESPACE, // §ALTA-LIGA-2: serializa el alta manual por (carta, tipo, etiqueta)
     OPERATOR_REFUND_GATE_NAMESPACE,
     BANNER_COUNTER_LOCK_NAMESPACE,
