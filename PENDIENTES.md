@@ -8,6 +8,16 @@
 > sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
 
+## 2026-11-27 — Abiertos de §AUTO-ENLACE fases 2-4 (gates aprobados sobre 08968d8e)
+
+| ID | Qué | Medido | Dueño | Comprobación |
+|---|---|---|---|---|
+| AE-3NOCHES | Condición de seguridad: revisar las 3 primeras corridas nocturnas de `catalog-auto-link` tras publicar y dar resumen al dueño cada mañana. | 2026-11-27 | orquestador | `GET /admin/catalog/auto-link-runs` |
+| AE-GATE-LIGA | El candado del refresco de liga (`refreshPublished` → `AutoLinkPriceGate`) mide por `cardId|finish` mezclando liga, base y tcgdex: Charmeleon liga 1 500→18 000 ¢ y Lillipup 20→450 publicados con dial 5 (qa re-gate 5); `recordHeld` abre caso en la variante base. Coherente con §9.6 tal como está escrito. | 2026-11-27 (qa vivo) | arquitecto→backend | `grep -n refreshPublished backend/src/modules/pricing/stamped-ingest.service.ts` |
+| AE-14 | Test AST `b3-retention-ast.ts` evadible por escrituras anidadas por relación, índice/delegado `any`, `Prisma.sql` en variable, corchetes, `.bind`, concatenación (qa L7-L11, seguridad 6/8). 0 apariciones en `src`. Baja; caduca 2027-01-15. | 2026-11-27 | backend | `npx jest test/static/b3-retention` |
+| AE-15 | Si `evaluate` no devuelve veredicto para una variante, `refreshPublished` escribe sin candado (`auto-link-price-gate.service.ts:76`). No alcanzable hoy; NO MEDIDO con BD. Baja; caduca 2027-01-15. | 2026-11-27 | backend | `auto-link-price-gate.service.ts:76` |
+| AE-MENORES | `link-exceptions` devuelve `nextAttemptAt` en `b3_unverified` (front lo oculta 5/5); sin test de error de confirm arriba; `docs/STATUS.md` 260+ líneas (tope 150). | 2026-11-27 | backend / frontend / orquestador | `wc -l docs/STATUS.md` |
+
 ## 2026-11-12 — Abiertos de la sesión §PROV
 
 | ID | Qué | Medido | Dueño | Comprobación |
