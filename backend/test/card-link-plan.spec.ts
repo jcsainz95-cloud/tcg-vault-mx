@@ -1,4 +1,4 @@
-import { planCardLinks, namesCompatible, LinkCard, LinkProduct } from '../src/modules/catalog/card-link-plan';
+import { planCardLinks, LinkCard, LinkProduct } from '../src/modules/catalog/card-link-plan';
 import { normalizeCardNumber, CardProductResolverService } from '../src/modules/catalog/card-product-resolver.service';
 import { deriveAvailableFinishesFromProducts } from '../src/common/card-order';
 import { deriveCardProductsFromTcgcsv } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
@@ -52,9 +52,57 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     expect(r.unlinked.map((u) => u.reason)).toEqual(['no_local_card', 'no_local_card']);
   });
 
-  it('número único en ambos lados y nombre COMPATIBLE (uno contenido en el otro por palabras) ⇒ enlaza por número', () => {
-    const r = plan([prod(1, 'Charizard ex', '7/100')], [card('c1', '7', 'Charizard')]);
-    expect(r.links.get(1)).toEqual({ cardId: 'c1', rule: 'number' });
+  it('§7.8: número único a ambos lados y llave de nombre IGUAL ⇒ enlaza por número (nombre con sufijo de TCGCSV)', () => {
+    const r = plan([prod(1, 'Charizard ex - 7/100', '7/100')], [card('c1', '7', 'Charizard ex')]);
+    expect(r.links.get(1)?.cardId).toBe('c1');
+  });
+
+  it('§7.8: contención de palabras NO liga (en ambos sentidos) ⇒ name_mismatch', () => {
+    const casos: [string, string][] = [
+      ['Pikachu VMAX', 'Pikachu'],
+      ['Pikachu', 'Pikachu VMAX'],
+      ['Charizard ex', 'Charizard'],
+      ['Charizard', 'Charizard ex'],
+      ['Charizard', 'Dark Charizard'],
+      ['Dark Charizard', 'Charizard'],
+    ];
+    for (const [prodName, cardName] of casos) {
+      const r = plan([prod(1, prodName, '7/100')], [card('c1', '7', cardName)]);
+      expect([prodName, cardName, r.links.size, r.unlinked]).toEqual([prodName, cardName, 0, [{ productId: 1, reason: 'name_mismatch' }]]);
+      expect(r.omitted).toBe(1);
+    }
+  });
+
+  it('§7.8: «Pikachu VMAX» #58 local NO liga al producto 716194 «Pikachu» (sonda qa)', () => {
+    const r = plan([prod(716194, 'Pikachu', '58/102')], [card('c58', '58', 'Pikachu VMAX')]);
+    expect(r.links.size).toBe(0);
+    expect(r.unlinked).toEqual([{ productId: 716194, reason: 'name_mismatch' }]);
+  });
+
+  it('§7.8: wouldTake también exige llave igual (dueño ajeno + carta homónima por contención ⇒ sin owner_conflict)', () => {
+    const r = plan([prod(1, 'Pikachu', '58/102')], [card('c1', '58', 'Pikachu VMAX')], [[1, 'otra']], { onlyUnlinked: true });
+    expect(r.unlinked).toEqual([{ productId: 1, reason: 'skipped_linked' }]);
+  });
+
+  it('§7.8 respaldo: parseo fallido + «[...]», « - NNN/NNN» y paréntesis finales ⇒ llave igual a la local; nunca una tercera', () => {
+    const casos: [string, string][] = [
+      ['Pikachu - 058/102 (Secret) (Full Art)', 'Pikachu'],
+      ['Pikachu [Foo Bar] (Full Art)', 'Pikachu'],
+      ['Pikachu - SV001 (Alternate Art)', 'Pikachu'],
+      ['Mewtwo - TG05/TG30 (Cosmos Holo) (Reverse Holo)', 'Mewtwo'],
+      ['Metagross (Delta Species) (Secret)', 'Metagross (Delta Species)'], // 2.ª llave solo si hace falta; aquí la 1.ª ya es igual a la local con NAME_PARENS
+      ['Metagross (Delta Species) (Secret)', 'Metagross'], // 2.ª llave: sin NAME_PARENS
+    ];
+    for (const [prodName, cardName] of casos) {
+      const r = plan([prod(1, prodName, '9/100')], [card('c1', '9', cardName)]);
+      expect([prodName, r.links.get(1)?.cardId]).toEqual([prodName, 'c1']);
+    }
+    // Nombre local con corchetes (segunda y última llave): «Unown [E]» sigue ligando a su carta.
+    const u = plan([prod(1, 'Unown [E]', '65/130')], [card('cu', '65', 'Unown [E]')]);
+    expect(u.links.get(1)?.cardId).toBe('cu');
+    // Nunca una tercera: «Pikachu VMAX» no se reduce a «Pikachu».
+    const r = plan([prod(1, 'Pikachu VMAX (Secret)', '9/100')], [card('c1', '9', 'Pikachu')]);
+    expect(r.links.size).toBe(0);
   });
 
   it('G3-4: número único pero nombre INCOMPATIBLE ⇒ `name_mismatch`, no enlaza (un homónimo por número no cuelga precio ajeno)', () => {
@@ -64,11 +112,6 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     expect(r.omitted).toBe(1);
   });
 
-  it('namesCompatible: palabras completas, no subcadenas', () => {
-    expect(namesCompatible('mew', 'mewtwo')).toBe(false);
-    expect(namesCompatible('charizard', 'charizard ex')).toBe(true);
-    expect(namesCompatible('', 'x')).toBe(false);
-  });
 
   it('regla a: tcgplayerId manda aunque el número se repita', () => {
     const r = plan([prod(1, 'Foo', '5'), prod(2, 'Foo', '5')], [card('c1', '5', 'Foo', 0, '2'), card('c2', '5', 'Foo')]);

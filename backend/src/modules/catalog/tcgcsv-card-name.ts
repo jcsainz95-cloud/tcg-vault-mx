@@ -63,6 +63,26 @@ export function linkNameKey(raw: string | null | undefined): string {
   return normalizeMatchText(s);
 }
 
+/**
+ * §AUTO-ENLACE §7.8 — respaldo de la llave del PRODUCTO cuando `parseTcgcsvCardName` falla (sello desconocido, «(Secret)», «(Full Art)»…).
+ * Quita, en este orden y sin tabla a mano: (1) todo `[...]`; (2) el sufijo « - NUM(/NUM)?» y el número suelto final; (3) los paréntesis
+ * FINALES repetidos que NO sean `NAME_PARENS`/`KEEP_PARENS` (esos son parte del nombre). `stripBrackets=false` conserva los `[...]` (segunda y última llave; nunca hay una tercera).
+ */
+export function stripProductNameSuffixes(raw: string, keepKeepParens = true, stripBrackets = true): string {
+  let s = (stripBrackets ? raw.replace(/\[[^[\]]*\]/g, ' ') : raw).replace(/\s+/g, ' ').trim();
+  for (let prev = ''; prev !== s; ) {
+    prev = s;
+    s = s.replace(/\s*\([^()]*\)\s*$/, (m) => {
+      const label = m.trim().slice(1, -1);
+      const keep = keepKeepParens ? isNameParen(label) : NAME_PARENS.includes(normParen(label));
+      return keep ? m : '';
+    }).trim();
+    s = s.replace(new RegExp(String.raw`(?:^|\s+)-\s*${NUM}(?:\s*/\s*${NUM})?\s*$`), '').trim();
+    s = s.replace(new RegExp(String.raw`\s+${NUM}(?:\s*/\s*${NUM})?\s*$`), '').trim();
+  }
+  return s;
+}
+
 /** true si algún campo escribible excede su tope. */
 export function exceedsFieldLimits(f: { name: string; number: string; rarity?: string | null; stampLabel?: string | null }): boolean {
   return (

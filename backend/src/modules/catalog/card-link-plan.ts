@@ -1,5 +1,5 @@
 import { CardProductKind } from '@prisma/client';
-import { linkNameKey, parseTcgcsvCardName } from './tcgcsv-card-name';
+import { linkNameKey, parseTcgcsvCardName, stripProductNameSuffixes } from './tcgcsv-card-name';
 
 /**
  * §PRECIO-SIN-ENLACE (fase 1) — PLAN PURO de enlace carta local ↔ producto TCGCSV del grupo.
@@ -7,9 +7,8 @@ import { linkNameKey, parseTcgcsvCardName } from './tcgcsv-card-name';
  * Reglas, por orden (la primera que aplica gana; si ninguna ⇒ NO se enlaza y se reporta; nunca se adivina):
  *   a. `Card.tcgplayerId == productId` (id externo).
  *   b. número + nombre normalizado (sin `NAME_PARENS`/«(30th Celebration)»), ÚNICO en AMBOS lados.
- *   c. solo número, ÚNICO en AMBOS lados (1 carta ↔ 1 producto) Y con nombre COMPATIBLE (G3-4): igual tras normalizar, o uno
- *      contenido en el otro por palabras completas; si no, `name_mismatch` y no se enlaza (hay números repetidos en la fuente:
- *      la unicidad sola no basta).
+ *   c. solo número, ÚNICO en AMBOS lados (1 carta ↔ 1 producto): se liga SOLO si la llave de nombre es IGUAL (§7.8); si no,
+ *      `name_mismatch` y no se enlaza (nunca por contención: «Pikachu» ≠ «Pikachu VMAX»; la unicidad sola no basta).
  * Un producto que YA tiene dueño NUNCA se mueve (si una carta SIN enlace lo habría tomado ⇒ `owner_conflict`, reportado como
  * `product_owned_by_other`). Solo en el modo `onlyUnlinked` (la reparación) una carta que ya tiene `CardProduct` nunca recibe
  * un producto base por número/nombre; en el sync manual normal el comportamiento de siempre se conserva. Los productos no base (variant/promo/deck_exclusive/stamped) conservan el
@@ -51,26 +50,6 @@ export interface LinkPlan {
   conflicts: number;
 }
 
-/** Nombres (ya normalizados con `linkNameKey`) compatibles: iguales o uno contenido en el otro por palabras completas. */
-export function namesCompatible(a: string, b: string): boolean {
-  if (a === b) return true;
-  const wa = a.split(/\s+/).filter(Boolean);
-  const wb = b.split(/\s+/).filter(Boolean);
-  if (wa.length === 0 || wb.length === 0) return false;
-  const [small, big] = wa.length <= wb.length ? [wa, wb] : [wb, wa];
-  const bigSet = new Set(big);
-  return small.every((w) => bigSet.has(w));
-}
-
-const stripTrailingParens = (raw: string): string => {
-  let s = raw.trim();
-  for (let prev = ''; prev !== s; ) {
-    prev = s;
-    s = s.replace(/\s*\([^()]*\)\s*$/, '').trim();
-  }
-  return s;
-};
-
 const isBaseLike = (k: CardProductKind): boolean => k === 'set_base' || k === 'other';
 
 export function planCardLinks(
@@ -92,10 +71,17 @@ export function planCardLinks(
     else if (reason !== 'skipped_linked') omitted += 1;
   };
 
-  const nameOfProduct = (p: LinkProduct): string => {
+  /**
+   * Llaves del producto: la primera con el parseo (o el respaldo §7.8 si falla) y, si difiere, UNA segunda conservando los `[...]`
+   * (medido: la de `KEEP_PARENS` no aportaba ningún enlace). Nunca una tercera.
+   */
+  const namesOfProduct = (p: LinkProduct): string[] => {
     const parsed = parseTcgcsvCardName(p.name, p.number ?? '');
-    // AE-1: si el nombre no parsea, también se quitan los paréntesis FINALES de variante («Genesect EX (Team Plasma)» ⇒ «genesect ex»).
-    return linkNameKey(parsed.ok ? parsed.name : stripTrailingParens(p.name));
+    // A: el nombre sin `[...]`, sufijo « - NNN» ni paréntesis finales que no sean parte del nombre (§7.8).
+    const a = linkNameKey(parsed.ok ? parsed.name : stripProductNameSuffixes(p.name));
+    // B (la ÚNICA segunda llave): igual pero conservando `[...]` («Unown [A]», «Professor's Research [Professor Oak]» son nombres locales).
+    const b = linkNameKey(stripProductNameSuffixes(parsed.ok ? parsed.name : p.name, true, false));
+    return b !== '' && b !== a ? [a, b] : [a];
   };
 
   const byTcg = new Map<string, LinkCard>();
@@ -108,13 +94,17 @@ export function planCardLinks(
     const k = `${n}|${linkNameKey(c.name)}`;
     cardsByKey.set(k, [...(cardsByKey.get(k) ?? []), c]);
   }
+  const nameOfProduct = (p: LinkProduct, n: string): string => {
+    const ks = namesOfProduct(p);
+    return ks.find((k) => cardsByKey.has(`${n}|${k}`)) ?? ks[0];
+  };
   const prodsByNum = new Map<string, number>();
   const prodsByKey = new Map<string, number>();
   const keyOf = new Map<number, { n: string; k: string }>();
   for (const p of products) {
     if (!isBaseLike(p.kind) || p.number == null) continue;
     const n = normalizeNumber(p.number);
-    const k = `${n}|${nameOfProduct(p)}`;
+    const k = `${n}|${nameOfProduct(p, n)}`;
     keyOf.set(p.productId, { n, k });
     prodsByNum.set(n, (prodsByNum.get(n) ?? 0) + 1);
     prodsByKey.set(k, (prodsByKey.get(k) ?? 0) + 1);
@@ -137,7 +127,7 @@ export function planCardLinks(
     const sameKey = cardsByKey.get(kk.k) ?? [];
     if (sameKey.length === 1 && prodsByKey.get(kk.k) === 1) return sameKey[0].productCount === 0 ? sameKey[0] : null;
     const sameNum = cardsByNum.get(kk.n) ?? [];
-    if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1 && namesCompatible(linkNameKey(sameNum[0].name), nameOfProduct(p))) {
+    if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1 && `${kk.n}|${linkNameKey(sameNum[0].name)}` === kk.k) {
       return sameNum[0].productCount === 0 ? sameNum[0] : null;
     }
     return null;
@@ -186,7 +176,7 @@ export function planCardLinks(
     const sameNum = cardsByNum.get(kk.n) ?? [];
     if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1) {
       const c = sameNum[0];
-      if (!namesCompatible(linkNameKey(c.name), nameOfProduct(p))) {
+      if (`${kk.n}|${linkNameKey(c.name)}` !== kk.k) {
         miss(p.productId, 'name_mismatch');
         continue;
       }

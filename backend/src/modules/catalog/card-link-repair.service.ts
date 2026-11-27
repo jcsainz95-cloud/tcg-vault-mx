@@ -100,6 +100,8 @@ const ACTION = 'catalog.link_repair';
 const CLAIM = 'catalog.link_repair_claim';
 /** AE-3: reclamo de `POST /admin/catalog/sync {setId}` (1 por set cada 10 min; mismo candado y patrón que `link-repair`). */
 const SYNC_CLAIM = 'catalog.sync_claim';
+/** Mismo patrón que `SET_ID_PATTERN` de `catalog-sync.service` (copiado: importarlo crea un ciclo). V5: se valida ANTES de escribir el reclamo. */
+const SYNC_SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const DEPLOY_MARKER = 'catalog.link_repair_deploy';
 const DEPLOY_START = 'catalog.link_repair_deploy_start';
 
@@ -412,6 +414,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
    * `runForSet` (misma NAMESPACE, llave `sync:<setId>`). Devuelve el id del reclamo para devolverlo si el proveedor falla.
    */
   async claimSync(externalSetId: string, actorUserId: string): Promise<string> {
+    if (!SYNC_SET_ID_PATTERN.test(externalSetId)) throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
     const now = Date.now();
     let claimId = '';
     const wait = await this.prisma.$transaction(async (tx) => {
@@ -421,7 +424,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
       claimId = (await tx.auditLog.create({ data: { actorUserId, action: SYNC_CLAIM, entityType: 'CardSet', entityId: externalSetId, after: { setId: externalSetId } }, select: { id: true } })).id;
       return 0;
     });
-    if (wait > 0) throw this.tooSoon(wait);
+    if (wait > 0) throw this.tooSoon(wait, 'This set was synced a moment ago');
     return claimId;
   }
 
@@ -430,8 +433,8 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     await this.prisma.auditLog.deleteMany({ where: { id: claimId } }).catch(() => undefined);
   }
 
-  private tooSoon(waitMs: number): BusinessException {
-    return new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, 'This set was repaired a moment ago', { retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
+  private tooSoon(waitMs: number, message = 'This set was repaired a moment ago'): BusinessException {
+    return new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, message, { retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
   }
 
   /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
