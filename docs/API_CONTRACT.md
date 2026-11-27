@@ -105,6 +105,7 @@
 - POST `/buylist/requests/:id/respond` · cuenta
 - POST `/buylist/requests/:id/offer-response` · cuenta
 - POST `/buylist/requests/:id/declare-shipped` · cuenta
+- Cartas en español en la solicitud (`language`, `offers`, `breakdown`, recepción): `docs/API_CONTRACT_BUYLIST_ES.md` (§BUYLIST-ES)
 
 ### card-show
 - GET `/admin/card-show/leads` · admin

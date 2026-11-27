@@ -1,0 +1,74 @@
+# API_CONTRACT_BUYLIST_ES · Solicitud de venta con cartas en español y de liga (§BUYLIST-ES)
+
+Origen: HECHOS 2026-11-27 filas «§AUTO-ENLACE… solicitud de venta con cartas en español», «§BUYLIST-ES: oferta… 70 % más castigo de 15 %» y «§BUYLIST-ES: orden del cálculo…» (+ «de una vez… cartas con sello»). Decisión de diseño: `docs/DECISIONES.md` §BUYLIST-ES. Módulos `buylist`+`inventory`+`pricing` = dinero ⇒ gates qa + seguridad-lead. Todo aditivo: sin `language`/`productId` de liga en el cuerpo = comportamiento de hoy.
+
+## 0. Hechos medidos
+- `enum CardLanguage {en, es}` (`schema.prisma:472`); `InventoryItem.language` / `OrderItem.language` default `en` (`:1221`, `:1804`); `SellRequestItem` no tiene idioma (`:2687`) y `convertToInventory` (`buylist.service.ts:8484`) crea la pieza sin idioma.
+- `SellRequestItem.cardProductId Int?` ya existe (productId TCGplayer de producto separado) y se propaga a `InventoryItem.cardProductId` (`schema.prisma:2712`); la liga de una pieza ES su `cardProductId` (`card-version.ts:7`). `enum StampType {prize_pack, league, championship, prerelease, staff, event_promo}` (`:478`); nombre visible «De liga» / «De torneo» (DECISIONES 2026-11-03).
+- HOY la buylist **rechaza** los productos de liga: `cp.kind === 'stamped' || 'variant'` ⇒ no existen para ella (`buylist.service.ts:941-942, 966-967`, I-6/IDS-B13). Este contrato levanta SOLO `stamped`; `variant` (Pattern/Ball, §PRICE-PATTERN) y `promo`/`deck_exclusive` siguen fuera.
+- En la VENTA: español = mercado inglés × `spanish_market_pct` (75); (en, liga) = referencia de SU producto de liga (`stampedRefs`, sin retención); (es, liga) = liga inglés × 75 % (`HECHOS 2026-10-30`, `sale-decision.service.ts:247-249`). El español no exhibe «valor de mercado» (§IDS.2).
+- Cuerpo único de decisión de compra: `decideBuyLine` (`buylist.service.ts:1298`), compartido por `/quote`, `/quote/batch` y `POST /requests`. El idioma y la liga entran AHÍ y solo ahí.
+- DECIDIDO (HECHOS 2026-11-27 «la base es la curva de compra por tramos vigente»): la base NO es 70 % fijo; es el % de la curva de compra vigente (semilla 30 % hasta MX$25, 40 % en MX$100, 50 % desde MX$500; `pricing-curve.ts:125-127`; valor vivo NO MEDIDO). El desglose muestra el % real calculado.
+
+## 1. Esquema (migración aditiva, sin backfill)
+`SellRequestItem` suma:
+- `language CardLanguage @default(en)` — declarado. Entra a la clave lógica de la línea (cardId, finish, cardProductId, **language**): EN y ES de la misma carta son 2 líneas.
+- `versionOffers Json?` — mapa congelado `versionKey → ofertaCents|null` (`versionKeyOf`: `en`, `es`, `en.<productId>`, `es.<productId>`) de TODAS las versiones elegibles de esa carta+acabado al crear la solicitud (misma transacción que `quotedPriceCents`). Base de los ajustes de §4. Es snapshot: no se recalcula.
+- `receivedLanguage CardLanguage?`, `receivedCardProductId Int?` (+ `receivedVersionSet Boolean @default(false)` para distinguir «no revisado» de «llegó normal»).
+`enum SellItemRejectionCode` suma `version_mismatch` (`ALTER TYPE … ADD VALUE`, migración aparte).
+Dials (super_admin, M10): `buylist_spanish_penalty_pct` (entero `[0,90]`, default 15), `buylist_spanish_enabled` (default `false` hasta que F3 pase el gate; su migración lo deja en `true`), `buylist_league_enabled` (ídem, F4). `GET /buylist/quote-policy` suma `spanishEnabled`, `leagueEnabled`, `spanishPenaltyPct`.
+Al recibir: `convertToInventory` escribe `language = receivedLanguage ?? language` y `cardProductId = receivedCardProductId ?? cardProductId`; el precio de venta lo calcula el camino §IDS ya existente.
+
+## 2. Endpoints (cambios de forma, todos opcionales)
+- `POST /buylist/quote` y cada ítem de `/quote/batch`: suma `language?: 'en'|'es'` (default `en`); `productId?` (ya existe) ahora acepta el de un producto `stamped`. Respuesta suma `language`, `offers:{en,es}` (centavos|null, de la versión elegida: normal o de liga), `versions:[{key, language, stamp:{type,label,productId}|null, offerCents|null, reason|null}]` (todas las versiones elegibles de esa carta+acabado, para que los interruptores cambien el monto SIN otra llamada), `breakdown` (§3), `spanishEligible`, `stampOptions:[{productId,type,label}]` (vacío si la carta no tiene versión de liga).
+- Elegibilidad ES: normal o `stamped` sí; producto `promo`/`deck_exclusive`/`variant`, graduada, «precio pendiente» o dial apagado ⇒ `null` + 400 `LANGUAGE_NOT_ELIGIBLE`/`LANGUAGE_NOT_AVAILABLE`. Liga: `stampOptions` vacío o dial apagado ⇒ 400 `STAMP_NOT_AVAILABLE`; liga sin referencia fresca (candado §PRE o sin precio) ⇒ `offerCents:null, reason:'no_reference'`: **sin oferta para esa versión**, nunca se paga la normal ni se cuela a una cola; el vendedor puede cambiar a «Normal».
+- `POST /buylist/requests`: cada línea suma `language?` (y `productId` de liga). `GET /buylist/requests[/:id]`, `/admin/buylist[/:id]`, `/decision-table` devuelven `language`, `stamp`, `receivedLanguage`, `receivedStamp`, `breakdown`. Throttle y topes no cambian.
+- `POST /admin/buylist/:id/receive` y `PATCH …/items/:itemId/decision` suman `receivedLanguage?`, `receivedProductId?|null` (default de la UI = lo declarado).
+
+## 3. Precio (HECHOS: castigo de idioma PRIMERO, luego el % habitual; el modo A/B queda CERRADO)
+Orden de cálculo (una función en `decideBuyLine`; el front no calcula dinero):
+1. `mercadoRef` = referencia de la versión elegida: carta normal ⇒ mercado EN de la carta; de liga ⇒ referencia de SU producto de liga (opción A de §3.1).
+2. `mercadoAjustado = mercadoRef × (100 − P)/100` si `es`, con `P = buylist_spanish_penalty_pct` (si inglés, igual a `mercadoRef`). Ej.: MX$1,000 → MX$850.
+3. `oferta = curva_de_compra(mercadoAjustado)` = `mercadoAjustado × pct(mercadoAjustado)`; con 70 %: MX$850 → MX$595. La curva se evalúa sobre el mercado YA castigado (default; consecuencia: en tramos medios el % base puede bajar un escalón).
+4. Anti-inflado: `oferta ≤ ofertaEN` de la misma versión, nunca por encima de la referencia; candado §PRE y «precio pendiente» de la inglesa detienen a la española. Bounty no aplica a ES ni a liga.
+`breakdown` por línea, en ESE orden: `{marketMxnCents, languagePenalty:{pct,cents(negativo)}|null, adjustedMarketCents, basePct, baseOfferCents, finalOfferCents}`; mesa M5 (suma a `marketMxnCents/standardPctBp/standardOfferCents` de §BUYLIST-MESA), solicitud del vendedor y correos lo pintan igual: «Mercado MX$1,000 · Idioma español −15 % = −MX$150 · Mercado ajustado MX$850 · Base 70 % · Te pagamos MX$595». Siempre `base + castigo = final` exacto en centavos enteros. Línea EN: `languagePenalty:null`.
+`quotedPriceCents` = `finalOfferCents`; `marketMxnCents` instrumentado = `mercadoRef`; `priceBasis`/`marketBracket` como hoy. Dial inválido ⇒ falla cerrado (`offers.es=null`).
+
+### 3.1 Precio de la carta de liga (PENDIENTE DEL DUEÑO; default A)
+- **A (recomendada):** la oferta parte del mercado de SU producto de liga (el mismo que usa la venta) y pasa por el mismo cálculo. Ej. ilustrativo (no es carta medida; base 70 % plano): normal MX$200, liga MX$600 ⇒ liga en inglés MX$420; liga en español 600→510→**MX$357**; normal en español 200→170→MX$119.
+- **B:** se paga como la carta normal más un porcentaje fijo de «prima de liga» (dial, ej. +25 %): liga en inglés 140 × 1.25 = **MX$175**; en español 119 × 1.25 = MX$149. No depende de que exista mercado de liga ni se mueve con él.
+- Consecuencia: A paga cerca del valor real (competitivo, el vendedor de una carta de MX$600 no se va), pero sigue el precio de un producto de poca liquidez (mitigado por el candado y por «sin oferta» si no hay referencia fresca). B es estable y simple pero deja ~58 % menos al vendedor de la liga del ejemplo, que la ofrecerá en otro lado, y nos quita piezas que luego vendemos al precio de liga.
+
+## 4. Recepción: versión distinta a la declarada
+El operador confirma idioma y liga por línea (un toque; default = declarado). Si coincide: nada. Si difiere, el servidor decide solo con CAS (idempotente, una vez), mirando `versionOffers[receivedKey]`:
+1. **Vale menos** (declaró EN y llegó ES; declaró liga y llegó normal…): propuesta de baja F2c automática a ese monto, `revisionReasonCode=version_mismatch`; el vendedor acepta/rechaza en 7 d con la maquinaria existente (`offeredPriceCents` nunca se muta; vence ⇒ rechazada con recoger).
+2. **Vale más** (declaró ES y llegó EN; declaró normal y llegó de liga): se paga el de la versión recibida (`approvedPriceCents = versionOffers[receivedKey]`), sin consentimiento; el tope del operador aplica y, si lo excede, la «autorización sobre tope» vigente (default Q2). Si ese monto es `null` (sin referencia) ⇒ se paga lo declarado.
+3. **Versión fuera del mapa** (idioma que no es EN/ES, liga que no existe, otra carta): `reject-items` con `wrong_card`, como hoy.
+4. Si además hay condición distinta, manda `condition_mismatch` (una causa por acto).
+- Correos: C1 de §BUYLIST-FLUJO con texto nuevo «{carta} llegó como {versión recibida} y declaraste {versión declarada}; nueva oferta MX$X (antes MX$Y). Acéptala o recházala en 7 días.» y, para el alza, «Te pagamos MX$X por tu {carta} ({versión}).».
+
+## 5. UX (qué ve cada rol)
+- Cotizador y carrito de venta: segmento **«Inglés | Español»** por carta (inglés por defecto) y, si `stampOptions` no está vacío, un segundo segmento **«Normal | De liga»** (si hay varias ligas, fichas con su nombre: «Prize Pack», «De torneo»…); ambos muestran el monto de cada opción y cambian el monto sin llamada. «Todas en español» = atajo de lote (dice cuántas omitió). No hay atajo de lote para liga (se elige por carta).
+- Chips «Español» y «De liga» (neutros) solo cuando aplican; aparecen en cotizador, carrito, solicitud, detalle del vendedor, mesa M5, recepción (columna + selector), correos y ficha del cliente. Mesa y desglose del vendedor: el orden de §3.
+
+## 6. Criterios de aceptación (medibles)
+1. Sin `language` ni producto de liga, `offerCents` igual al de antes del cambio en 20/20 cartas (regresión cero).
+2. 20 cartas elegibles: `final = curva(round(mercado×(100−P)/100))` exacto al centavo, `≤ offers.en` en 20/20; con P=0 coinciden; cambiar el dial afecta solo cotizaciones nuevas (solicitudes creadas, congeladas). Ejemplo fijo en test: 1000 → 850 → 595 con base 70 %.
+3. `breakdown` presente en 100 % de líneas ES/liga de mesa, solicitud y correos, en el orden de §3; `base+castigo=final` en 20/20.
+4. `/quote`, `/quote/batch` y `POST /requests` dan el MISMO monto para la misma (carta, acabado, idioma, producto) en 20/20.
+5. Producto `promo`/`deck_exclusive`/`variant`, graduada o dial apagado ⇒ no elegible (400 con código); producto `stamped` ya NO se rechaza y sí se cotiza; sin referencia fresca ⇒ `offerCents:null`, no se paga la normal.
+6. EN y ES (y normal/liga) de la misma carta = líneas separadas; reenviar la solicitud (idempotencia) no duplica.
+7. `convertToInventory` crea `language` y `cardProductId` correctos (prueba con 4 líneas: EN, ES, EN-liga, ES-liga); con `received*` distinto manda lo recibido.
+8. Mismatch de menor valor: 1 sola baja F2c (2 recepciones simultáneas ⇒ 1, 20/20); de mayor valor: `approved = versionOffers[received]` y el tope se respeta; fuera del mapa ⇒ `wrong_card`.
+9. Front: cambiar cualquiera de los dos segmentos no dispara red, cambia el monto en < 100 ms y deja los chips en carrito y solicitud; «Todas en español» marca N elegibles y dice cuántas omitió.
+10. Correos de §4 en 4/4 plantillas con versión declarada y recibida (es/en).
+11. Migración sin destructivos: tras `migrate`, 100 % de las líneas previas con `language='en'` (conteo antes/después).
+
+## 7. Reglas AUTO (dueño 2026-11-09)
+(a) Dispara: la propia petición (cotizar/solicitar/recibir) y el barrido F2c ya existente; ningún job nuevo. (b) Reintento: el cálculo es local; la referencia de liga viene del cron de precios existente (si no hay fresca ⇒ «sin oferta», se recupera sola cuando el cron la trae). (c) Dato dudoso: lo ajusta la regla de §4 con decisión del vendedor; sin cola para el dueño. (d) Crecimiento: ES hereda dial y curva; las ligas salen de `stampOptions` derivado de los CardProduct `stamped` del catálogo, sin tablas a mano. Excepción declarada: no hay dato de si una carta se imprimió alguna vez en español (NO MEDIDO); lo corrige la recepción (§4.3).
+
+## 8. Fases (un gate qa + seguridad-lead por fase que toque dinero)
+- **F1 (backend):** migración (columnas, `version_mismatch` aparte), `decideBuyLine` con idioma y castigo (§3), quote/batch/requests/`quote-policy`, `convertToInventory`; dial apagado.
+- **F2 (frontend, en paralelo con F1 tras aprobar contrato):** segmento Inglés/Español, «Todas en español», chips, desglose en mesa/solicitud, `lib/api.ts` aditivo, `es.json`/`en.json`.
+- **F3 (backend + frontend):** recepción con selector de idioma, ajuste §4, correos, encendido de `buylist_spanish_enabled`.
+- **F4 (liga; empieza cuando el dueño responda §3.1):** levantar `stamped` en `buylist.service.ts:941/966`, `stampOptions`/`versions`, segmento «Normal | De liga», ajuste de recepción por liga, encendido de `buylist_league_enabled`.
