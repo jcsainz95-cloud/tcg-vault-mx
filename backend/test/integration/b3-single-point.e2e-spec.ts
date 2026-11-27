@@ -146,6 +146,7 @@ describe('E2E — §12 retención B3 en TODO escritor de PriceReference TCGCSV',
     const f = await mkB3('R', 3, { linked: false });
     const r = await h.api<any>('POST', '/admin/catalog/link-repair', { token: admin, json: { setId: f.setId } });
     expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ reason: 'b3_unverified', nextAttemptAt: null }); // §14.3(ii): sin reintento por reloj
     expect(await h.prisma.cardProduct.count({ where: { cardId: { in: f.cardIds } } })).toBe(3);
     await expectNoTcgcsvPrice(f);
   });
@@ -225,6 +226,108 @@ describe('E2E — §12 retención B3 en TODO escritor de PriceReference TCGCSV',
     expect((await confirmGroup(f.setId, f.groupId)).status).toBe(200);
     const g2 = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), { rate: 18, bufferPct: 0 });
     expect(g2.log).toMatchObject({ colgados: 3, conPrecio: 3 });
+  });
+
+  /** §14.2 — set B3 con liga: `hung` ⇒ productos de liga YA colgados (kind stamped); `ref` ⇒ además con PriceReference TCGCSV propia (MXN). */
+  async function mkLeague(tag: string, n: number, hung: number, ref: (number | null)[]) {
+    const f = await mkB3(tag, n, { linked: true });
+    await h.prisma.cardSet.update({ where: { id: f.setId }, data: { printedTotal: 102 } });
+    const cps = await h.prisma.cardProduct.findMany({ where: { cardId: { in: f.cardIds }, kind: 'set_base' }, include: { card: true }, orderBy: { tcgplayerProductId: 'asc' } });
+    for (const cp of cps) await h.prisma.cardProduct.update({ where: { id: cp.id }, data: { name: `${cp.card.name} - ${cp.card.number.padStart(3, '0')}/102` } });
+    const lid = (i: number) => base * 1000 + 800_000 + (seq += 1) * 10 + i;
+    const stamped = cps.map((cp, i) => ({ productId: lid(i), name: `${cp.card.name} - ${cp.card.number.padStart(3, '0')}/102 (League Challenge)`, number: `${cp.card.number.padStart(3, '0')}/102`, cardId: cp.cardId }));
+    const hungIds: string[] = [];
+    for (let i = 0; i < hung; i++) {
+      const cp = await h.prisma.cardProduct.create({ data: { cardId: stamped[i].cardId, tcgplayerProductId: stamped[i].productId, kind: 'stamped', name: stamped[i].name, finishes: ['normal'], stampType: 'league', sourceGroupId: 1539 } });
+      hungIds.push(cp.id);
+      if (ref[i] != null) await priorRef(stamped[i].cardId, 'tcgcsv_singles', ref[i]!, cp.id);
+    }
+    return { f, stamped, hungIds, prices: stamped.map((p) => ({ productId: p.productId, subTypeName: 'Normal', marketPrice: 3 })) };
+  }
+  const FX = { rate: 18, bufferPct: 0 };
+
+  it('§14.2 stamped-ingest en set B3 sin confirmar: refresca SOLO la referencia de liga ya existente (productId|subtipo + CardProduct colgado); 0 enlaces y 0 referencias nuevas; el resto se omite', async () => {
+    // 4 cartas: p0,p1 colgadas CON referencia (se refrescan), p2 colgada SIN referencia (se omite), p3 sin colgar (se omite; nada de enlace nuevo).
+    const { f, stamped, hungIds, prices } = await mkLeague('S', 4, 3, [3000, 3000, null]);
+    const svc = h.app.get(StampedIngestService);
+    const g = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), FX);
+    expect(g.log).toMatchObject({ colgados: 0, refreshedPublished: 2, omitted: [{ reason: 'b3_unverified', count: 2 }] });
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: { in: hungIds.slice(0, 2) }, source: 'tcgcsv_singles', priceMxnCents: 5400 } })).toBe(2);
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: { in: hungIds.slice(0, 2) }, source: 'tcgcsv_singles' } })).toBe(4); // la previa (3000) se conserva + la nueva del día
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: hungIds[2] } })).toBe(0); // sin referencia previa ⇒ no se crea
+    expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: stamped[3].productId } })).toBe(0); // 0 enlaces nuevos
+    expect(await h.prisma.cardProduct.count({ where: { cardId: { in: f.cardIds }, kind: 'stamped' } })).toBe(3);
+    expect(g.written.map((w) => w.tcgplayerProductId).sort()).toEqual([stamped[0].productId, stamped[1].productId].sort());
+    // §13.1: una referencia de OTRO producto de la misma carta no habilita la fila de liga (p2 queda sin referencia aunque su carta tenga la de p0/otro).
+    await priorRef(stamped[2].cardId, 'tcgcsv_singles', 2500, (await h.prisma.cardProduct.findFirstOrThrow({ where: { cardId: stamped[2].cardId, kind: 'set_base' } })).id);
+    const g2 = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), FX);
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: hungIds[2] } })).toBe(0);
+    expect(g2.log.refreshedPublished).toBe(2);
+  });
+
+  it('§14.2 el refresco de liga en set B3 va bajo price_jump: salto ≥ ×5 sobre lo publicado ⇒ NO se escribe', async () => {
+    const { hungIds, stamped, prices } = await mkLeague('J2', 2, 2, [100, 3000]); // 100 → 5400 = ×54
+    const svc = h.app.get(StampedIngestService);
+    const g = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), FX);
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: hungIds[0], priceMxnCents: 5400 } })).toBe(0);
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: hungIds[1], priceMxnCents: 5400 } })).toBe(1);
+    expect(g.log).toMatchObject({ refreshedPublished: 1, refreshHeld: 1 });
+  });
+
+  it('§14.2 freno de cordura: ≥ 20 % (N ≥ 5) de las referencias de liga del set con salto ⇒ el set entero no se refresca', async () => {
+    const { hungIds, stamped, prices } = await mkLeague('Z2', 5, 5, [100, 3000, 3000, 3000, 3000]);
+    const svc = h.app.get(StampedIngestService);
+    const g = await svc.ingestGroup(1539, stamped, prices, await svc.buildCatalogIndex(), FX);
+    expect(await h.prisma.priceReference.count({ where: { cardProductId: { in: hungIds }, priceMxnCents: 5400 } })).toBe(0);
+    expect(g.log.refreshedPublished ?? 0).toBe(0);
+    expect(g.log.refreshHeld).toBe(5);
+    // control: el mismo set sin el salto sí se refresca (el freno es lo que lo detiene, no un descarte general)
+    const ok = await mkLeague('Z3', 5, 5, [3000, 3000, 3000, 3000, 3000]);
+    const g2 = await svc.ingestGroup(1539, ok.stamped, ok.prices, await svc.buildCatalogIndex(), FX);
+    expect(g2.log.refreshedPublished).toBe(5);
+  });
+
+  it('§14.1 set SIN grupo resoluble: se procesa como antes SOLO con veredicto explícito (no_match); si el resolver falla ⇒ retiene', async () => {
+    const mk = async (tag: string, nm: string) => {
+      const s = await h.prisma.cardSet.create({ data: { externalId: `b3sp-${tag}-${run}`, name: `Nadie${W}${tag}`, series: 'Otro', releaseDate: '2020/01/01', printedTotal: 102 } });
+      setIds.push(s.id);
+      const c = await h.prisma.card.create({ data: { externalId: `b3sp-${tag}-${run}-0`, setId: s.id, name: nm, number: '1', availableFinishes: ['normal'] } });
+      cardIds.push(c.id);
+      await h.prisma.cardProduct.create({ data: { cardId: c.id, tcgplayerProductId: base * 1000 + 900_000 + (seq += 1), kind: 'set_base', name: `${nm} - 001/102`, finishes: ['normal'] } });
+      const pid = base * 1000 + 950_000 + seq;
+      return { c, p: { productId: pid, name: `${nm} - 001/102 (League Challenge)`, number: '001/102' } };
+    };
+    const svc = h.app.get(StampedIngestService);
+    const a = await mk('n1', 'Raichu');
+    const ga = await svc.ingestGroup(1539, [a.p], [{ productId: a.p.productId, subTypeName: 'Normal', marketPrice: 3 }], await svc.buildCatalogIndex(), FX);
+    expect(ga.log).toMatchObject({ colgados: 1, conPrecio: 1 });
+    expect(ga.log.omitted).toBeUndefined();
+    const b = await mk('n2', 'Vulpix');
+    const spy = jest.spyOn(TcgcsvCatalogClient.prototype, 'listGroups').mockRejectedValue(new Error('boom'));
+    try {
+      const gb = await svc.ingestGroup(1539, [b.p], [{ productId: b.p.productId, subTypeName: 'Normal', marketPrice: 3 }], await svc.buildCatalogIndex(), FX);
+      expect(gb.log).toMatchObject({ colgados: 0, conPrecio: 0, omitted: [{ reason: 'b3_unverified', count: 1 }] });
+    } finally {
+      spy.mockImplementation(async () => groups as never);
+    }
+    expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: b.p.productId } })).toBe(0);
+  });
+
+  it('§14.3(i) b3Published/b3Held por productId|subtipo: la liga con referencia cuenta published, los 3 set_base sin referencia propia siguen held (cardId|finish daba 2)', async () => {
+    const { f } = await mkLeague('H', 3, 1, [3000]);
+    const ex = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
+    expect(ex.body.sets.find((x: any) => x.setId === f.setId)).toMatchObject({ reason: 'b3_unverified', b3Published: 1, b3Held: 3 });
+  });
+
+  it('§14.3(iii) link-exceptions con caché de grupos FRÍA: la 1.ª lectura (espera el veredicto) = la 2.ª (b3_unverified, b3Published, b3Held)', async () => {
+    const { f } = await mkLeague('V', 3, 1, [3000]);
+    const cache = h.app.get(TcgcsvGroupsCache) as unknown as { groups: unknown };
+    cache.groups = null;
+    const one = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
+    const two = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
+    const pick = (r: any) => { const x = r.body.sets.find((y: any) => y.setId === f.setId); return x && { reason: x.reason, b3Published: x.b3Published, b3Held: x.b3Held }; };
+    expect(pick(two)).toEqual({ reason: 'b3_unverified', b3Published: 1, b3Held: 3 });
+    expect(pick(one)).toEqual(pick(two));
   });
 
   it('§13 (barato) candidato B3 con la caché de grupos FRÍA lee grupos frescos: puntaje > 0 y fecha de publicación (no 0 / null)', async () => {

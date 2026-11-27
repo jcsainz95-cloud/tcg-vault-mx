@@ -37,7 +37,6 @@ import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
 import { FinishReviewService } from './finish-review.service';
 import { LinkExceptionsService } from './link-exceptions.service';
 import { CatalogAutoLinkService } from './catalog-auto-link.service';
-import { AutoLinkPriceGate } from './auto-link-price-gate.service';
 import { CardLinkConfirmService } from './card-link-confirm.service';
 import { AutoLinkAdminService } from './auto-link-admin.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
@@ -65,7 +64,6 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     // §AUTO-ENLACE fase 2: tanda diaria que liga y precia sola + caché de 24 h de `listGroups`.
     TcgcsvGroupsCache,
     CatalogAutoLinkService,
-    AutoLinkPriceGate,
     CardLinkConfirmService,
     AutoLinkAdminService,
     LinkExceptionsService,

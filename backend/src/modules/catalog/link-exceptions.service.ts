@@ -1,3 +1,4 @@
+import { priorRefKey } from '../pricing/providers/tcgcsv-prior-refs';
 import type { TcgcsvGroupRef } from '../pricing/pricing.types';
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Role } from '@prisma/client';
@@ -145,7 +146,15 @@ export class LinkExceptionsService {
     });
     const cand = sets.filter((x) => !isTcgcsvOrigin(x.externalId) && untryableReason(x) === null);
     if (cand.length === 0) return out;
-    const groups = this.groupsCache.peek();
+    // §14.3(iii): se ESPERA el veredicto (la 1.ª lectura con caché fría = la 2.ª); solo si el proveedor falla se cae a la vía del último intento.
+    let groups = this.groupsCache.peek();
+    if (!groups) {
+      try {
+        groups = await this.groupsCache.get();
+      } catch {
+        groups = null;
+      }
+    }
     const b3 = new Set<string>();
     const b3Group = new Map<string, number>();
     if (groups) {
@@ -170,17 +179,27 @@ export class LinkExceptionsService {
     }
     if (b3.size === 0) return out;
     const ids = [...b3];
+    // §14.3(i): por `productId|subtipo` (la identidad del `PriceReference` TCGCSV), no por `cardId|finish`: `b3Published` = referencias TCGCSV existentes por clave;
+    // `b3Held` = claves emitibles (producto × acabado) del set sin referencia previa.
     // MONEY-REF-EXEMPT: solo cuenta variantes con referencia TCGCSV (informa al dueño en la lista de excepciones); no devuelve ningún monto que se cobre, ofrezca o valúe.
-    const refs = await this.prisma.priceReference.findMany({ where: { source: 'tcgcsv_singles', card: { setId: { in: ids } } }, distinct: ['cardId', 'finish'], select: { cardId: true, finish: true, card: { select: { setId: true } } } });
-    const priced = new Set(refs.map((r) => `${r.cardId}|${r.finish}`));
-    const products = await this.prisma.cardProduct.findMany({ where: { card: { setId: { in: ids } } }, select: { cardId: true, finishes: true, card: { select: { setId: true } } } });
+    const refs = await this.prisma.priceReference.findMany({
+      where: { source: 'tcgcsv_singles', cardProductId: { not: null }, card: { setId: { in: ids } } },
+      distinct: ['cardProductId', 'finish'],
+      select: { finish: true, cardProduct: { select: { tcgplayerProductId: true } }, card: { select: { setId: true } } },
+    });
+    const published = new Map<string, Set<string>>();
+    for (const r of refs) if (r.cardProduct) published.set(r.card.setId, (published.get(r.card.setId) ?? new Set()).add(priorRefKey(r.cardProduct.tcgplayerProductId, r.finish)));
+    const products = await this.prisma.cardProduct.findMany({ where: { card: { setId: { in: ids } } }, select: { tcgplayerProductId: true, finishes: true, card: { select: { setId: true } } } });
     const held = new Map<string, Set<string>>();
-    for (const p of products) for (const f of p.finishes) if (!priced.has(`${p.cardId}|${f}`)) held.set(p.card.setId, (held.get(p.card.setId) ?? new Set()).add(`${p.cardId}|${f}`));
-    const published = new Map<string, number>();
-    for (const r of refs) published.set(r.card.setId, (published.get(r.card.setId) ?? 0) + 1);
+    for (const p of products) {
+      for (const f of p.finishes) {
+        const k = priorRefKey(p.tcgplayerProductId, f);
+        if (!published.get(p.card.setId)?.has(k)) held.set(p.card.setId, (held.get(p.card.setId) ?? new Set()).add(k));
+      }
+    }
     for (const x of cand) {
       if (!b3.has(x.id)) continue;
-      const st = { published: published.get(x.id) ?? 0, groupId: b3Group.get(x.id) ?? null, held: held.get(x.id)?.size ?? 0, set: { id: x.id, name: x.name, externalId: x.externalId } };
+      const st = { published: published.get(x.id)?.size ?? 0, groupId: b3Group.get(x.id) ?? null, held: held.get(x.id)?.size ?? 0, set: { id: x.id, name: x.name, externalId: x.externalId } };
       if (st.published > 0 || st.held > 0) out.set(x.id, st);
     }
     return out;

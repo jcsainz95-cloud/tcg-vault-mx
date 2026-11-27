@@ -12,7 +12,7 @@ import { AUTO_LINK_PRICE_LOCK_KEY } from './auto-link-lock';
 import { TcgcsvCallBudget } from './tcgcsv-call-budget';
 import { countsInUnlinkedCards, fullyLinkedSets, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
-import { SANITY_WAIT_DAYS } from './auto-link-price-gate.service';
+import { SANITY_WAIT_DAYS } from '../pricing/auto-link-price-gate.service';
 import { FINISH_ADD_RUN_CAP } from './card-product-resolver.service';
 
 /** Topes de UNA tanda (DECISIONES §AUTO-ENLACE 1; contrato §1). */

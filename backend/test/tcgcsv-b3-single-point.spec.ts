@@ -6,7 +6,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { analyze, buildProgram } from './static/b3-retention-ast';
+import { analyze, buildProgram, RELEASE_CALLERS } from './static/b3-retention-ast';
 import { resolveTcgcsvGroupForSet, shouldRetainTcgcsvPrice } from '../src/modules/pricing/providers/tcgcsv-group-match';
 
 const SRC = join(__dirname, '..', 'src');
@@ -14,17 +14,28 @@ const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(jo
 const strip = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 describe('§13.4 escritores de PriceReference TCGCSV (estático por AST + type checker, no por el literal)', () => {
+  const RET_HEAD = "import { PrismaClient } from '@prisma/client';\nimport { PricingService } from '../pricing/pricing.service';\nimport { releaseTcgcsvRow, type RetainedPriceRow } from '../pricing/providers/tcgcsv-group-match';\n";
   const MUTANT_HEAD = "import { PrismaClient, PriceSource } from '@prisma/client';\nimport { PricingService } from '../pricing/pricing.service';\n";
   const ROW = "cardId: 'c', productType: 'raw' as const, gradeKey: 'raw:NM', finish: 'normal' as const, priceMxnCents: 1, capturedDate: new Date()";
   const mutants: Record<string, string> = {
     'src/modules/__mutants__/m-const.ts': `${MUTANT_HEAD}const SRC = 'tcgcsv_singles' as const;\nexport async function w(db: PrismaClient) { await db.priceReference.create({ data: { ${ROW}, source: SRC } }); }\n`,
     'src/modules/__mutants__/m-param.ts': `${MUTANT_HEAD}export async function w(db: PrismaClient, src: PriceSource) { await db.priceReference.create({ data: { ${ROW}, source: src } }); }\n`,
     'src/modules/__mutants__/m-spread.ts': `${MUTANT_HEAD}const base = { source: 'tcgcsv_singles' as const };\nexport async function w(db: PrismaClient) { await db.priceReference.upsert({ where: { id: 'x' }, create: { ${ROW}, ...base }, update: { ...base } }); }\n`,
+    // AE-14 (qa re-gate 4, sonda de 6 evasiones): lavado con `via` literal, alias de tipo, parámetro marcado irrelevante, `$executeRawUnsafe`, delegado desestructurado, referencia suelta.
+    'src/modules/__mutants__/m-launder.ts': `${RET_HEAD}export async function w(p: PricingService) { await p.persistMarketReference('c', 'normal', releaseTcgcsvRow({ groupId: null, via: 'confirmed' }, false, { marketCents: 1, currency: 'USD' as const, source: 'tcgcsv_singles' as const })!, { rate: 1, bufferPct: 0 }); }\n`,
+    'src/modules/__mutants__/m-launder-alias.ts': `import { PricingService } from '../pricing/pricing.service';\nimport { releaseTcgcsvRow as free } from '../pricing/providers/tcgcsv-group-match';\nexport async function w(p: PricingService) { await p.persistMarketReference('c', 'normal', free({ groupId: null, via: 'confirmed' }, false, { marketCents: 1, currency: 'USD' as const, source: 'tcgcsv_singles' as const })!, { rate: 1, bufferPct: 0 }); }\n`,
+    'src/modules/__mutants__/m-launder-ref.ts': `import * as m from '../pricing/providers/tcgcsv-group-match';\nexport const f = m.releaseTcgcsvRow;\n`,
+    'src/modules/__mutants__/m-cast-alias.ts': `${RET_HEAD}type R = RetainedPriceRow<{ marketCents: number; currency: 'USD'; source: 'tcgcsv_singles' }>;\nexport async function w(p: PricingService) { await p.persistMarketReference('c', 'normal', ({ marketCents: 1, currency: 'USD', source: 'tcgcsv_singles' } as unknown) as R, { rate: 1, bufferPct: 0 }); }\n`,
+    'src/modules/__mutants__/m-irrelevant-param.ts': `${RET_HEAD}export async function w(db: PrismaClient, _x: RetainedPriceRow<{ a: 1 }>, src: 'tcgcsv_singles') { await db.priceReference.create({ data: { ${ROW}, source: src } }); }\n`,
+    'src/modules/__mutants__/m-raw-unsafe.ts': `${MUTANT_HEAD}export async function w(db: PrismaClient) { await db.$executeRawUnsafe('INSERT INTO "PriceReference" (source) VALUES ($1)', 'tcgcsv_singles'); }\n`,
+    'src/modules/__mutants__/m-raw-tagged.ts': `${MUTANT_HEAD}export async function w(db: PrismaClient) { await db.$executeRaw\`INSERT INTO "PriceReference" (source) VALUES ('tcgcsv_singles')\`; }\n`,
+    'src/modules/__mutants__/m-destructured.ts': `${MUTANT_HEAD}export async function w(db: PrismaClient) { const { priceReference: pr } = db; await pr.create({ data: { ${ROW}, source: 'tcgcsv_singles' } }); }\n`,
+    'src/modules/__mutants__/m-loose-ref.ts': `${MUTANT_HEAD}export async function w(db: PrismaClient) { const c = db.priceReference.create; await c.call(db.priceReference, { data: { ${ROW}, source: 'tcgcsv_singles' } } as never); }\n`,
     'src/modules/__mutants__/m-persist.ts': `${MUTANT_HEAD}export async function w(p: PricingService) { await p.persistMarketReference('c', 'normal', { marketCents: 1, currency: 'USD', source: 'tcgcsv_singles' as any }, { rate: 1, bufferPct: 0 }); }\n`,
   };
   // Control verde: el mismo escritor, pero que consume `RetainedPriceRow`, NO se señala.
   const control = {
-    'src/modules/__mutants__/ok-branded.ts': `import { PrismaClient } from '@prisma/client';\nimport type { RetainedPriceRow } from '../pricing/providers/tcgcsv-group-match';\nexport async function w(db: PrismaClient, _row: RetainedPriceRow<{ x: number }>) { await db.priceReference.create({ data: { ${ROW}, source: 'tcgcsv_singles' } }); }\n`,
+    'src/modules/__mutants__/ok-branded.ts': `import { PrismaClient } from '@prisma/client';\nimport type { RetainedPriceRow } from '../pricing/providers/tcgcsv-group-match';\nexport async function w(db: PrismaClient, row: RetainedPriceRow<{ x: number }>) { await db.priceReference.create({ data: { ${ROW}, priceMxnCents: row.x, source: 'tcgcsv_singles' } }); }\n`,
   };
   const program = buildProgram({ ...mutants, ...control });
   const real = analyze(program, (rel) => !rel.startsWith('modules/__mutants__/'));
@@ -36,6 +47,22 @@ describe('§13.4 escritores de PriceReference TCGCSV (estático por AST + type c
 
   it.each(Object.keys(mutants))('mutante %s ⇒ el análisis lo señala (rojo)', (file) => {
     expect(mutated.filter((v) => `src/${v.file}` === file).length).toBeGreaterThan(0);
+  });
+
+  it('AE-14: la sonda de evasión (6 casos de qa) se detecta ≥ 5/6 (aquí 6/6 mutantes AE-14)', () => {
+    const ae14 = Object.keys(mutants).filter((f) => /m-(launder|launder-alias|launder-ref|cast-alias|irrelevant-param|raw-unsafe|raw-tagged|destructured|loose-ref)\.ts$/.test(f));
+    const hit = ae14.filter((f) => mutated.some((v) => `src/${v.file}` === f));
+    expect({ hit: hit.length, of: ae14.length }).toEqual({ hit: 9, of: 9 });
+  });
+
+  it('AE-14 lista cerrada de llamadores: todo llamador real de releaseTcgcsvRow/tcgcsvPersistInput está en RELEASE_CALLERS y cada entrada de la lista existe (sin entradas muertas)', () => {
+    const callers = new Set<string>();
+    for (const f of walk(SRC)) {
+      const rel = relative(SRC, f).replace(/\\/g, '/');
+      if (rel === 'modules/pricing/providers/tcgcsv-group-match.ts') continue;
+      if (/\b(releaseTcgcsvRow|tcgcsvPersistInput)\(/.test(strip(readFileSync(f, 'utf8')))) callers.add(rel);
+    }
+    expect([...callers].sort()).toEqual([...new Set(Object.keys(RELEASE_CALLERS).map((k) => k.split('#')[0]))].sort());
   });
 
   it('el control con RetainedPriceRow NO se señala', () => {

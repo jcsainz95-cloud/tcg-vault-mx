@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Finish, PriceAxis, ProductType } from '@prisma/client';
-import { PricingService } from '../pricing/pricing.service';
-import { PriceReviewService } from '../pricing/price-review.service';
+import { PricingService } from './pricing.service';
+import { PriceReviewService } from './price-review.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { DEFAULT_PRICE_JUMP_FACTOR, decideLock, validatePriceJumpFactor, type LockDecision, type RobustResult } from '../../common/robust-market';

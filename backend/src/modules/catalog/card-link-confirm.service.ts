@@ -17,7 +17,7 @@ import { CardLinkRepairService, LINK_REPAIR_GATE_NAMESPACE } from './card-link-r
 import { planCardLinks } from './card-link-plan';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
-import { AutoLinkPriceGate } from './auto-link-price-gate.service';
+import { AutoLinkPriceGate } from '../pricing/auto-link-price-gate.service';
 
 export const CARD_CONFIRM_COOLDOWN_MS = 60_000;
 export const CARD_LIST_MAX = 50;

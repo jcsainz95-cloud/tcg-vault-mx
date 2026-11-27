@@ -428,7 +428,8 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         throw BusinessException.retriable('UPSTREAM_ERROR', 'The price provider failed; try again later', { setId });
       }
       const availableAgainAt = new Date(Date.now() + LINK_REPAIR_MANUAL_COOLDOWN_MS).toISOString();
-      return { ...r, availableAgainAt, nextAttemptAt: availableAgainAt };
+      // §14.3(ii): un set `b3_unverified` no se reintenta por reloj (el dato no cambia): sin `nextAttemptAt`; `availableAgainAt` es solo el enfriamiento del botón.
+      return { ...r, availableAgainAt, nextAttemptAt: r.reason === 'b3_unverified' ? null : availableAgainAt };
     } finally {
       this.inflightSets.delete(setId);
     }

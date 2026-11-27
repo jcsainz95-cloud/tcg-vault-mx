@@ -8,7 +8,7 @@ import { FinishReconciler } from '../src/modules/catalog/finish-reconciler.servi
 import { FxService } from '../src/modules/pricing/fx.service';
 import { TcgcsvCatalogClient } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
 import fixture from './fixtures/tcgcsv/group-24837-classic-collection.json';
-import { AutoLinkPriceGate } from '../src/modules/catalog/auto-link-price-gate.service';
+import { AutoLinkPriceGate } from '../src/modules/pricing/auto-link-price-gate.service';
 import { resolveRobustMarket, DEFAULT_PRICE_ARBITER_SOURCES } from '../src/common/robust-market';
 import { variantKey } from '../src/common/variant-key';
 

@@ -6,7 +6,7 @@ import { patternClassifyEnabled } from '../pricing/pattern-dials';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinishReconciler, unionAvailableFinishes } from './finish-reconciler.service';
 import { AuditService } from '../audit/audit.service';
-import { AutoLinkPriceGate, type GateVerdict } from './auto-link-price-gate.service';
+import { AutoLinkPriceGate, type GateVerdict } from '../pricing/auto-link-price-gate.service';
 import { orderFinishes } from '../../common/card-order';
 import { variantKey } from '../../common/variant-key';
 import { FxService } from '../pricing/fx.service';
