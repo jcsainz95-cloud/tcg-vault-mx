@@ -4571,6 +4571,7 @@
           "groupNone": "Price group: none assigned",
           "nextAttempt": "Available again at {when}",
           "via": {
+            "b3": "by name match (please check)",
             "auto": "automatic",
             "confirmed": "confirmed",
             "promo_table": "promo table"
@@ -4589,10 +4590,12 @@
             "finish_surge": "the source brings too many new finishes at once; re-evaluated tomorrow",
             "reverted": "you undid it; it will not be touched for 30 days",
             "no_source_product": "the source has no product for these cards; checked again on every run",
-            "b3_unverified": "linked by name match; its price waits until you confirm the group"
+            "b3_unverified": "linked by name match; new prices wait until you confirm the group"
           },
           "autoNext": "Retries on its own at {when}",
-          "b3Hint": "This set was linked by name match and its price is held: nothing is published until you confirm the group once. The best candidate is on top; the samples below are what would be published.",
+          "b3Published": "{n, plural, one {# variant already priced before (kept)} other {# variants already priced before (kept)}}",
+          "b3Held": "{n, plural, one {# variant waiting for your confirmation} other {# variants waiting for your confirmation}}",
+          "b3Hint": "This set was linked by name match. Anything that already had a price is kept; new prices from the source are not published until you confirm the group once (meanwhile the shop may show another source's price). The best candidate is on top; the samples below are what would be published.",
           "marketLabel": "market (before margin and VAT)",
           "noSourceCount": "{n} without a product in the source",
           "candidates": {

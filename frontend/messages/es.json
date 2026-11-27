@@ -4571,6 +4571,7 @@
           "groupNone": "Grupo de precios: sin grupo asignado",
           "nextAttempt": "Disponible de nuevo a las {when}",
           "via": {
+            "b3": "por coincidencia de nombre (revisa)",
             "auto": "automático",
             "confirmed": "confirmado",
             "promo_table": "tabla de promos"
@@ -4589,10 +4590,12 @@
             "finish_surge": "la fuente trae demasiados acabados nuevos de golpe; se reevalúa mañana",
             "reverted": "lo deshiciste; no se vuelve a tocar por 30 días",
             "no_source_product": "la fuente no tiene producto para estas cartas; se vuelve a mirar en cada corrida",
-            "b3_unverified": "ligado por coincidencia de nombre; su precio espera a que confirmes el grupo"
+            "b3_unverified": "ligado por coincidencia de nombre; los precios nuevos esperan a que confirmes el grupo"
           },
           "autoNext": "Se reintenta solo a las {when}",
-          "b3Hint": "Este set se ligó por coincidencia de nombre y su precio quedó retenido: no se publica nada hasta que confirmes el grupo una vez. El mejor candidato va arriba; las muestras de abajo son lo que se publicaría.",
+          "b3Published": "{n, plural, one {# variante ya con precio de antes (se respeta)} other {# variantes ya con precio de antes (se respetan)}}",
+          "b3Held": "{n, plural, one {# variante esperando tu confirmación} other {# variantes esperando tu confirmación}}",
+          "b3Hint": "Este set se ligó por coincidencia de nombre. Lo que ya tenía precio de antes se respeta; los precios nuevos de la fuente no se publican hasta que confirmes el grupo una vez (mientras, la tienda puede mostrar el precio de otra fuente). El mejor candidato va arriba; las muestras de abajo son lo que se publicaría.",
           "marketLabel": "mercado (sin margen ni IVA)",
           "noSourceCount": "{n} sin producto en la fuente",
           "candidates": {

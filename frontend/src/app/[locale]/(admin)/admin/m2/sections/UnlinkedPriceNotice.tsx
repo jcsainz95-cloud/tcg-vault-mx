@@ -39,6 +39,8 @@ interface Row {
   reviewable?: number | null;
   noSourceProduct?: number | null;
   sample?: HeldSample[];
+  b3Published?: number | null;
+  b3Held?: number | null;
 }
 
 /**
@@ -53,6 +55,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
   const tr = useTranslations('admin.m2.catalog.cardReview');
+  const trf = useTranslations('admin.m2.catalog.cardReview.finish');
   // El aviso «Se ligó…» de «Revisar N cartas» vive aquí: al ligar la última carta la fila desaparece y su panel con ella.
   const [cardProgress, setCardProgress] = useState<(CardReviewProgress & { setId: string; name: string }) | null>(null);
   const exceptions = useQuery({ queryKey: ['link-exceptions'], queryFn: getLinkExceptions, retry: false });
@@ -104,7 +107,12 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const reasonText = (k: string) => tf(`reason.${k}`);
   const setReasonText = (r: LinkSetReason) => tf(`setReason.${r}`);
   const hasLinkable = linkable.length > 0;
-  const timeOf = (iso: string) => format.dateTime(new Date(iso), { timeStyle: 'short' });
+  // Si el reintento cae otro día, se dice la fecha (una espera de 7 días no puede decir solo «0:00»).
+  const timeOf = (iso: string) => {
+    const d = new Date(iso);
+    return format.dateTime(d, d.toDateString() === new Date().toDateString() ? { timeStyle: 'short' } : { dateStyle: 'medium', timeStyle: 'short' });
+  };
+  const finishName = (raw: string) => { const f = raw === 'reverse_holo' ? 'reverse_holofoil' : raw; return trf.has(f as never) ? trf(f as never) : raw; };
   const hasResult = retry.isSuccess || retry.isError;
   const resultInRowEarly = retry.variables?.setId != null && linkable.some((s) => s.setId === retry.variables?.setId);
   if (!linkable.length && !noButton.length && !hasResult && !cardProgress) return null;
@@ -173,11 +181,13 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
             {s.reason === 'b3_unverified' && (
               <div className="mt-2 text-xs" data-testid="b3-held">
                 <p>{t('b3Hint')}</p>
+                {s.b3Published != null && s.b3Published > 0 && <p className="mt-1" data-testid="b3-published">{t('b3Published', { n: s.b3Published })}</p>}
+                {s.b3Held != null && s.b3Held > 0 && <p className="mt-1" data-testid="b3-held-count">{t('b3Held', { n: s.b3Held })}</p>}
                 {(s.sample ?? []).length > 0 && (
                   <ul className="mt-1 text-muted">
                     {(s.sample ?? []).map((x, i) => (
                       <li key={i} className="break-words">
-                        {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${x.finish})` : ''}: {x.newPriceCents == null ? tr('noPrice') : `${formatMoneyCents(x.newPriceCents, locale)} (${t('marketLabel')})`}
+                        {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${finishName(x.finish)})` : ''}: {x.newPriceCents == null ? tr('noPrice') : `${formatMoneyCents(x.newPriceCents, locale)} (${t('marketLabel')})`}
                       </li>
                     ))}
                   </ul>

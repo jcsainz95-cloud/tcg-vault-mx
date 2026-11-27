@@ -32,7 +32,7 @@ export const LINK_SET_REASONS: readonly LinkSetReason[] = [
 ];
 /** Grupo de la fuente de precios (TCGCSV) usado por el set (solo lectura). */
 /** `name` puede venir null (grupo sin nombre conocido): se muestra con `groupLabel`, nunca se descarta. */
-export interface LinkGroupUsed { groupId: number; name: string | null; via: 'auto' | 'confirmed' | 'promo_table' }
+export interface LinkGroupUsed { groupId: number; name: string | null; via: 'auto' | 'b3' | 'confirmed' | 'promo_table' }
 
 export interface LinkRepairResult {
   linked: number;
@@ -88,7 +88,7 @@ const EXCLUDED_KEY: Record<string, PieceExcludedKey> = {
 
 export function readGroupUsed(g: { groupId?: number; name?: string | null; via?: string } | null | undefined): LinkGroupUsed | null {
   if (!g || g.groupId == null || !Number.isFinite(Number(g.groupId))) return null;
-  const via = g.via === 'confirmed' || g.via === 'promo_table' ? g.via : 'auto';
+  const via = g.via === 'confirmed' || g.via === 'promo_table' || g.via === 'b3' ? g.via : 'auto';
   return { groupId: Number(g.groupId), name: typeof g.name === 'string' && g.name ? g.name : null, via };
 }
 

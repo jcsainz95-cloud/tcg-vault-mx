@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import { getAutoLinkRuns, unlinkSet, type RunSet, type UnlinkResult } from '@/lib/api/catalog-link-review';
+import { getLinkExceptions } from '@/lib/api/catalog-link-exceptions';
 import { asApiError } from '@/lib/api-client';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
@@ -26,6 +27,9 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
   const [target, setTarget] = useState<RunSet | null>(null);
   const [undone, setUndone] = useState<Record<string, UnlinkResult>>({});
   const q = useQuery({ queryKey: ['auto-link-runs'], queryFn: () => getAutoLinkRuns(7), enabled: open, retry: false });
+  // Mismo caché que la lista de excepciones: un set revertido ya no ofrece «Deshacer».
+  const exc = useQuery({ queryKey: ['link-exceptions'], queryFn: getLinkExceptions, retry: false, enabled: open });
+  const revertedIds = new Set((exc.data?.sets ?? []).filter((x) => x.reason === 'reverted').map((x) => x.setId));
   const undo = useMutation({
     mutationFn: (setId: string) => unlinkSet(setId),
     onSuccess: (d, setId) => {
@@ -94,7 +98,7 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
                         ))}
                       </ul>
                     )}
-                    {canUnlink && s.setId && s.linked > 0 && (
+                    {canUnlink && s.setId && s.linked > 0 && !revertedIds.has(s.setId) && (
                       undone[s.setId]
                         ? <p role="status" className="mt-1" data-testid="auto-link-undone">{t('undone', { n: undone[s.setId].unlinked, prices: undone[s.setId].pricesRemoved })}</p>
                         : <Button size="sm" variant="secondary" className="mt-1" aria-label={t('undoAria', { name: s.name })} onClick={() => { undo.reset(); setTarget(s); }}>{t('undo')}</Button>

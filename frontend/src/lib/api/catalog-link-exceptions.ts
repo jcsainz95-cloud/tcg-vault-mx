@@ -41,6 +41,10 @@ export interface LinkExceptionSet {
   noSourceProduct?: number | null;
   /** §10.1: ≤ 5 muestras retenidas para juzgar el grupo. */
   sample?: HeldSample[];
+  /** §12.4: variantes ya publicadas desde TCGCSV en un set B3 sin confirmar (se respetan). */
+  b3Published?: number | null;
+  /** §12.4: variantes retenidas por la regla B3 (esperan tu confirmación). */
+  b3Held?: number | null;
 }
 export interface LinkExceptions {
   unlinkedCards: number;
@@ -58,7 +62,7 @@ interface RawExceptions {
   sets?: Array<{
     setId?: string; name?: string; unlinked?: number; total?: number; reason?: string;
     groupUsed?: { groupId?: number; name?: string; via?: string } | null; nextAttemptAt?: string | null;
-    lastAttemptAt?: string | null; tries?: number; canConfirm?: boolean; reviewable?: number; noSourceProduct?: number;
+    lastAttemptAt?: string | null; tries?: number; canConfirm?: boolean; reviewable?: number; noSourceProduct?: number; b3Published?: number; b3Held?: number;
     sample?: Array<{ cardName?: string; number?: string | null; finish?: string; newPriceCents?: number | null }>;
     candidates?: Array<{ groupId?: number; name?: string; publishedOn?: string | null; productCount?: number; score?: number }>;
   }>;
@@ -108,6 +112,8 @@ export function readLinkExceptions(raw: RawExceptions): LinkExceptions {
       canConfirm: s.canConfirm === true,
       reviewable: numOrNull(s.reviewable),
       noSourceProduct: numOrNull(s.noSourceProduct),
+      b3Published: numOrNull(s.b3Published),
+      b3Held: numOrNull(s.b3Held),
       sample: (s.sample ?? []).slice(0, 5).map((x) => ({
         cardName: typeof x.cardName === 'string' ? x.cardName : '', number: typeof x.number === 'string' && x.number ? x.number : null,
         finish: typeof x.finish === 'string' ? x.finish : '', newPriceCents: numOrNull(x.newPriceCents),

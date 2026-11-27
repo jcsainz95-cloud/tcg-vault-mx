@@ -96,16 +96,16 @@ export function mockLinkExceptions(): LinkExceptions {
     sets: [
       { setId: MOCK_SET_CLASSIC, name: '30th Celebration Classic Collection', unlinked: 11, total: 30, reason: 'name_mismatch',
         groupUsed: { groupId: 24380, name: 'Classic Collection', via: 'auto' }, nextAttemptAt: new Date(now + 4 * 3_600_000).toISOString(),
-        lastAttemptAt: new Date(now - 20 * 3_600_000).toISOString(), tries: 2, canConfirm: true, reviewable: null, noSourceProduct: null, sample: [],
+        lastAttemptAt: new Date(now - 20 * 3_600_000).toISOString(), tries: 2, canConfirm: true, reviewable: 11, noSourceProduct: 0, sample: [],
         candidates: [
           { groupId: 24380, name: 'Classic Collection', publishedOn: '2026-06-12', productCount: 34, score: 0.92 },
           { groupId: 24381, name: 'Classic Collection Promos', publishedOn: '2026-06-12', productCount: 8, score: 0.41 },
         ] },
       { setId: MOCK_SET_SV, name: 'Scarlet & Violet', unlinked: 3, total: 258, reason: 'collisions',
-        groupUsed: { groupId: 22873, name: null, via: 'confirmed' }, nextAttemptAt: null, lastAttemptAt: null, tries: 1, canConfirm: true, reviewable: null, noSourceProduct: null, sample: [],
+        groupUsed: { groupId: 22873, name: null, via: 'confirmed' }, nextAttemptAt: null, lastAttemptAt: null, tries: 1, canConfirm: true, reviewable: 3, noSourceProduct: 0, sample: [],
         candidates: [{ groupId: 22873, name: 'SV01: Scarlet & Violet Base Set', publishedOn: '2023-03-31', productCount: 400, score: 0.88 }] },
       { setId: MOCK_SET_PROMOS, name: 'Scarlet & Violet Promos', unlinked: 4, total: 120, reason: 'promo_route',
-        groupUsed: { groupId: 22872, name: null, via: 'promo_table' }, nextAttemptAt: null, lastAttemptAt: null, tries: 0, canConfirm: false, reviewable: null, noSourceProduct: null, sample: [], candidates: [] },
+        groupUsed: { groupId: 22872, name: null, via: 'promo_table' }, nextAttemptAt: null, lastAttemptAt: null, tries: 0, canConfirm: false, reviewable: 4, noSourceProduct: 0, sample: [], candidates: [] },
     ],
   };
 }
