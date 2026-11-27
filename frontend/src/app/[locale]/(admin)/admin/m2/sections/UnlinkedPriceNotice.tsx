@@ -18,6 +18,9 @@ import { CardReviewPanel, type CardReviewProgress } from './CardReviewPanel';
 import { LinkRepairResultNotice } from './LinkRepairResultNotice';
 import { LINK_REPAIR_KEY } from './useCatalogSync';
 
+/** §12.4: un set B3 sin confirmar se pinta aunque esté 100 % ligado (hay variantes retenidas y el dueño necesita «Confirmar»). */
+const isB3Pending = (s: { reason?: string | null; b3Held?: number | null }) => s.reason === 'b3_unverified' || (s.b3Held ?? 0) > 0;
+
 /** Fila normalizada: sale de `link-exceptions` (§AUTO-ENLACE §2) o, si no responde, de `sync-status.unlinkedPrice`. */
 interface NoButtonRow {
   setId: string; name: string; unlinked: number; reasonKey: string; exception: LinkSetReason | null; groupUsed: LinkGroupUsed | null;
@@ -84,7 +87,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
     ...s, reason: readSetReason(s.reason), groupUsed: readGroupUsed(s.groupUsed), nextAttemptAt: null, candidates: [], canConfirm: false,
   }));
   const fromApi = exceptions.data?.sets ?? null;
-  const linkable: Row[] = fromApi ? fromApi.filter((s) => !(s.reason && NO_BUTTON_REASONS.includes(s.reason)) && s.unlinked > 0) : fromReport;
+  const linkable: Row[] = fromApi ? fromApi.filter((s) => !(s.reason && NO_BUTTON_REASONS.includes(s.reason)) && (s.unlinked > 0 || isB3Pending(s))) : fromReport;
   const noButton: NoButtonRow[] = fromApi
     ? fromApi.filter((s) => s.reason && NO_BUTTON_REASONS.includes(s.reason)).map((s) => ({ setId: s.setId, name: s.name, unlinked: s.unlinked, reasonKey: s.reason === 'tcgcsv_source' ? 'tcgcsvSource' : 'notInProvider', exception: s.reason, groupUsed: s.groupUsed }))
     : (report?.notLinkable?.sets ?? []).map((s) => ({
@@ -135,7 +138,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
     <Banner
       variant="warning"
       role="status"
-      title={hasLinkable ? t('title', { cards: totalCards, sets: linkable.length }) : noButton.length ? t('notLinkableTitle', { count: notLinkableCards }) : t('resolvedTitle')}
+      title={hasLinkable && totalCards === 0 ? t('b3OnlyTitle', { sets: linkable.length }) : hasLinkable ? t('title', { cards: totalCards, sets: linkable.length }) : noButton.length ? t('notLinkableTitle', { count: notLinkableCards }) : t('resolvedTitle')}
     >
       {resolvedOnTop && <div data-testid="unlinked-resolved">{result}</div>}
       {cardProgress && !linkable.some((s) => s.setId === cardProgress.setId) && (
@@ -189,7 +192,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                   <ul className="mt-1 text-muted">
                     {(s.sample ?? []).map((x, i) => (
                       <li key={i} className="break-words">
-                        {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${finishName(x.finish)})` : ''}: {x.newPriceCents == null ? tr('noPrice') : `${formatMoneyCents(x.newPriceCents, locale)} (${t('marketLabel')})`}
+                        {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${finishName(x.finish)})` : ''}: {x.newPriceCents == null ? tr('noPrice') : `${formatMoneyCents(x.newPriceCents, locale)} ${t('marketLabel')}`}
                       </li>
                     ))}
                   </ul>

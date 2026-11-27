@@ -79,7 +79,7 @@ export function CardReviewPanel({ setId, setName, count, onProgress }: { setId: 
                       <p className="min-w-0 text-xs break-words">
                         {c.name} ↔ <span className="font-medium">{p.name}</span>{p.number ? ` #${p.number}` : ''}
                         {p.finishes.length > 0 && ` · ${p.finishes.map(finishes).join(', ')}`}
-                        {` · ${p.priceCents == null ? t('noPrice') : `${formatMoneyCents(p.priceCents, locale)} (${t('marketLabel')})`}`}
+                        {` · ${p.priceCents == null ? t('noPrice') : `${formatMoneyCents(p.priceCents, locale)} ${t('marketLabel')}`}`}
                       </p>
                       <Button
                         size="sm"

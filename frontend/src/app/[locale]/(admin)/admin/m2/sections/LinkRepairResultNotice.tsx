@@ -87,7 +87,7 @@ export function LinkRepairResultNotice({
           {(result.nameMismatch ?? 0) > 0 && !leadKeys.includes('nameMismatch') &&
             ` ${t('nameMismatchNotice', { n: result.nameMismatch ?? 0 })}`}
           {result.groupUsed && ` ${t('groupUsed', { name: groupLabel(result.groupUsed, tf) })}`}
-          {result.nextAttemptAt && ` ${t('nextAttempt', { when: timeOf(result.nextAttemptAt) })}`}
+          {result.nextAttemptAt && result.reason !== 'b3_unverified' && ` ${t('nextAttempt', { when: timeOf(result.nextAttemptAt) })}`}
           {onDismiss && (
             <button type="button" onClick={onDismiss} className="ml-2 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-testid="unlinked-result-close">
               {t('dismiss')}

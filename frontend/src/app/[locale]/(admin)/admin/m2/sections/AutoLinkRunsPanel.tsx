@@ -93,7 +93,7 @@ export function AutoLinkRunsPanel({ canUnlink }: { canUnlink: boolean }) {
                       <ul className="text-muted">
                         {s.sample.map((x, i) => (
                           <li key={i} className="break-words">
-                            {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${finishName(x.finish)})` : ''}: {x.previousPriceCents == null ? t('noPrice') : money(x.previousPriceCents)} → {money(x.newPriceCents)} <span className="whitespace-nowrap">({t('marketLabel')})</span>
+                            {x.cardName}{x.number ? ` #${x.number}` : ''}{x.finish ? ` (${finishName(x.finish)})` : ''}: {x.previousPriceCents == null ? t('noPrice') : money(x.previousPriceCents)} → {money(x.newPriceCents)} <span className="whitespace-nowrap">{t('marketLabel')}</span>
                           </li>
                         ))}
                       </ul>

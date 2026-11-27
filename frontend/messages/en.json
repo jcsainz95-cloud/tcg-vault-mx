@@ -4517,6 +4517,7 @@
           "err": "Could not retry the link for {name}.",
           "errImport": "Importing the cards of {name} failed; linking prices was not attempted.",
           "resolvedTitle": "Result of the last update",
+          "b3OnlyTitle": "{sets, plural, one {# set is waiting for your group confirmation} other {# sets are waiting for your group confirmation}}",
           "finishNotice": "{n, plural, one {# card has} other {# cards have}} a finish the source does not provide for that product; they stay without a price for that finish.",
           "dismiss": "Close",
           "groupPromos": "promos group",

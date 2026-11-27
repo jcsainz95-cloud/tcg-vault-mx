@@ -4517,6 +4517,7 @@
           "err": "No se pudo reintentar el enlace de {name}.",
           "errImport": "Falló la importación de cartas de {name}; no se intentó ligar precios.",
           "resolvedTitle": "Resultado de la última actualización",
+          "b3OnlyTitle": "{sets, plural, one {# set espera tu confirmación de grupo} other {# sets esperan tu confirmación de grupo}}",
           "finishNotice": "{n, plural, one {# carta tiene} other {# cartas tienen}} un acabado que la fuente no da para ese producto; quedan sin precio de ese acabado.",
           "dismiss": "Cerrar",
           "groupPromos": "grupo de promos",
