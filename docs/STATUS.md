@@ -10,6 +10,9 @@
 - **Local con Docker**: `./scripts/dev-up.sh` (infra) · `./scripts/dev-up.sh --apps` (+ apps) · `./scripts/dev-down.sh`.
   Genera secretos locales; nunca usa valores del repo.
 - **Local sin Docker** (ruta nativa, la de los gates): `./scripts/stack-native.sh up` (`--gate` fija el sha servido). I-7 de qa CERRADO 2026-11-23: la paridad del cliente Prisma ya no depende de la variante de awk ni de líneas vacías seguidas (`_prisma_sin_formato`; canario `check-stack-prisma-client.sh` caso 13, VERDE 28/28 con mawk 1.3.4, rojo sobre e6d731fa; `up --seed` ⇒ health 200). NO MEDIDO: gawk y busybox awk (no instalados aquí).
+- **Reversa AE-8 `first_edition`** (2026-11-27, DECISIONES §AUTO-ENLACE 16): `scripts/rollback-first-edition.sh` (simulación por
+  defecto; `--apply --confirm <huella> --backup-dir`). Correrlo con el código NUEVO aún arriba y `auto_link_enabled=off`, ANTES de
+  revertir a 9091542a. Medido en BD local: Prisma de 9091542a 9/16 modelos legibles antes → 16/16 después; 2.ª corrida = 0.
 - **Puertos**: frontend 3000 · backend 3001 · Postgres 5432 · Redis 6379 · S3 local/MinIO 9000.
 - **Pruebas**: `cd backend && npm test` (jest) · `npm run test:integration` (Postgres real) ·
   `cd frontend && npm test` (vitest) · `npm run test:e2e` (Playwright).
