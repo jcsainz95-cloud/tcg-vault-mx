@@ -79,6 +79,8 @@ export const ErrorCode = {
   // (pokemontcg.io) y la familia refresh-variants (§M2 — M-34/M-35). En el batch refresh-variants-all
   // NO se propaga como HTTP: se captura por-set y va a summary.failures[].code. 502.
   UPSTREAM_ERROR: 'UPSTREAM_ERROR',
+  // §AUTO-ENLACE fase 3 (contrato §3): el `groupId` elegido para confirmar no existe en `listGroups` de TCGCSV. 422.
+  GROUP_NOT_FOUND: 'GROUP_NOT_FOUND',
   // v1.31 (formalizado; refresh-variants M-34): se intentó refrescar variantes/precios de un set que NO
   // existe en BD, o existe pero SIN cartas. La reparación solo-TCGCSV NO importa el set (no llama a
   // pokemontcg.io); mensaje accionable ("impórtalo primero con POST /admin/catalog/sync"). Se usa 409

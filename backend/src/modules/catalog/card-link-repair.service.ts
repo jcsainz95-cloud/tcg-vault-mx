@@ -7,6 +7,7 @@ import { BusinessException } from '../../common/business.exception';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { isTcgcsvOrigin, SET_ID_PATTERN } from './tcgcsv-card-name';
+import { isNotInProviderSet } from './auto-link-stats';
 import { safeErrorTag } from '../shipments/guest-mail-link';
 import { BudgetExhaustedError, CircuitOpenError, DeadlineError, TcgcsvCallBudget } from './tcgcsv-call-budget';
 import type { TcgcsvGroupRef } from '../pricing/pricing.types';
@@ -446,13 +447,30 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     return new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, message, { retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
   }
 
+  /** Guarda el grupo hallado por regla (informativo; solo `auto`, jamás pisa `confirmed`). Best-effort: un fallo aquí no tumba la reparación. Idempotente. */
+  private async rememberAutoGroup(setId: string, groupId: number): Promise<void> {
+    try {
+      const cur = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { cardGroupId: true, cardGroupVia: true } });
+      if (!cur || cur.cardGroupVia === 'confirmed' || (cur.cardGroupId === groupId && cur.cardGroupVia === 'auto')) return;
+      // Condicionada: si entre la lectura y la escritura alguien confirmó otro grupo, `updateMany` no toca nada.
+      await this.prisma.cardSet.updateMany({ where: { id: setId, OR: [{ cardGroupVia: null }, { cardGroupVia: 'auto' }] }, data: { cardGroupId: groupId, cardGroupVia: 'auto' } });
+    } catch (e) {
+      this.logger.warn(`card-link-repair: no se pudo guardar el grupo automático de ${setId} (${safeErrorTag(e)}).`);
+    }
+  }
+
   /** §AUTO-ENLACE fase 2: el intento de UN set dentro de la tanda del job (mismo cuerpo que el botón; presupuesto y tope de la tanda). */
   attemptSetAuto(setId: string, ctx: AutoLinkContext): Promise<LinkRepairSetResult> {
     return this.attemptSet(setId, 'auto', null, ctx);
   }
 
+  /** §AUTO-ENLACE fase 3: liga y precia el set con el grupo ya confirmado (mismo cuerpo que el botón; sin enfriamiento propio: lo limita `confirm`). */
+  attemptSetConfirmed(setId: string, actorUserId: string, groups: readonly TcgcsvGroupRef[]): Promise<LinkRepairSetResult> {
+    return this.attemptSet(setId, 'confirm', actorUserId, { groups });
+  }
+
   /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
-  private async attemptSet(setId: string, trigger: string, actorUserId: string | null, ctx?: AutoLinkContext): Promise<LinkRepairSetResult> {
+  private async attemptSet(setId: string, trigger: string, actorUserId: string | null, ctx?: Partial<AutoLinkContext>): Promise<LinkRepairSetResult> {
     const blank = (name: string): LinkRepairSetResult => ({
       setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, availableAgainAt: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
     });
@@ -467,19 +485,22 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
           res.reason = 'tcgcsv_source';
         } else {
           // El resolver devuelve `null` también para los sets de `PTCG_PROMO_GROUPS` (su ruta propia): ahí el grupo SÍ existe.
-          const g = await this.resolver.describeGroup(setId).catch(() => null);
+          const g = await this.resolver.describeGroup(setId, ctx?.groups).catch(() => null);
           if (g?.groupId != null) {
             res.notLinkable = g.via === 'promo_table' ? 'promo_route' : null;
             res.reason = g.via === 'promo_table' ? 'promo_route' : null;
             res.groupUsed = { groupId: g.groupId, name: g.name, via: g.via ?? 'auto' };
           } else {
             res.notLinkable = 'no_group';
-            res.reason = g?.failure === 'ambiguous' ? 'group_ambiguous' : 'group_none';
+            res.reason = g?.failure === 'ambiguous' ? 'group_ambiguous' : isNotInProviderSet(set.name) ? 'not_in_provider' : 'group_none';
+            res.candidates = g?.candidates ?? [];
           }
         }
       } else {
         res.priced = r.pricesWritten ?? 0;
         res.groupUsed = { groupId: r.groupId, name: r.groupName ?? null, via: r.groupVia ?? 'auto' };
+        // §AUTO-ENLACE fase 3: el grupo hallado por regla queda guardado (informativo; `confirmed` jamás se pisa). Idempotente: sin cambio ⇒ 0 filas.
+        if (r.groupVia !== 'confirmed' && r.groupVia !== 'promo_table') await this.rememberAutoGroup(setId, r.groupId);
         res.linked = r.touchedCardIds?.length ?? 0;
         res.collisions = r.collisions ?? 0;
         res.conflicts = r.conflicts ?? 0;
@@ -502,7 +523,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         after: {
           setId, linked: res.linked, collisions: res.collisions, conflicts: res.conflicts,
           omitted: res.omitted.reduce((n, o) => n + o.count, 0), omittedReasons: res.omitted, notLinkable: res.notLinkable,
-          priced: res.priced, groupUsed: res.groupUsed, reason: res.reason,
+          priced: res.priced, groupUsed: res.groupUsed, reason: res.reason, ...(res.candidates?.length ? { candidates: res.candidates } : {}),
           piecesCorrected: res.piecesCorrected, trigger,
         },
       });

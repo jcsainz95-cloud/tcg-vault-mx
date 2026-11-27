@@ -103,10 +103,23 @@ export function matchTcgcsvGroupByName(
   setName: string,
   groups: readonly TcgcsvGroupRef[],
 ): TcgcsvGroupMatch {
+  const t = ladderTier(setName, groups);
+  if (t === 'empty') return { groupId: null, failure: 'empty_name', candidates: 0, candidateNames: [] };
+  if (t === null) return { groupId: null, failure: 'no_match', candidates: 0, candidateNames: [] };
+  if (t.matches.length === 1) return { groupId: t.matches[0].groupId, tier: t.tier, candidates: 1 };
+  // Peldaño con candidatos pero AMBIGUO ⇒ se para aquí (money-safe: no se relaja el criterio).
+  return {
+    groupId: null,
+    failure: 'ambiguous',
+    candidates: t.matches.length,
+    candidateNames: t.matches.slice(0, MAX_REPORTED_CANDIDATES).map((g) => g.name),
+  };
+}
+
+/** El primer peldaño de la escalera con algún candidato (`null` = ninguno; `'empty'` = el nombre normaliza a vacío). Base de `matchTcgcsvGroupByName` y de B3. */
+export function ladderTier(setName: string, groups: readonly TcgcsvGroupRef[]): { tier: TcgcsvGroupMatchTier; matches: TcgcsvGroupRef[] } | null | 'empty' {
   const targets = setNameCandidates(setName).filter((s) => s !== '');
-  if (targets.length === 0) {
-    return { groupId: null, failure: 'empty_name', candidates: 0, candidateNames: [] };
-  }
+  if (targets.length === 0) return 'empty';
   const target = targets[0]; // el nombre COMPLETO normalizado (peldaños 1 y 3)
 
   const tiers: Array<{ tier: TcgcsvGroupMatchTier; matches: TcgcsvGroupRef[] }> = [
@@ -135,18 +148,8 @@ export function matchTcgcsvGroupByName(
     },
   ];
 
-  for (const { tier, matches } of tiers) {
-    if (matches.length === 0) continue;
-    if (matches.length === 1) return { groupId: matches[0].groupId, tier, candidates: 1 };
-    // Peldaño con candidatos pero AMBIGUO ⇒ se para aquí (money-safe: no se relaja el criterio).
-    return {
-      groupId: null,
-      failure: 'ambiguous',
-      candidates: matches.length,
-      candidateNames: matches.slice(0, MAX_REPORTED_CANDIDATES).map((g) => g.name),
-    };
-  }
-  return { groupId: null, failure: 'no_match', candidates: 0, candidateNames: [] };
+  for (const t of tiers) if (t.matches.length > 0) return t;
+  return null;
 }
 
 /**
@@ -208,6 +211,168 @@ function normalizeGroupName(raw: string | null | undefined): string {
   return normalizeSetName(raw);
 }
 
+// ============================ §AUTO-ENLACE fase 3 — B3 (mapeo set → grupo) ============================
+//
+// B3 se CONSTRUYE ENCIMA de la escalera de arriba y SOLO añade resultados: si la escalera ya resolvía un grupo ÚNICO, B3 ni se mira
+// (monotonía: jamás `groupId → OTRO groupId`). Solo convierte `ambiguous`/`no_match` en un grupo cuando una regla DERIVADA de los datos
+// de TCGCSV y del set lo deja en UNO; si no, devuelve candidatos y no adivina. Reglas (DECISIONES §AUTO-ENLACE 6):
+//  (i)   «&» ≡ «and», acentos, puntuación y mayúsculas.
+//  (ii)  prefijos de código «XX -»/«SV08:» fuera, de UN solo lado (dos prefijos DISTINTOS = dos colecciones).
+//  (iii) familias derivables: «McDonald's … AAAA» ⇒ el grupo con la marca y el mismo año; prefijo de serie («EX Dragon» ⇔ «Dragon» con serie EX);
+//        base de era («Sun & Moon» ⇔ «SM Base Set»).
+//  (iv)  empate ⇒ fecha: `publishedOn` del grupo vs `releaseDate` del set (≤ 45 días); se acepta solo si queda UNO.
+//        (El desempate por nº de productos vs `printedTotal` necesita `getProducts` por candidato: `listGroups` no trae conteos ⇒ no se hace aquí;
+//        el caso queda como excepción con candidatos.)
+//  (v)   tabla curada SOLO para el residuo irreductible (cada fila con su prueba).
+
+export interface B3SetInfo {
+  name: string;
+  series?: string | null;
+  releaseDate?: string | null;
+  externalId?: string | null;
+}
+
+/** Tabla curada de residuo irreductible (sin regla derivable). Cada fila lleva su prueba en `test/auto-link-b3.spec.ts`. Quitarla es el rollback. */
+export const B3_RESIDUE_GROUPS: readonly { ptcgSetId: string; groupId: number; note: string }[] = [
+  { ptcgSetId: 'basep', groupId: 1418, note: 'Wizards Black Star Promos ⇒ «WoTC Promo» (1999-07-01 = 1999/07/01)' },
+  { ptcgSetId: 'np', groupId: 1423, note: 'Nintendo Black Star Promos ⇒ «Nintendo Promos»' },
+  { ptcgSetId: 'hsp', groupId: 1453, note: 'HGSS Black Star Promos ⇒ «HGSS Promos»' },
+  { ptcgSetId: 'bp', groupId: 1455, note: 'Best of Game ⇒ «Best of Promos» (2002-12-01 = 2002/12/01)' },
+  { ptcgSetId: 'tk1a', groupId: 1543, note: 'EX Trainer Kit Latias ⇒ «EX Trainer Kit 1: Latias & Latios»' },
+  { ptcgSetId: 'tk1b', groupId: 1543, note: 'EX Trainer Kit Latios ⇒ «EX Trainer Kit 1: Latias & Latios»' },
+  { ptcgSetId: 'tk2a', groupId: 1542, note: 'EX Trainer Kit 2 Plusle ⇒ «EX Trainer Kit 2: Plusle & Minun»' },
+  { ptcgSetId: 'tk2b', groupId: 1542, note: 'EX Trainer Kit 2 Minun ⇒ «EX Trainer Kit 2: Plusle & Minun»' },
+];
+
+/** Nombre → [completo, sin prefijo de código] (si lo trae). «&»≡«and»; el prefijo es `XX:`/`XX -` de hasta 6 caracteres alfanuméricos. */
+export function b3NameKeys(raw: string | null | undefined): string[] {
+  const base = (raw ?? '').replace(/&/g, ' and ');
+  const full = normalizeSetName(base);
+  const stripped = normalizeSetName(base.replace(/^\s*[A-Za-z0-9]{1,6}\s*[:\-–]\s*/, ''));
+  return stripped !== '' && stripped !== full ? [full, stripped] : [full];
+}
+
+function matchModuloOnePrefix(local: string[], remote: string[]): boolean {
+  if (local[0] === '' || remote[0] === '') return false;
+  if (local[0] === remote[0]) return true;
+  const lp = local.length > 1;
+  const rp = remote.length > 1;
+  if (lp === rp) return false; // ambos o ninguno con prefijo ⇒ ya lo decidió el nombre completo
+  return (lp ? local[1] : local[0]) === (rp ? remote[1] : remote[0]);
+}
+
+function parseDay(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const t = Date.parse(raw.replace(/\//g, '-'));
+  return Number.isFinite(t) ? t : null;
+}
+
+const DAY_MS = 86_400_000;
+export const B3_DATE_WINDOW_DAYS = 45;
+function withinDays(set: B3SetInfo, g: TcgcsvGroupRef, days: number): boolean {
+  const a = parseDay(set.releaseDate);
+  const b = parseDay(g.publishedOn);
+  return a != null && b != null && Math.abs(a - b) <= days * DAY_MS;
+}
+
+export type B3Tier = 'residue' | 'date' | 'amp_and_prefix' | 'series_prefix' | 'era_base' | 'mcdonalds';
+
+function yearOf(raw: string | null | undefined): string | null {
+  return /(?:^|\D)((?:19|20)\d{2})(?:\D|$)/.exec(raw ?? '')?.[1] ?? null;
+}
+
+/**
+ * B3 puro (sin red): `{groupId, tier}` si una regla deja UN grupo; `null` si no. Se llama SOLO cuando la escalera no resolvió.
+ * `ladder` = lo que la escalera encontró (`ambiguous` con sus candidatos completos) para el desempate por fecha.
+ */
+export function resolveGroupB3(set: B3SetInfo, groups: readonly TcgcsvGroupRef[]): { groupId: number; tier: B3Tier } | null {
+  const one = (m: TcgcsvGroupRef[], tier: B3Tier): { groupId: number; tier: B3Tier } | null => (m.length === 1 ? { groupId: m[0].groupId, tier } : null);
+  // (v) residuo curado: solo si el grupo SIGUE existiendo en TCGCSV.
+  const res = B3_RESIDUE_GROUPS.find((r) => r.ptcgSetId === set.externalId);
+  if (res && groups.some((g) => g.groupId === res.groupId)) return { groupId: res.groupId, tier: 'residue' };
+
+  const local = b3NameKeys(set.name);
+  if (local[0] === '') return null;
+
+  // (iv) empate de la escalera ⇒ fecha ≤ 45 días, solo si queda UNO.
+  const lad = ladderTier(set.name, groups);
+  // Peldaños de IGUALDAD: se desempata por fecha. Peldaño de CONTENCIÓN: solo candidatos más CORTOS que el nombre local (el grupo «Expedition» dentro
+  // de «Expedition Base Set»); uno más largo («Evolutions Deck» ⊃ «Evolutions») + fecha cercana no basta para ligar.
+  if (lad && lad !== 'empty' && lad.matches.length > 1) {
+    const pool = lad.tier === 'contains' ? lad.matches.filter((g) => local[0].includes(b3NameKeys(g.name)[0])) : lad.matches;
+    const r = one(pool.filter((g) => withinDays(set, g, B3_DATE_WINDOW_DAYS)), 'date');
+    if (r) return r;
+  }
+
+  // (i)+(ii) «&»≡«and» y prefijos «XX -»/«XX:» de un solo lado.
+  const amp = groups.filter((g) => matchModuloOnePrefix(local, b3NameKeys(g.name)));
+  const ampOne = one(amp, 'amp_and_prefix') ?? (amp.length > 1 ? one(amp.filter((g) => withinDays(set, g, B3_DATE_WINDOW_DAYS)), 'date') : null);
+  if (ampOne) return ampOne;
+
+  // (iii-a) McDonald's: marca + año (del nombre; si no, del `releaseDate`); el grupo trae el mismo año en el nombre, o no trae año y se publicó ese año.
+  if (local[0].includes('mcdonalds')) {
+    const y = yearOf(set.name) ?? yearOf(set.releaseDate);
+    if (y) {
+      const brand = groups.filter((g) => normalizeSetName(g.name).includes('mcdonalds'));
+      const named = brand.filter((g) => yearOf(g.name) === y);
+      const r = one(named, 'mcdonalds') ?? (named.length === 0 ? one(brand.filter((g) => yearOf(g.name) == null && (g.publishedOn ?? '').startsWith(y)), 'mcdonalds') : null);
+      if (r) return r;
+    }
+  }
+
+  // (iii-b) prefijo de serie: «EX Dragon» ⇔ «Dragon» con serie «EX».
+  const seriesKey = normalizeSetName((set.series ?? '').replace(/&/g, ' and '));
+  if (seriesKey.length >= 2) {
+    const sp = groups.filter((g) => {
+      const k = b3NameKeys(g.name);
+      return k.some((x) => x.startsWith(seriesKey) && x.length > seriesKey.length && x.slice(seriesKey.length) === local[0]);
+    });
+    const r = one(sp, 'series_prefix');
+    if (r) return r;
+    // (iii-c) base de era: el set se llama como su serie ⇒ «<iniciales> Base Set» («Sun & Moon» ⇒ «SM Base Set»).
+    if (local[0] === seriesKey) {
+      const initials = (set.series ?? '').replace(/&/g, ' ').split(/\s+/).filter((w) => w && w.toLowerCase() !== 'and').map((w) => w[0].toLowerCase()).join('');
+      if (initials.length >= 2) {
+        const r2 = one(groups.filter((g) => b3NameKeys(g.name).includes(`${initials}baseset`)), 'era_base');
+        if (r2) return r2;
+      }
+    }
+  }
+  return null;
+}
+
+export interface GroupCandidate {
+  groupId: number;
+  name: string;
+  publishedOn: string | null;
+  productCount: number | null;
+  score: number;
+}
+
+/** Candidatos (máx. 5, mejor primero) para la lista de excepciones. Puntaje 0..100 = parecido de palabras (60) + contención (15) + cercanía de fecha (25). Sin red. */
+export function scoreGroupCandidates(set: B3SetInfo, groups: readonly TcgcsvGroupRef[], limit = 5): GroupCandidate[] {
+  const words = (raw: string): Set<string> => new Set(raw.replace(/&/g, ' and ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean));
+  const lw = words(set.name);
+  const lkey = b3NameKeys(set.name);
+  const out: GroupCandidate[] = [];
+  for (const g of groups) {
+    const gw = words(g.name);
+    const inter = [...lw].filter((w) => gw.has(w)).length;
+    const union = new Set([...lw, ...gw]).size || 1;
+    let score = Math.round((inter / union) * 60);
+    const gk = b3NameKeys(g.name);
+    if (gk.some((k) => lkey.some((l) => l !== '' && k !== '' && (k.includes(l) || l.includes(k))))) score += 15;
+    const a = parseDay(set.releaseDate);
+    const b = parseDay(g.publishedOn);
+    if (a != null && b != null) {
+      const d = Math.abs(a - b) / DAY_MS;
+      score += d <= B3_DATE_WINDOW_DAYS ? 25 : d <= 365 ? 10 : 0;
+    }
+    if (score >= 30) out.push({ groupId: g.groupId, name: g.name, publishedOn: g.publishedOn ? g.publishedOn.slice(0, 10) : null, productCount: null, score: Math.min(100, score) });
+  }
+  return out.sort((x, y) => y.score - x.score || x.groupId - y.groupId).slice(0, limit);
+}
+
 /**
  * P-PROMOS-VIEJAS (ARCHITECTURE §5.13) — ÚNICA función que decide el grupo TCGCSV de un set local, compartida por
  * `CardProductResolverService.resolveGroupId` (estructura) y `TcgcsvSinglesBulkPriceProvider.resolveGroupId` (precio).
@@ -216,13 +381,33 @@ function normalizeGroupName(raw: string | null | undefined): string {
  * `listGroups` solo se llama si se llega al peldaño 3.
  */
 export async function resolveTcgcsvGroupForSet(
-  set: { name: string; pptSetId: string | null; externalId?: string | null },
+  set: {
+    name: string;
+    pptSetId: string | null;
+    externalId?: string | null;
+    series?: string | null;
+    releaseDate?: string | null;
+    /** §AUTO-ENLACE fase 3: grupo de CARTAS guardado en el set; solo `confirmed` manda, `auto` es informativo (se recalcula). */
+    cardGroupId?: number | null;
+    cardGroupVia?: string | null;
+  },
   listGroups: () => Promise<readonly TcgcsvGroupRef[]>,
-): Promise<{ groupId: number; via: 'promo_table' | 'ppt_set_id' | 'name' } | Extract<TcgcsvGroupMatch, { groupId: null }>> {
+): Promise<{ groupId: number; via: 'promo_table' | 'confirmed' | 'ppt_set_id' | 'name' | 'b3' } | Extract<TcgcsvGroupMatch, { groupId: null }>> {
   const promo = promoGroupFor(set.externalId);
   if (promo) return { groupId: promo.groupId, via: 'promo_table' };
+  // Precedencia (contrato §6): tabla de promos > confirmado > regla automática > `pptSetId` numérico > nombre. Dos matices declarados:
+  // `pptSetId` va ANTES del nombre/B3 (monotonía: un set ya resuelto por PPT no se mueve de grupo), y un confirmado cuyo grupo ya no existe
+  // en `listGroups` NO cae a otra fuente: devuelve `no_match` ⇒ motivo `group_none` y vuelve a la lista.
+  if (set.cardGroupVia === 'confirmed' && set.cardGroupId != null) {
+    const groups = await listGroups();
+    if (groups.some((g) => g.groupId === set.cardGroupId)) return { groupId: set.cardGroupId, via: 'confirmed' };
+    return { groupId: null, failure: 'no_match', candidates: 0, candidateNames: [] };
+  }
   if (set.pptSetId && /^\d+$/.test(set.pptSetId)) return { groupId: parseInt(set.pptSetId, 10), via: 'ppt_set_id' };
-  const match = matchTcgcsvGroupByName(set.name, await listGroups());
+  const groups = await listGroups();
+  const match = matchTcgcsvGroupByName(set.name, groups);
   if (match.groupId != null) return { groupId: match.groupId, via: 'name' };
+  const b3 = resolveGroupB3(set, groups);
+  if (b3) return { groupId: b3.groupId, via: 'b3' };
   return match;
 }

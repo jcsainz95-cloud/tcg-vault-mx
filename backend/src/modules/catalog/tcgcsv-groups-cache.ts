@@ -23,6 +23,13 @@ export class TcgcsvGroupsCache {
     return this.groups && now - this.at <= GROUPS_CACHE_TTL_MS ? this.groups : null;
   }
 
+  /** Relee `listGroups` aunque el caché sea vigente (p. ej. un grupo recién publicado). Lanza ante fallo. */
+  async refresh(now = Date.now()): Promise<TcgcsvGroupRef[]> {
+    const fresh = await this.client.listGroups();
+    this.put(fresh, now);
+    return fresh;
+  }
+
   async get(now = Date.now()): Promise<TcgcsvGroupRef[]> {
     const hit = this.peek(now);
     if (hit) return hit;

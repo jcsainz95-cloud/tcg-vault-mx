@@ -9,7 +9,7 @@ import { isSchedulerDisabled } from '../../config/test-env';
 import { CardLinkRepairService, LinkRepairSetResult, LINK_REPAIR_GATE_NAMESPACE } from './card-link-repair.service';
 import { AUTO_LINK_PRICE_LOCK_KEY } from './auto-link-lock';
 import { TcgcsvCallBudget } from './tcgcsv-call-budget';
-import { countsInUnlinkedCards, nextAutoLinkRun, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
+import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
 
 /** Topes de UNA tanda (DECISIONES §AUTO-ENLACE 1; contrato §1). */
@@ -183,21 +183,11 @@ export class CatalogAutoLinkService {
     const rows = (await unlinkedBySet(this.prisma)).filter((s) => untryableReason(s) === null);
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.setId);
-    const [pieces, reviews, attempts, claims] = await Promise.all([
-      this.prisma.$queryRaw<{ setId: string; n: number }[]>`
-        SELECT c."setId", COUNT(*)::int AS n FROM "InventoryItem" i JOIN "Card" c ON c."id" = i."cardId"
-        WHERE i."productType" = 'raw' AND i."status" IN ('in_stock', 'listed')
-          AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."cardId" = c."id")
-        GROUP BY c."setId"`,
-      this.prisma.$queryRaw<{ setId: string; n: number }[]>`
-        SELECT c."setId", COUNT(*)::int AS n FROM "PriceReviewCase" r JOIN "Card" c ON c."id" = r."cardId"
-        WHERE r."status" IN ('open', 'kept') AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."cardId" = c."id")
-        GROUP BY c."setId"`,
+    const [pc, attempts, claims] = await Promise.all([
+      piecesBySet(this.prisma),
       this.prisma.auditLog.findMany({ where: { action: ACTION, entityId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { entityId: true, createdAt: true, after: true }, take: 20_000 }),
       this.prisma.auditLog.findMany({ where: { action: CLAIM, createdAt: { gte: utcDayStart(at) }, entityId: { in: ids } }, select: { entityId: true } }),
     ]);
-    const pc = new Map<string, number>();
-    for (const p of [...pieces, ...reviews]) pc.set(p.setId, (pc.get(p.setId) ?? 0) + p.n);
     const lastAt = new Map<string, number>();
     const streak = new Map<string, number>();
     const nextAt = new Map<string, number>();

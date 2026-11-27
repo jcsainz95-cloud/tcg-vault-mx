@@ -14,7 +14,7 @@ import {
 // FUENTE ÚNICA del match set local ↔ grupo TCGCSV (S-D3 / §4.27d). Ver `resolveGroupId`: esta
 // escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
 // de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
-import { resolveTcgcsvGroupForSet } from '../pricing/providers/tcgcsv-group-match';
+import { resolveTcgcsvGroupForSet, scoreGroupCandidates, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
 import { planCardLinks } from './card-link-plan';
 import { promoGroupFor } from './promo-set-groups';
@@ -110,11 +110,11 @@ export class CardProductResolverService {
     pendingCards?: number;
     /** §AUTO-ENLACE F4: grupo TCGCSV usado (nombre del proveedor) y cómo se eligió; el nombre es `null` si `listGroups` no respondió. */
     groupName?: string | null;
-    groupVia?: 'auto' | 'promo_table';
+    groupVia?: 'auto' | 'confirmed' | 'promo_table';
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
-      select: { id: true, name: true, pptSetId: true, externalId: true, releaseDate: true, printedTotal: true },
+      select: { id: true, name: true, pptSetId: true, externalId: true, series: true, releaseDate: true, printedTotal: true, cardGroupId: true, cardGroupVia: true },
     });
     if (!set) return null;
     // P-PROMOS (§5.12): los sets `tcgcsv:` los puebla SU importador (cartas, sellos y precios por productId). Este
@@ -323,14 +323,23 @@ export class CardProductResolverService {
    * §AUTO-ENLACE (solo lectura de proveedor, sin escribir): por qué un set no resuelve grupo. `promo_table` si lo fija
    * `PTCG_PROMO_GROUPS` (el grupo SÍ existe aunque la ruta de reparación no lo recorra), `ambiguous` si empatan varios.
    */
-  async describeGroup(localSetId: string): Promise<{ groupId: number | null; name: string | null; via: 'auto' | 'promo_table' | null; failure: 'ambiguous' | 'none' | null }> {
-    const set = await this.prisma.cardSet.findUnique({ where: { id: localSetId }, select: { id: true, name: true, pptSetId: true, externalId: true } });
-    if (!set) return { groupId: null, name: null, via: null, failure: 'none' };
+  async describeGroup(
+    localSetId: string,
+    groups?: readonly TcgcsvGroupRef[],
+  ): Promise<{ groupId: number | null; name: string | null; via: 'auto' | 'confirmed' | 'promo_table' | null; failure: 'ambiguous' | 'none' | null; candidates: GroupCandidate[] }> {
+    const set = await this.prisma.cardSet.findUnique({
+      where: { id: localSetId },
+      select: { id: true, name: true, pptSetId: true, externalId: true, series: true, releaseDate: true, cardGroupId: true, cardGroupVia: true },
+    });
+    if (!set) return { groupId: null, name: null, via: null, failure: 'none', candidates: [] };
     const promo = promoGroupFor(set.externalId);
-    if (promo) return { groupId: promo.groupId, name: null, via: 'promo_table', failure: null }; // B-2: sin `listGroups` en promos
-    const m = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
-    if (m.groupId != null) return { groupId: m.groupId, name: await this.groupNameOf(m.groupId), via: 'auto', failure: null };
-    return { groupId: null, name: null, via: null, failure: m.failure === 'ambiguous' ? 'ambiguous' : 'none' };
+    if (promo) return { groupId: promo.groupId, name: null, via: 'promo_table', failure: null, candidates: [] }; // B-2: sin `listGroups` en promos
+    const all = groups ?? (await this.tcgcsv.listGroups());
+    const m = await resolveTcgcsvGroupForSet(set, async () => all);
+    if (m.groupId != null) {
+      return { groupId: m.groupId, name: all.find((g) => g.groupId === m.groupId)?.name ?? null, via: m.via === 'confirmed' ? 'confirmed' : 'auto', failure: null, candidates: [] };
+    }
+    return { groupId: null, name: null, via: null, failure: m.failure === 'ambiguous' ? 'ambiguous' : 'none', candidates: scoreGroupCandidates(set, all) };
   }
 
   /**
@@ -421,17 +430,18 @@ export class CardProductResolverService {
 
   /** Igual que `resolveGroupId`, con cómo se eligió el grupo (§AUTO-ENLACE F4) y la lista de grupos ya bajada de la tanda si la hay. */
   private async resolveGroup(
-    set: { id: string; name: string; pptSetId: string | null; externalId: string; releaseDate?: string | null; printedTotal?: number | null },
+    set: { id: string; name: string; pptSetId: string | null; externalId: string; series?: string | null; releaseDate?: string | null; printedTotal?: number | null; cardGroupId?: number | null; cardGroupVia?: string | null },
     groups?: readonly TcgcsvGroupRef[],
-  ): Promise<{ groupId: number; via: 'auto' | 'promo_table' } | null> {
-    const cached = this.groupIdCache.get(set.id);
+  ): Promise<{ groupId: number; via: 'auto' | 'confirmed' | 'promo_table' } | null> {
+    // Un grupo CONFIRMADO nunca se cachea (el dueño puede cambiarlo; se relee de la columna en cada corrida).
+    const cached = set.cardGroupVia === 'confirmed' ? undefined : this.groupIdCache.get(set.id);
     if (cached != null) return { groupId: cached, via: 'auto' };
 
     // P-PROMOS-VIEJAS: tabla fija > pptSetId numérico > nombre, en la función compartida con la ruta de estructura.
     const match = await resolveTcgcsvGroupForSet(set, async () => groups ?? (await this.tcgcsv.listGroups()));
     if (match.groupId != null) {
-      this.groupIdCache.set(set.id, match.groupId);
-      return { groupId: match.groupId, via: match.via === 'promo_table' ? 'promo_table' : 'auto' };
+      if (match.via !== 'confirmed') this.groupIdCache.set(set.id, match.groupId);
+      return { groupId: match.groupId, via: match.via === 'promo_table' ? 'promo_table' : match.via === 'confirmed' ? 'confirmed' : 'auto' };
     }
 
     this.logger.warn(

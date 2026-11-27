@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -9,6 +9,11 @@ import { CardLinkRepairService } from './card-link-repair.service';
 import { LinkExceptionsService } from './link-exceptions.service';
 import { SetSearchKeyService } from './set-search-key.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
+
+/** §AUTO-ENLACE fase 3 — body de `POST /admin/catalog/link-exceptions/:setId/confirm`: el `groupId` entero de TCGCSV. */
+class ConfirmGroupDto {
+  @IsInt() @Min(1) groupId!: number;
+}
 
 class SyncDto {
   @IsOptional() @IsString() setId?: string;
@@ -104,7 +109,8 @@ export class AdminCatalogController {
       ...this.sync.getSyncStatus(),
       unlinkedPrice: await this.linkRepair.unlinkedPrice(),
       // §AUTO-ENLACE fase 2: contador «quedan X · ayer Y» (contrato §5).
-      summary: await this.linkExceptions.summary(),
+      // (⛔ no se llama `summary`: pisaría el `summary` del barrido que ya trae `getSyncStatus()`; contrato §8c.)
+      autoLink: await this.linkExceptions.summary(),
       // §BUSCADOR-CARTAS §3: cobertura de claves impresas de set («k de N sets sin clave»), aditivo.
       searchKeys: await this.searchKeys.coverage(),
     };
@@ -149,6 +155,23 @@ export class AdminCatalogController {
     void _name;
     void _error;
     return res;
+  }
+
+  /** GET /admin/catalog/link-exceptions — lista única de sets con cartas sin ligar, motivo, grupo usado y candidatos (solo lectura local; contrato §2). */
+  @Get('link-exceptions')
+  async listLinkExceptions() {
+    return this.linkExceptions.list();
+  }
+
+  /** POST /admin/catalog/link-exceptions/:setId/confirm {groupId} — persiste el grupo elegido, liga y precia el set (super_admin, auditado; contrato §3). */
+  @Post('link-exceptions/:setId/confirm')
+  @HttpCode(200)
+  async confirmLinkException(
+    @Param('setId', new ParseUUIDPipe()) setId: string,
+    @Body() dto: ConfirmGroupDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.linkExceptions.confirm(setId, dto.groupId, user);
   }
 
   @Post('sync')

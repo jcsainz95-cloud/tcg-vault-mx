@@ -56,3 +56,21 @@ export function nextAutoLinkRun(now = new Date()): Date {
   const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), AUTO_LINK_HOUR_UTC));
   return t.getTime() > now.getTime() ? t : new Date(t.getTime() + 86_400_000);
 }
+
+/** Piezas a la venta (`in_stock`/`listed`) o casos de revisión de precio vigentes sobre cartas SIN ligar, por set (prioridad del job y orden de la lista). */
+export async function piecesBySet(prisma: Pick<PrismaService, '$queryRaw'>): Promise<Map<string, number>> {
+  const [pieces, reviews] = await Promise.all([
+    prisma.$queryRaw<{ setId: string; n: number }[]>`
+      SELECT c."setId", COUNT(*)::int AS n FROM "InventoryItem" i JOIN "Card" c ON c."id" = i."cardId"
+      WHERE i."productType" = 'raw' AND i."status" IN ('in_stock', 'listed')
+        AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."cardId" = c."id")
+      GROUP BY c."setId"`,
+    prisma.$queryRaw<{ setId: string; n: number }[]>`
+      SELECT c."setId", COUNT(*)::int AS n FROM "PriceReviewCase" r JOIN "Card" c ON c."id" = r."cardId"
+      WHERE r."status" IN ('open', 'kept') AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."cardId" = c."id")
+      GROUP BY c."setId"`,
+  ]);
+  const m = new Map<string, number>();
+  for (const p of [...pieces, ...reviews]) m.set(p.setId, (m.get(p.setId) ?? 0) + p.n);
+  return m;
+}

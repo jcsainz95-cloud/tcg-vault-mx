@@ -265,13 +265,13 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
   it('contador: sync-status.summary (quedan X · ayer Y), solo lectura local', async () => {
     const yesterday = new Date(Date.now() - 86_400_000);
     await h.prisma.auditLog.create({ data: { action: 'catalog.auto_link_run', entityType: 'CardSet', createdAt: yesterday, after: { linked: 7, priced: 5 } } });
-    const res = await h.api<{ summary: Record<string, unknown> }>('GET', '/admin/catalog/sync-status', { token: adminToken });
+    const res = await h.api<{ autoLink: Record<string, unknown>; summary?: unknown }>('GET', '/admin/catalog/sync-status', { token: adminToken });
     expect(res.status).toBe(200);
-    expect(res.body.summary).toMatchObject({ autoLinkEnabled: true, waitingDecision: 0 });
-    expect(Number(res.body.summary.unlinkedCards)).toBeGreaterThanOrEqual(0);
-    expect(Number(res.body.summary.repairedYesterday)).toBeGreaterThanOrEqual(7);
-    expect(Number(res.body.summary.pricedYesterday)).toBeGreaterThanOrEqual(5);
-    expect(typeof res.body.summary.nextRunAt).toBe('string');
-    expect(new Date(res.body.summary.nextRunAt as string).getUTCHours()).toBe(5);
+    expect(res.body.autoLink).toMatchObject({ autoLinkEnabled: true, waitingDecision: 0 });
+    expect(Number(res.body.autoLink.unlinkedCards)).toBeGreaterThanOrEqual(0);
+    expect(Number(res.body.autoLink.repairedYesterday)).toBeGreaterThanOrEqual(7);
+    expect(Number(res.body.autoLink.pricedYesterday)).toBeGreaterThanOrEqual(5);
+    expect(typeof res.body.autoLink.nextRunAt).toBe('string');
+    expect(new Date(res.body.autoLink.nextRunAt as string).getUTCHours()).toBe(5);
   });
 });
