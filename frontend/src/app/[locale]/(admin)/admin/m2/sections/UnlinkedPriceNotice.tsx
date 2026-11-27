@@ -67,7 +67,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   // §AUTO-ENLACE F3: «Confirmar» un grupo candidato (liga y precia el set). El resultado queda junto al caso.
   const confirm = useMutation({
     mutationKey: LINK_REPAIR_KEY,
-    mutationFn: (v: { setId: string; groupId: number }) => confirmLinkException(v.setId, v.groupId),
+    mutationFn: (v: { setId: string; groupId: number; name: string }) => confirmLinkException(v.setId, v.groupId),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['catalog-sync-status'] });
       qc.invalidateQueries({ queryKey: ['link-exceptions'] });
@@ -118,7 +118,8 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const finishName = (raw: string) => { const f = raw === 'reverse_holo' ? 'reverse_holofoil' : raw; return trf.has(f as never) ? trf(f as never) : raw; };
   const hasResult = retry.isSuccess || retry.isError;
   const resultInRowEarly = retry.variables?.setId != null && linkable.some((s) => s.setId === retry.variables?.setId);
-  if (!linkable.length && !noButton.length && !hasResult && !cardProgress) return null;
+  const hasConfirmResult = confirm.isSuccess || confirm.isError;
+  if (!linkable.length && !noButton.length && !hasResult && !hasConfirmResult && !cardProgress) return null;
   const groupText = (g: LinkGroupUsed) => t('groupLine', { name: groupLabel(g, tf), via: tf(`via.${g.via}`) });
 
   /** Resultado de la última acción, con motivo en claro. Se monta junto a la fila pulsada. */
@@ -133,14 +134,25 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const resultInRow = lastSetId != null && linkable.some((s) => s.setId === lastSetId);
   // I-4: si la fila ya se resolvió (desapareció al refrescar), el resultado queda FIJO arriba de la lista.
   const resolvedOnTop = hasResult && !resultInRow;
+  // I-4 también para «Confirmar»: un set B3 100 % ligado sale de la lista al refrescar y su aviso debe quedar fijo arriba.
+  const confirmSetId = confirm.variables?.setId ?? null;
+  const confirmInRow = confirmSetId != null && linkable.some((s) => s.setId === confirmSetId);
+  const confirmOnTop = hasConfirmResult && !confirmInRow;
+  // El título cuenta solo sets con cartas sin ligar (los B3 con 0 sin ligar esperan confirmación, no suman).
+  const setsWithCards = linkable.filter((s) => s.unlinked > 0).length;
 
   return (
     <Banner
       variant="warning"
       role="status"
-      title={hasLinkable && totalCards === 0 ? t('b3OnlyTitle', { sets: linkable.length }) : hasLinkable ? t('title', { cards: totalCards, sets: linkable.length }) : noButton.length ? t('notLinkableTitle', { count: notLinkableCards }) : t('resolvedTitle')}
+      title={hasLinkable && totalCards === 0 ? t('b3OnlyTitle', { sets: linkable.length }) : hasLinkable ? t('title', { cards: totalCards, sets: setsWithCards }) : noButton.length ? t('notLinkableTitle', { count: notLinkableCards }) : t('resolvedTitle')}
     >
       {resolvedOnTop && <div data-testid="unlinked-resolved">{result}</div>}
+      {confirmOnTop && (
+        <div data-testid="confirm-resolved">
+          <ConfirmResultNotice name={confirm.variables?.name ?? ''} result={confirm.isSuccess ? confirm.data : null} error={confirm.isError ? confirm.error : undefined} onDismiss={() => confirm.reset()} />
+        </div>
+      )}
       {cardProgress && !linkable.some((s) => s.setId === cardProgress.setId) && (
         <p role="status" className="mb-2 border-l-2 border-ink pl-2 text-sm" data-testid="card-review-done-top">
           {cardProgress.name}: {cardProgress.priced > 0 && cardProgress.priced < cardProgress.linked
@@ -218,7 +230,7 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                       aria-label={t('candidates.confirmAria', { group: c.name || tf('groupId', { id: c.groupId }), name: s.name })}
                       loading={confirm.isPending && confirm.variables?.setId === s.setId && confirm.variables?.groupId === c.groupId}
                       disabled={confirm.isPending || retry.isPending || anyRepairRunning}
-                      onClick={() => confirm.mutate({ setId: s.setId, groupId: c.groupId })}
+                      onClick={() => confirm.mutate({ setId: s.setId, groupId: c.groupId, name: s.name })}
                     >
                       {t('candidates.confirm')}
                     </Button>

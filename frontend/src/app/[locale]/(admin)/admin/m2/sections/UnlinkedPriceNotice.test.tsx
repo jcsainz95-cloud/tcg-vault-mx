@@ -325,6 +325,24 @@ describe('§AUTO-ENLACE F3 · Confirmar candidato', () => {
     expect(screen.getByRole('button', { name: /Confirmar el grupo Classic Collection para Expedition/ })).toBeTruthy();
     expect(screen.getByRole('status').textContent).toMatch(/1 set espera tu confirmación/);
   });
+  it('I-4 confirmar: set B3 100 % ligado sale al refrescar y el resultado queda fijo arriba', async () => {
+    const b3 = { ...EXC3.sets[0], name: 'Expedition', unlinked: 0, total: 165, reason: 'b3_unverified' as const, b3Published: 0, b3Held: 324, sample: [] };
+    const get = vi.spyOn(exc, 'getLinkExceptions').mockResolvedValueOnce({ ...EXC3, unlinkedCards: 0, sets: [b3] }).mockResolvedValue({ ...EXC3, unlinkedCards: 0, sets: [] });
+    vi.spyOn(exc, 'confirmLinkException').mockResolvedValue({ setId: UUID1, groupUsed: null, linked: 165, priced: 160, collisions: 0, conflicts: 0 });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirmar el grupo Classic Collection para Expedition/ }));
+    const top = await screen.findByTestId('confirm-resolved');
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(top.textContent).toMatch(/Confirmado en Expedition: 165 cartas ligadas y 160 precios/);
+    expect(screen.queryByText('Expedition')).toBeNull();
+  });
+  it('título: cuenta solo sets con cartas sin ligar, no los B3 con 0', async () => {
+    const b3 = { ...EXC3.sets[0], unlinked: 0, reason: 'b3_unverified' as const, b3Held: 3, sample: [] };
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, sets: [EXC3.sets[0], { ...b3, setId: UUID1 + 'a', name: 'B' }, { ...b3, setId: UUID1 + 'b', name: 'C' }] });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    await screen.findByText('B');
+    expect(screen.getByRole('status').textContent).toMatch(/^11 cartas sin precio ligado en 1 set(?!s)/);
+  });
   it('§12.4: un set normal 100 % ligado sin B3 no se pinta', async () => {
     vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, unlinkedCards: 0, sets: [{ ...EXC3.sets[0], unlinked: 0, reason: null, b3Held: 0, candidates: [], canConfirm: false }] });
     const { container } = renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
