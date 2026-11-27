@@ -4571,7 +4571,7 @@
           "groupNone": "Grupo de precios: sin grupo asignado",
           "nextAttempt": "Disponible de nuevo a las {when}",
           "via": {
-            "b3": "por coincidencia de nombre (revisa)",
+            "b3": "por coincidencia de nombre, revisa",
             "auto": "automático",
             "confirmed": "confirmado",
             "promo_table": "tabla de promos"
@@ -4590,12 +4590,13 @@
             "finish_surge": "la fuente trae demasiados acabados nuevos de golpe; se reevalúa mañana",
             "reverted": "lo deshiciste; no se vuelve a tocar por 30 días",
             "no_source_product": "la fuente no tiene producto para estas cartas; se vuelve a mirar en cada corrida",
-            "b3_unverified": "ligado por coincidencia de nombre; los precios nuevos esperan a que confirmes el grupo"
+            "b3_unverified": "grupo de precios sin confirmar; los precios nuevos esperan"
           },
           "autoNext": "Se reintenta solo a las {when}",
-          "b3Published": "{n, plural, one {# variante ya con precio de antes (se respeta)} other {# variantes ya con precio de antes (se respetan)}}",
-          "b3Held": "{n, plural, one {# variante esperando tu confirmación} other {# variantes esperando tu confirmación}}",
-          "b3Hint": "Este set se ligó por coincidencia de nombre. Lo que ya tenía precio de antes se respeta; los precios nuevos de la fuente no se publican hasta que confirmes el grupo una vez (mientras, la tienda puede mostrar el precio de otra fuente). El mejor candidato va arriba; las muestras de abajo son lo que se publicaría.",
+          "autoNextB3": "Se reintenta solo cuando confirmes el grupo (o si cambia la regla); mientras, no se publica ningún precio nuevo de esta fuente.",
+          "b3Published": "{n} con precio ya publicado antes de confirmar",
+          "b3Held": "{n} esperando confirmación (sin precio)",
+          "b3Hint": "Este set se ligó por coincidencia de nombre y el grupo de precios no está confirmado. Mientras tanto no se publican precios nuevos de esta fuente (los que ya estaban publicados se conservan). Elige el grupo correcto una vez; las muestras de abajo son lo que se publicaría.",
           "marketLabel": "mercado (sin margen ni IVA)",
           "noSourceCount": "{n} sin producto en la fuente",
           "candidates": {

@@ -303,11 +303,11 @@ describe('§AUTO-ENLACE F3 · Confirmar candidato', () => {
     });
     renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
     const held = await screen.findByTestId('b3-held');
-    expect(held.textContent).toMatch(/Lo que ya tenía precio de antes se respeta/);
+    expect(held.textContent).toMatch(/los que ya estaban publicados se conservan/);
     expect(held.textContent).toMatch(/Pikachu #25 \(Reverse Holofoil\).*MX\$123\.00 \(mercado \(sin margen ni IVA\)\)/);
-    expect(screen.getByTestId('b3-published').textContent).toMatch(/3 variantes ya con precio de antes/);
-    expect(screen.getByTestId('b3-held-count').textContent).toMatch(/5 variantes esperando tu confirmación/);
-    expect(screen.getByTestId('unlinked-group').textContent).toMatch(/\d{4}/);
+    expect(screen.getByTestId('b3-published').textContent).toMatch(/3 con precio ya publicado antes de confirmar/);
+    expect(screen.getByTestId('b3-held-count').textContent).toMatch(/5 esperando confirmación \(sin precio\)/);
+    expect(screen.getByTestId('unlinked-group').textContent).not.toMatch(/\d{4}|a las/);
     expect(screen.getByText(/Sin fuente/).closest('li')?.textContent).toMatch(/la fuente no tiene producto/);
     expect(screen.getByText(/Sin fuente/).closest('li')?.querySelector('button')).toBeNull();
     expect(screen.getByRole('status').textContent).toMatch(/^11 cartas sin precio ligado en 1 set/);

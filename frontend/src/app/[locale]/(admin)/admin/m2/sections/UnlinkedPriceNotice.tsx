@@ -163,7 +163,9 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
                 {(fromApi || s.groupUsed || s.reason) && (
                   <p className="text-xs text-muted" data-testid="unlinked-group">
                     {s.groupUsed ? groupText(s.groupUsed) : t('groupNone')}
-                    {s.nextAttemptAt && ` · ${autoOn ? t('autoNext', { when: timeOf(s.nextAttemptAt) }) : t('nextAttempt', { when: timeOf(s.nextAttemptAt) })}`}
+                    {s.reason === 'b3_unverified'
+                      ? (autoOn ? ` · ${t('autoNextB3')}` : '')
+                      : s.nextAttemptAt && ` · ${autoOn ? t('autoNext', { when: timeOf(s.nextAttemptAt) }) : t('nextAttempt', { when: timeOf(s.nextAttemptAt) })}`}
                   </p>
                 )}
               </div>
