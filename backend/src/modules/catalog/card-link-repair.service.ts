@@ -8,7 +8,14 @@ import { isSchedulerDisabled } from '../../config/test-env';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
 
-export type NotLinkableReason = 'no_group' | 'tcgcsv_source';
+export type NotLinkableReason = 'no_group' | 'tcgcsv_source' | 'promo_route';
+/** §AUTO-ENLACE §2 (mismo enum del contrato; la FASE 1 emite el subconjunto que mide). */
+export type LinkExceptionReason = 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route' | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider';
+export interface GroupUsed {
+  groupId: number;
+  name: string | null;
+  via: 'auto' | 'confirmed' | 'promo_table';
+}
 
 /** Forma EXACTA de `GET /admin/catalog/sync-status` → `unlinkedPrice` (aditivo, §PRECIO-SIN-ENLACE). */
 export interface UnlinkedPriceSet {
@@ -28,12 +35,18 @@ export interface UnlinkedPriceSet {
   /** m-13: tras `LINK_REPAIR_MAX_FAILED_ATTEMPTS` fallos seguidos el set queda «pendiente con error»: sigue listado con su motivo y ya no frena el marcador. */
   pendingError: boolean;
   lastError: string | null;
+  /** §AUTO-ENLACE F4/C2: grupo TCGCSV usado y motivo, de la ÚLTIMA corrida (`null` = aún sin medir). Solo lectura local. */
+  groupUsed: GroupUsed | null;
+  reason: LinkExceptionReason | null;
 }
 export interface UnlinkedPriceNotLinkableSet {
   setId: string;
   name: string;
   unlinked: number;
   reason: NotLinkableReason;
+  /** §AUTO-ENLACE: motivo del contrato (`group_none|promo_route|tcgcsv_source`) y grupo conocido (dpp ⇒ `promo_table`). */
+  exceptionReason: LinkExceptionReason;
+  groupUsed: GroupUsed | null;
 }
 export interface UnlinkedPrice {
   /** Cartas sin enlace en los sets REPARABLES con `unlinked > 0` (no solo los 100 listados). Los «no ligables» NO cuentan aquí. */
@@ -67,6 +80,13 @@ export interface LinkRepairSetResult {
   conflicts: number;
   omitted: { reason: string; count: number }[];
   notLinkable: NotLinkableReason | null;
+  /** §AUTO-ENLACE B4: `PriceReference` escritas en la MISMA corrida (productos recién ligados y ya ligados del set). */
+  priced: number;
+  groupUsed: GroupUsed | null;
+  /** Motivo por el que el set no quedó completo (`null` = sin pendientes conocidos). */
+  reason: LinkExceptionReason | null;
+  /** Siguiente momento en que el botón manual del set vuelve a aceptar (reclamo de 10 min); `null` en corridas automáticas. */
+  nextAttemptAt: string | null;
   piecesCorrected: number;
   piecesExcluded: { reason: string; count: number }[];
   examples: { cardId: string | null; number: string | null; reason: string }[];
@@ -154,7 +174,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     repairable: { setId: string; unlinked: number }[];
     notLinkable: { setId: string; unlinked: number; reason: NotLinkableReason }[];
     lastAttempt: Map<string, Date>;
-    lastNoGroup: Set<string>;
+    lastNoGroup: Map<string, NotLinkableReason>;
     failures: Map<string, { streak: number; lastError: string | null }>;
   }> {
     const unlinkedBy = await this.prisma.card.groupBy({ by: ['setId'], where: { cardProducts: { none: {} } }, _count: { _all: true } });
@@ -164,8 +184,8 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
       this.prisma.auditLog.groupBy({ by: ['entityId'], where: { action: ACTION, entityId: { in: ids } }, _max: { createdAt: true } }),
       // «Sin grupo» vigente: último intento con ese motivo en los últimos 7 días (luego se reintenta: el grupo puede aparecer).
       this.prisma.auditLog.findMany({
-        where: { action: ACTION, entityId: { in: ids }, createdAt: { gt: new Date(Date.now() - 7 * 86_400_000) }, after: { path: ['notLinkable'], equals: 'no_group' } },
-        select: { entityId: true },
+        where: { action: ACTION, entityId: { in: ids }, createdAt: { gt: new Date(Date.now() - 7 * 86_400_000) }, OR: [{ after: { path: ['notLinkable'], equals: 'no_group' } }, { after: { path: ['notLinkable'], equals: 'promo_route' } }] },
+        select: { entityId: true, after: true },
       }),
       this.prisma.auditLog.findMany({ where: { action: ACTION, entityId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { entityId: true, after: true }, take: 5000 }),
     ]);
@@ -184,13 +204,16 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     const ext = new Map(sets.map((x) => [x.id, x.externalId]));
     const lastAttempt = new Map<string, Date>();
     for (const a of attempts) if (a.entityId && a._max.createdAt) lastAttempt.set(a.entityId, a._max.createdAt);
-    const lastNoGroup = new Set(noGroup.map((n) => n.entityId).filter((x): x is string => !!x));
+    const lastNoGroup = new Map<string, NotLinkableReason>();
+    for (const n of noGroup) {
+      if (n.entityId && !lastNoGroup.has(n.entityId)) lastNoGroup.set(n.entityId, (n.after as { notLinkable?: unknown } | null)?.notLinkable === 'promo_route' ? 'promo_route' : 'no_group');
+    }
     const repairable: { setId: string; unlinked: number }[] = [];
     const notLinkable: { setId: string; unlinked: number; reason: NotLinkableReason }[] = [];
     for (const g of unlinkedBy) {
       const unlinked = g._count._all;
       if (isTcgcsvOrigin(ext.get(g.setId))) notLinkable.push({ setId: g.setId, unlinked, reason: 'tcgcsv_source' });
-      else if (lastNoGroup.has(g.setId)) notLinkable.push({ setId: g.setId, unlinked, reason: 'no_group' });
+      else if (lastNoGroup.has(g.setId)) notLinkable.push({ setId: g.setId, unlinked, reason: lastNoGroup.get(g.setId)! });
       else repairable.push({ setId: g.setId, unlinked });
     }
     return { repairable, notLinkable, lastAttempt, lastNoGroup, failures };
@@ -218,12 +241,17 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     ]);
     const name = new Map(sets.map((s) => [s.id, s.name]));
     const total = new Map(totals.map((t) => [t.setId, t._count._all]));
-    const last = new Map<string, { collisions: number | null; omitted: number | null; conflicts: number | null }>();
+    const last = new Map<string, { collisions: number | null; omitted: number | null; conflicts: number | null; groupUsed: GroupUsed | null; reason: LinkExceptionReason | null }>();
     const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
     for (const a of audits) {
       if (!a.entityId || last.has(a.entityId)) continue;
-      const after = (a.after ?? {}) as { collisions?: unknown; omitted?: unknown; conflicts?: unknown };
-      last.set(a.entityId, { collisions: num(after.collisions), omitted: num(after.omitted), conflicts: num(after.conflicts) });
+      const after = (a.after ?? {}) as { collisions?: unknown; omitted?: unknown; conflicts?: unknown; groupUsed?: unknown; reason?: unknown };
+      const gu = after.groupUsed as Partial<GroupUsed> | null | undefined;
+      last.set(a.entityId, {
+        collisions: num(after.collisions), omitted: num(after.omitted), conflicts: num(after.conflicts),
+        groupUsed: gu && typeof gu.groupId === 'number' && gu.via ? { groupId: gu.groupId, name: typeof gu.name === 'string' ? gu.name : null, via: gu.via } : null,
+        reason: typeof after.reason === 'string' ? (after.reason as LinkExceptionReason) : null,
+      });
     }
     return {
       totalCards,
@@ -238,10 +266,16 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         failedAttempts: sc.failures.get(g.setId)?.streak ?? 0,
         pendingError: (sc.failures.get(g.setId)?.streak ?? 0) >= LINK_REPAIR_MAX_FAILED_ATTEMPTS,
         lastError: sc.failures.get(g.setId)?.lastError ?? null,
+        groupUsed: last.get(g.setId)?.groupUsed ?? null,
+        reason: last.get(g.setId)?.reason ?? null,
       })),
       notLinkable: {
         totalCards: nl.reduce((n, g) => n + g.unlinked, 0),
-        sets: nlTop.map((g) => ({ setId: g.setId, name: name.get(g.setId) ?? g.setId, unlinked: g.unlinked, reason: g.reason })),
+        sets: nlTop.map((g) => ({
+          setId: g.setId, name: name.get(g.setId) ?? g.setId, unlinked: g.unlinked, reason: g.reason,
+          exceptionReason: g.reason === 'no_group' ? (last.get(g.setId)?.reason ?? 'group_none') : g.reason,
+          groupUsed: last.get(g.setId)?.groupUsed ?? null,
+        })),
       },
     };
   }
@@ -333,7 +367,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         if (claimId) await this.prisma.auditLog.deleteMany({ where: { id: claimId } });
         throw BusinessException.retriable('UPSTREAM_ERROR', 'The price provider failed; try again later', { setId });
       }
-      return r;
+      return { ...r, nextAttemptAt: new Date(Date.now() + LINK_REPAIR_MANUAL_COOLDOWN_MS).toISOString() };
     } finally {
       this.inflightSets.delete(setId);
     }
@@ -346,7 +380,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
   /** UN set: enlaza, corrige piezas y deja la bitácora. Nunca lanza (un error queda en `error` y sin fila de intento ⇒ se reintenta). */
   private async attemptSet(setId: string, trigger: string, actorUserId: string | null): Promise<LinkRepairSetResult> {
     const blank = (name: string): LinkRepairSetResult => ({
-      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
+      setId, name, linked: 0, collisions: 0, conflicts: 0, omitted: [], notLinkable: null, priced: 0, groupUsed: null, reason: null, nextAttemptAt: null, piecesCorrected: 0, piecesExcluded: [], examples: [],
     });
     const set = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { name: true, externalId: true } });
     if (!set) return { ...blank(setId), error: 'not_found' };
@@ -354,8 +388,24 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
     try {
       const r = isTcgcsvOrigin(set.externalId) ? null : await this.resolver.resolveCardProductsForSet(setId, { onlyUnlinked: true });
       if (!r) {
-        res.notLinkable = isTcgcsvOrigin(set.externalId) ? 'tcgcsv_source' : 'no_group';
+        if (isTcgcsvOrigin(set.externalId)) {
+          res.notLinkable = 'tcgcsv_source';
+          res.reason = 'tcgcsv_source';
+        } else {
+          // El resolver devuelve `null` también para los sets de `PTCG_PROMO_GROUPS` (su ruta propia): ahí el grupo SÍ existe.
+          const g = await this.resolver.describeGroup(setId).catch(() => null);
+          if (g?.groupId != null) {
+            res.notLinkable = g.via === 'promo_table' ? 'promo_route' : null;
+            res.reason = g.via === 'promo_table' ? 'promo_route' : null;
+            res.groupUsed = { groupId: g.groupId, name: g.name, via: g.via ?? 'auto' };
+          } else {
+            res.notLinkable = 'no_group';
+            res.reason = g?.failure === 'ambiguous' ? 'group_ambiguous' : 'group_none';
+          }
+        }
       } else {
+        res.priced = r.pricesWritten ?? 0;
+        res.groupUsed = { groupId: r.groupId, name: r.groupName ?? null, via: r.groupVia ?? 'auto' };
         res.linked = r.touchedCardIds?.length ?? 0;
         res.collisions = r.collisions ?? 0;
         res.conflicts = r.conflicts ?? 0;
@@ -363,6 +413,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
           .filter(([reason]) => reason !== 'collision' && reason !== 'owner_conflict')
           .map(([reason, count]) => ({ reason, count }));
         res.examples = r.examples ?? [];
+        res.reason = res.collisions > 0 ? 'collisions' : res.omitted.some((o) => o.reason === 'name_mismatch') ? 'name_mismatch' : null;
         if (res.linked > 0) {
           const inv = await this.correctInventoryFinish(r.touchedCardIds ?? [], trigger);
           res.piecesCorrected = inv.corrected;
@@ -377,6 +428,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         after: {
           setId, linked: res.linked, collisions: res.collisions, conflicts: res.conflicts,
           omitted: res.omitted.reduce((n, o) => n + o.count, 0), omittedReasons: res.omitted, notLinkable: res.notLinkable,
+          priced: res.priced, groupUsed: res.groupUsed, reason: res.reason,
           piecesCorrected: res.piecesCorrected, trigger,
         },
       });

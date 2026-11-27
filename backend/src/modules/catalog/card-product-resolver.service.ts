@@ -95,6 +95,9 @@ export class CardProductResolverService {
     promoSkipped?: PromoSkipped[];
     /** QA-PV-PEND: solo rutas de promos viejas. */
     pendingCards?: number;
+    /** §AUTO-ENLACE F4: grupo TCGCSV usado (nombre del proveedor) y cómo se eligió; el nombre es `null` si `listGroups` no respondió. */
+    groupName?: string | null;
+    groupVia?: 'auto' | 'promo_table';
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
@@ -112,7 +115,8 @@ export class CardProductResolverService {
     if (promo) {
       // Modo reparación: los sets de promos viejas tienen su propia ruta y no se tocan aquí.
       if (!this.promoProducts || opts.onlyUnlinked) return null;
-      return this.promoProducts.run(set.id, groupId, promo.numberPrefix);
+      const pr = await this.promoProducts.run(set.id, groupId, promo.numberPrefix);
+      return { ...pr, groupName: await this.groupNameOf(groupId), groupVia: 'promo_table' as const };
     }
 
     const [products, prices] = await Promise.all([
@@ -120,6 +124,7 @@ export class CardProductResolverService {
       this.tcgcsv.getPrices(groupId),
     ]);
     const derived = deriveCardProductsFromTcgcsv(products, prices, { variantEnabled: await patternClassifyEnabled(this.settings) });
+    const groupName = await this.groupNameOf(groupId);
     if (derived.length === 0) {
       this.logger.warn(
         `card-product: grupo ${groupId} (set ${set.name}) no produjo ningún producto con acabado ` +
@@ -136,6 +141,8 @@ export class CardProductResolverService {
         collisions: 0,
         omittedProducts: 0,
         touchedCardIds: [],
+        groupName,
+        groupVia: 'auto',
       };
     }
 
@@ -147,7 +154,7 @@ export class CardProductResolverService {
     });
     const existingOwners = await this.prisma.cardProduct.findMany({
       where: { tcgplayerProductId: { in: derived.map((d) => d.productId) } },
-      select: { tcgplayerProductId: true, cardId: true, kind: true },
+      select: { id: true, tcgplayerProductId: true, cardId: true, kind: true },
     });
     const ownerOf = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.cardId]));
     const prevKind = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.kind]));
@@ -220,6 +227,28 @@ export class CardProductResolverService {
       }
     }
 
+    // §AUTO-ENLACE B4: en modo reparación, los productos YA enlazados (sin dueño distinto) también se precian en la misma
+    // corrida con el mismo escritor de siempre (`upsertVariantPrice`, respeta override manual); no se toca ningún CardProduct.
+    if (opts.onlyUnlinked) {
+      const skipped = new Set(plan.unlinked.filter((u) => u.reason === 'skipped_linked').map((u) => u.productId));
+      const inSet = new Set(localCards.map((c) => c.id));
+      const cpId = new Map(existingOwners.map((o) => [o.tcgplayerProductId, o.id]));
+      for (const dp of derived) {
+        const ownerId = ownerOf.get(dp.productId);
+        const cpid = cpId.get(dp.productId);
+        if (!skipped.has(dp.productId) || !ownerId || !cpid || !inSet.has(ownerId)) continue;
+        for (const pf of dp.pricesByFinish) {
+          const cents = pf.marketPrice == null || pf.marketPrice <= 0 ? 0 : Math.round(pf.marketPrice * 100);
+          if (cents <= 0) {
+            pricesPending += 1;
+            continue;
+          }
+          await this.upsertVariantPrice(ownerId, cpid, pf.finish, cents, fxSnap);
+          pricesWritten += 1;
+        }
+      }
+    }
+
     await this.finishReconciler.reconcile([...touched]);
     this.logger.log(
       `card-product: set ${set.name} (grupo ${groupId}) — products=${derived.length}, joined=${joined}, ` +
@@ -246,7 +275,32 @@ export class CardProductResolverService {
         .slice(0, 20)
         .map((u) => ({ cardId: ownerOf.get(u.productId) ?? null, number: derived.find((d) => d.productId === u.productId)?.number ?? null, reason: u.reason })),
       touchedCardIds: [...touched],
+      groupName,
+      groupVia: 'auto',
     };
+  }
+
+  /** Nombre que TCGCSV da al grupo (para mostrarlo al dueño); `null` si `listGroups` falla o no lo trae. Nunca lanza. */
+  private async groupNameOf(groupId: number): Promise<string | null> {
+    try {
+      return (await this.tcgcsv.listGroups()).find((g) => g.groupId === groupId)?.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * §AUTO-ENLACE (solo lectura de proveedor, sin escribir): por qué un set no resuelve grupo. `promo_table` si lo fija
+   * `PTCG_PROMO_GROUPS` (el grupo SÍ existe aunque la ruta de reparación no lo recorra), `ambiguous` si empatan varios.
+   */
+  async describeGroup(localSetId: string): Promise<{ groupId: number | null; name: string | null; via: 'auto' | 'promo_table' | null; failure: 'ambiguous' | 'none' | null }> {
+    const set = await this.prisma.cardSet.findUnique({ where: { id: localSetId }, select: { id: true, name: true, pptSetId: true, externalId: true } });
+    if (!set) return { groupId: null, name: null, via: null, failure: 'none' };
+    const promo = promoGroupFor(set.externalId);
+    if (promo) return { groupId: promo.groupId, name: await this.groupNameOf(promo.groupId), via: 'promo_table', failure: null };
+    const m = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
+    if (m.groupId != null) return { groupId: m.groupId, name: await this.groupNameOf(m.groupId), via: 'auto', failure: null };
+    return { groupId: null, name: null, via: null, failure: m.failure === 'ambiguous' ? 'ambiguous' : 'none' };
   }
 
   /**

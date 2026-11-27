@@ -99,6 +99,7 @@ export function planCardLinks(
     cardsByKey.set(k, [...(cardsByKey.get(k) ?? []), c]);
   }
   const prodsByNum = new Map<string, number>();
+  const prodsListByNum = new Map<string, LinkProduct[]>();
   const prodsByKey = new Map<string, number>();
   const keyOf = new Map<number, { n: string; k: string }>();
   for (const p of products) {
@@ -107,6 +108,9 @@ export function planCardLinks(
     const k = `${n}|${nameOfProduct(p)}`;
     keyOf.set(p.productId, { n, k });
     prodsByNum.set(n, (prodsByNum.get(n) ?? 0) + 1);
+    const lst = prodsListByNum.get(n) ?? [];
+    lst.push(p);
+    prodsListByNum.set(n, lst);
     prodsByKey.set(k, (prodsByKey.get(k) ?? 0) + 1);
   }
 
@@ -129,6 +133,10 @@ export function planCardLinks(
     const sameNum = cardsByNum.get(kk.n) ?? [];
     if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1 && namesCompatible(linkNameKey(sameNum[0].name), nameOfProduct(p))) {
       return sameNum[0].productCount === 0 ? sameNum[0] : null;
+    }
+    if (sameNum.length === 1 && (prodsByNum.get(kk.n) ?? 0) > 1) {
+      const compat = (prodsListByNum.get(kk.n) ?? []).filter((q) => namesCompatible(linkNameKey(sameNum[0].name), nameOfProduct(q)));
+      if (compat.length === 1 && compat[0].productId === p.productId) return sameNum[0].productCount === 0 ? sameNum[0] : null;
     }
     return null;
   };
@@ -185,6 +193,19 @@ export function planCardLinks(
         links.set(p.productId, { cardId: c.id, rule: 'number' });
       } else miss(p.productId, 'card_already_linked');
       continue;
+    }
+    // §AUTO-ENLACE B2: UNA carta local con ese número y varios productos TCGCSV (numeración reusada): se liga el ÚNICO
+    // producto con nombre compatible; con 0 o ≥2 compatibles sigue siendo colisión.
+    if (sameNum.length === 1 && (prodsByNum.get(kk.n) ?? 0) > 1) {
+      const c = sameNum[0];
+      const compat = (prodsListByNum.get(kk.n) ?? []).filter((q) => namesCompatible(linkNameKey(c.name), nameOfProduct(q)));
+      if (compat.length === 1 && compat[0].productId === p.productId) {
+        if (eligible(c)) {
+          claimed.add(c.id);
+          links.set(p.productId, { cardId: c.id, rule: 'number' });
+        } else miss(p.productId, 'card_already_linked');
+        continue;
+      }
     }
     // Sin carta local con ese número ⇒ omitido; con número/nombre repetido en algún lado ⇒ colisión.
     miss(p.productId, sameNum.length === 0 ? 'no_local_card' : 'collision');

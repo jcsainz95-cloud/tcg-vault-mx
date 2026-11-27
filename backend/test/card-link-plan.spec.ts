@@ -156,6 +156,27 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
     for (const pid of [716203, 716204, 716205]) expect(r.links.get(pid)?.rule).toBe('number_name'); // #106 ×3
   });
 
+  it('B2 me55c #11: solo la carta local Genesect-EX + ambos productos (716157/716158) ⇒ liga 716158 y NO el Metagross', () => {
+    // Nombre local ≠ llave del producto (palabras de más/menos) pero compatible: la regla b no aplica y el número se repite en TCGCSV.
+    const only = localCards().filter((c) => c.id === 'card-716158').map((c) => ({ ...c, name: 'Genesect' }));
+    const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
+    for (const order of [d, [...d].reverse()]) {
+      const r = planCardLinks(order, only, new Map(), normalizeCardNumber);
+      expect(r.links.get(716158)?.cardId).toBe('card-716158');
+      expect(r.links.get(716157)).toBeUndefined();
+    }
+  });
+
+  it('B2 me55c #106 triple: una carta local por número + 3 productos ⇒ liga solo el de nombre compatible; 2 compatibles ⇒ colisión', () => {
+    const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
+    const trip = d.filter((x) => [716203, 716204, 716205].includes(x.productId));
+    const loc = { ...localCards().find((c) => c.id === 'card-716204')! };
+    const r = planCardLinks(trip, [loc], new Map(), normalizeCardNumber);
+    expect([...r.links.entries()]).toEqual([[716204, expect.objectContaining({ cardId: 'card-716204' })]]);
+    const dup = planCardLinks([trip[0], { ...trip[1], productId: 999, name: trip[0].name }, trip[2]], [{ ...loc, name: trip[0].name }], new Map(), normalizeCardNumber);
+    expect(dup.links.size).toBe(0);
+  });
+
   it('CA-8: si falta la carta de Genesect, su producto (#11) NO cuelga de la de Metagross (el enrutado solo-local sí lo haría)', () => {
     const only11 = localCards().filter((c) => c.id !== 'card-716158');
     const d = derived().map((x) => ({ productId: x.productId, name: x.name, number: x.number, kind: x.kind }));
@@ -195,6 +216,32 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
     expect(metaPr).toMatchObject({ cardId: 'card-716157', finish: 'holofoil', priceUsdCents: 397, source: 'tcgcsv_singles' });
     // CA-2: el acabado de la carta sale del producto (único subtipo) y reemplaza la semilla ['normal'].
     expect(deriveAvailableFinishesFromProducts([{ kind: 'set_base', finishes: metaCp.finishes }], [])).toEqual(['holofoil']);
+  });
+
+  it('B4: modo reparación con TODO ya enlazado ⇒ 0 CardProduct escritos y los 30 precios en la misma corrida (pricesWritten=30, groupName)', async () => {
+    const prs: any[] = [];
+    const cardsL = localCards();
+    const prisma = {
+      $executeRaw: jest.fn(async () => 0),
+      cardSet: { findUnique: jest.fn(async () => ({ id: 'set-cc', name: '30th Celebration Classic Collection', pptSetId: '24837', externalId: 'me-cc' })) },
+      card: { findMany: jest.fn(async () => cardsL.map((c) => ({ id: c.id, number: c.number, name: c.name, tcgplayerId: null, _count: { cardProducts: 1 } }))) },
+      cardProduct: {
+        findMany: jest.fn(async () => products.map((p) => ({ id: `cp-${p.productId}`, tcgplayerProductId: p.productId, cardId: `card-${p.productId}`, kind: 'set_base' }))),
+        upsert: jest.fn(),
+      },
+      priceReference: { findUnique: jest.fn(async () => null), upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })) },
+    } as unknown as PrismaService;
+    const client = {
+      getProducts: jest.fn(async () => products),
+      getPrices: jest.fn(async () => prices),
+      listGroups: jest.fn(async () => [{ groupId: 24837, name: 'ME: 30th Celebration Classic Collection' }]),
+    } as unknown as TcgcsvCatalogClient;
+    const fx = { getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0, source: 'banxico', effectiveDate: '2026-11-25' })) } as unknown as FxService;
+    const svc = new CardProductResolverService(prisma, client, { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fx);
+    const res = await svc.resolveCardProductsForSet('set-cc', { onlyUnlinked: true });
+    expect(prisma.cardProduct.upsert).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ joined: 0, pricesWritten: 30, groupName: 'ME: 30th Celebration Classic Collection', groupVia: 'auto' });
+    expect(prs).toHaveLength(30);
   });
 
   it('los 5 omitidos de antes eran exactamente los paréntesis de nombre (y ya no se omiten)', () => {
