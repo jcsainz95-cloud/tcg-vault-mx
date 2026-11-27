@@ -109,7 +109,9 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     const au = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'catalog.group_confirmed', entityId: sid } });
     expect(au.actorUserId).not.toBeNull();
     expect(au.before).toEqual({ groupId: null, via: null });
-    expect(au.after).toMatchObject({ groupId: G1, via: 'confirmed', linked: 3 });
+    expect(au.after).toMatchObject({ groupId: G1, via: 'confirmed' });
+    // El resultado del ligado queda en la fila del job (`trigger: confirm`): la fila del grupo se escribe en la MISMA transacción que la elección (AE-10).
+    expect((await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'catalog.auto_link', entityId: sid }, orderBy: { createdAt: 'desc' } })).after).toMatchObject({ trigger: 'confirm', linked: 3, priced: 3 });
     expect((await confirm(sid, G1)).status).toBe(429);
     await h.prisma.auditLog.deleteMany({ where: { action: 'catalog.group_confirm_claim', entityId: sid } });
     const snap = JSON.stringify(await h.prisma.priceReference.findMany({ where: { card: { setId: sid } }, orderBy: { id: 'asc' } }));
@@ -164,6 +166,25 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirmed', entityId: sid } })).toBe(0);
     failing.clear();
     expect((await confirm(sid, G1)).status).toBe(200);
+  });
+
+  it('AE-10 (rojo→verde): si la bitácora del grupo confirmado FALLA, NO queda grupo confirmado (misma transacción) y el cupo no se consume', async () => {
+    await clear();
+    const sid = await mkSet('AE10', `Exc Ae10 ${run}`, null, null, 3, G1);
+    await h.prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ax_fail_audit() RETURNS trigger AS $$ BEGIN IF NEW."action" = 'catalog.group_confirmed' THEN RAISE EXCEPTION 'audit boom'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
+    await h.prisma.$executeRawUnsafe(`CREATE TRIGGER ax_fail_audit BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION ax_fail_audit()`);
+    try {
+      const bad = await confirm(sid, G1);
+      expect(bad.status).toBeGreaterThanOrEqual(500);
+    } finally {
+      await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ax_fail_audit ON "AuditLog"`);
+      await h.prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ax_fail_audit()`);
+    }
+    expect(await h.prisma.cardSet.findUniqueOrThrow({ where: { id: sid }, select: { cardGroupId: true, cardGroupVia: true } })).toEqual({ cardGroupId: null, cardGroupVia: null });
+    expect(await h.prisma.card.count({ where: { setId: sid, cardProducts: { some: {} } } })).toBe(0);
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirmed', entityId: sid } })).toBe(0);
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirm_claim', entityId: sid } })).toBe(0); // el cupo no se consumió
+    expect((await confirm(sid, G1)).status).toBe(200); // reintento inmediato posible
   });
 
   it('si el grupo confirmado deja de existir en listGroups ⇒ reason `group_none` y vuelve a la lista (sin caer a otra fuente)', async () => {

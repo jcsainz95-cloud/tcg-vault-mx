@@ -565,7 +565,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
    * consecuencia, el precio automático, que se recalcula). Sin pedido/envío/disputa/reserva/venta ni movimiento de dinero.
    * Escritura condicionada + auditoría por pieza; idempotente.
    */
-  private async correctInventoryFinish(cardIds: string[], trigger: string): Promise<{ corrected: number; excluded: { reason: string; count: number }[] }> {
+  async correctInventoryFinish(cardIds: string[], trigger: string): Promise<{ corrected: number; excluded: { reason: string; count: number }[] }> {
     const counts = new Map<string, number>();
     const bump = (r: string): void => void counts.set(r, (counts.get(r) ?? 0) + 1);
     let corrected = 0;

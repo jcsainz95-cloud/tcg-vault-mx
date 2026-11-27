@@ -81,6 +81,11 @@ export const ErrorCode = {
   UPSTREAM_ERROR: 'UPSTREAM_ERROR',
   // §AUTO-ENLACE fase 3 (contrato §3): el `groupId` elegido para confirmar no existe en `listGroups` de TCGCSV. 422.
   GROUP_NOT_FOUND: 'GROUP_NOT_FOUND',
+  // §AUTO-ENLACE §9.4 (confirmación por carta): 422 `PRODUCT_NOT_CANDIDATE` (el producto no es candidato de esa carta); 409 `PRODUCT_TAKEN` (otro lo ligó entre medias).
+  PRODUCT_NOT_CANDIDATE: 'PRODUCT_NOT_CANDIDATE',
+  PRODUCT_TAKEN: 'PRODUCT_TAKEN',
+  // §9.6 (iv) `unlink`: 409 si el job no corrió sobre ese set en los últimos 7 días.
+  NOTHING_TO_UNLINK: 'NOTHING_TO_UNLINK',
   // §AUTO-ENLACE fase 4 (contrato §8b, `finish-review`): 409. `ITEM_LOCKED` (venta/reserva/custodia/dueño ≠ plataforma), `NO_TARGET_PRICE` (sin precio del
   // acabado destino), `STALE` (el acabado ya no es el que vio el cliente), `ALREADY_RESOLVED` (ya hay una decisión contraria).
   ITEM_LOCKED: 'ITEM_LOCKED',

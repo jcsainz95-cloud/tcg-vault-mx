@@ -194,7 +194,7 @@ export class CatalogAutoLinkService {
     const ids = rows.map((r) => r.setId);
     const [pc, attempts, claims] = await Promise.all([
       piecesBySet(this.prisma),
-      this.prisma.auditLog.findMany({ where: { action: ACTION, entityId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { entityId: true, createdAt: true, after: true }, take: 20_000 }),
+      this.prisma.auditLog.findMany({ where: { action: { in: [ACTION, 'catalog.auto_unlink'] }, entityId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { entityId: true, createdAt: true, after: true }, take: 20_000 }),
       this.prisma.auditLog.findMany({ where: { action: CLAIM, createdAt: { gte: utcDayStart(at) }, entityId: { in: ids } }, select: { entityId: true } }),
     ]);
     const lastAt = new Map<string, number>();

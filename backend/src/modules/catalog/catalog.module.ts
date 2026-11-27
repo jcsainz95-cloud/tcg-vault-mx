@@ -38,6 +38,8 @@ import { FinishReviewService } from './finish-review.service';
 import { LinkExceptionsService } from './link-exceptions.service';
 import { CatalogAutoLinkService } from './catalog-auto-link.service';
 import { AutoLinkPriceGate } from './auto-link-price-gate.service';
+import { CardLinkConfirmService } from './card-link-confirm.service';
+import { AutoLinkAdminService } from './auto-link-admin.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.service';
@@ -64,6 +66,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     TcgcsvGroupsCache,
     CatalogAutoLinkService,
     AutoLinkPriceGate,
+    CardLinkConfirmService,
+    AutoLinkAdminService,
     LinkExceptionsService,
     FinishReviewService,
     // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV que pokemontcg.io no tiene.

@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Finish, Prisma, PriceRefKind, ProductType } from '@prisma/client';
+import { CardProductKind, Finish, Prisma, PriceRefKind, ProductType } from '@prisma/client';
 import { lockPriceWriteShared, withPriceWriteShared } from '../pricing/price-write-lock';
 import { SettingsService } from '../settings/settings.service';
 import { patternClassifyEnabled } from '../pricing/pattern-dials';
@@ -14,6 +14,7 @@ import { usdToMxnCents } from '../../common/money';
 import {
   TcgcsvCatalogClient,
   deriveCardProductsFromTcgcsv,
+  type DerivedCardProduct,
 } from '../pricing/providers/tcgcsv-singles.provider';
 // FUENTE ÚNICA del match set local ↔ grupo TCGCSV (S-D3 / §4.27d). Ver `resolveGroupId`: esta
 // escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
@@ -43,6 +44,8 @@ import type { TcgcsvGroupRef } from '../pricing/pricing.types';
  * Los Deck Exclusives/promo se persisten como su propio `CardProduct` (kind deck_exclusive/promo) y NO
  * funden acabados con la carta de set — se exponen como productos vendibles separados (§4.27e).
  */
+/** Espacio de llaves del candado por carta (`pg_advisory_xact_lock(int, int)`). */
+export const CARD_LINK_LOCK_NS = 118_125_012;
 /** §9.5 (vi): tope de acabados añadidos por corrida. */
 export const FINISH_ADD_RUN_CAP = 200;
 
@@ -357,20 +360,35 @@ export class CardProductResolverService {
       noteWritten(j, v);
     };
 
+    let concurrentSkips = 0;
     for (const { dp, cardId } of toLink) {
       // Upsert de CardProduct por tcgplayerProductId (REEMPLAZO money-safe de finishes/kind/name).
       // Reclasificar HACIA o DESDE `variant` es del job `pattern-reclassify` (freno + auditoría + recálculo): aquí se conserva el kind actual.
       const prevK = prevKind.get(dp.productId);
       const kind = prevK && (prevK === 'variant') !== (dp.kind === 'variant') ? prevK : dp.kind;
-      const cardProduct = await this.prisma.cardProduct.upsert({
-        where: { tcgplayerProductId: dp.productId },
-        create: { cardId, tcgplayerProductId: dp.productId, kind: dp.kind, name: dp.name, finishes: dp.finishes },
-        update: { cardId, kind, name: dp.name, finishes: dp.finishes },
-        select: { id: true },
-      });
+      let cardProductId: string | null;
+      if (opts.onlyUnlinked) {
+        // §9.8/AE-10: el job solo CREA (nunca mueve un enlace ya hecho). Bajo el candado de la carta: si una confirmación (u otra corrida) la ligó o
+        // se llevó el producto entre el plan y ahora, se salta (0 escrituras para esa carta; el enlace del dueño manda).
+        cardProductId = await this.createLinkIfFree(cardId, { tcgplayerProductId: dp.productId, kind: dp.kind, name: dp.name, finishes: dp.finishes });
+        if (cardProductId == null) {
+          concurrentSkips += 1;
+          joined -= 1;
+          continue;
+        }
+      } else {
+        cardProductId = (
+          await this.prisma.cardProduct.upsert({
+            where: { tcgplayerProductId: dp.productId },
+            create: { cardId, tcgplayerProductId: dp.productId, kind: dp.kind, name: dp.name, finishes: dp.finishes },
+            update: { cardId, kind, name: dp.name, finishes: dp.finishes },
+            select: { id: true },
+          })
+        ).id;
+      }
       touched.add(cardId);
       // Precio POR VARIANTE (§4.27e): marketPrice de ESA variante → MXN Banxico. Ausente/≤0 ⇒ NO se escribe fila.
-      for (const j of jobs) if (j.kind === 'new' && j.productId === dp.productId) await publish(j, cardProduct.id);
+      for (const j of jobs) if (j.kind === 'new' && j.productId === dp.productId) await publish(j, cardProductId);
     }
     for (const j of jobs) if (j.kind === 'linked') await publish(j, j.cardProductId!);
 
@@ -436,6 +454,7 @@ export class CardProductResolverService {
         ...(batchCapped > 0 ? { batch_cap: batchCapped } : {}),
         ...(heldCount > 0 ? { price_jump: heldCount } : {}),
         ...(unknown > 0 ? { unknown_subtype: unknown } : {}),
+        ...(concurrentSkips > 0 ? { concurrent_link: concurrentSkips } : {}),
       }),
       examples: plan.unlinked
         .filter((u) => u.reason !== 'skipped_linked')
@@ -450,6 +469,59 @@ export class CardProductResolverService {
       sanity: gating ? { checked: sanity.checked, held: sanity.held } : undefined,
       samples,
     };
+  }
+
+  /**
+   * §9.4 — liga UNA carta a UN producto de la fuente dentro de la transacción del llamador (la confirmación por carta): crea el `CardProduct`
+   * (nunca mueve uno ajeno), escribe los precios de los acabados que el candado dejó pasar y deja `availableFinishes` al día. `null` ⇒ alguien
+   * se adelantó (la carta ya tiene enlace o el producto ya tiene dueño).
+   */
+  async writeConfirmedLink(
+    tx: Prisma.TransactionClient,
+    args: { cardId: string; dp: DerivedCardProduct; held: ReadonlySet<Finish>; fx: { rate: number; bufferPct: number } },
+  ): Promise<{ cardProductId: string; priced: Finish[] } | null> {
+    const { cardId, dp, held, fx } = args;
+    await CardProductResolverService.lockCardLink(tx, cardId);
+    if ((await tx.cardProduct.count({ where: { cardId } })) > 0) return null;
+    const made = await tx.cardProduct.createMany({ data: [{ cardId, tcgplayerProductId: dp.productId, kind: dp.kind, name: dp.name, finishes: dp.finishes }], skipDuplicates: true });
+    if (made.count !== 1) return null;
+    const cp = await tx.cardProduct.findUniqueOrThrow({ where: { tcgplayerProductId: dp.productId }, select: { id: true } });
+    const priced: Finish[] = [];
+    for (const pf of dp.pricesByFinish) {
+      const usd = pf.marketPrice == null || pf.marketPrice <= 0 ? 0 : Math.round(pf.marketPrice * 100);
+      if (usd <= 0 || held.has(pf.finish)) continue;
+      await this.upsertVariantPrice(cardId, cp.id, pf.finish, usd, fx, tx);
+      priced.push(pf.finish);
+    }
+    await this.finishReconciler.reconcile([cardId], tx);
+    return { cardProductId: cp.id, priced };
+  }
+
+  /** `$transaction` real, o el propio cliente cuando es un doble de prueba sin transacciones. */
+  private inTx<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return '$transaction' in this.prisma ? this.prisma.$transaction(fn, { timeout: 30_000, maxWait: 10_000 }) : fn(this.prisma as unknown as Prisma.TransactionClient);
+  }
+
+  /** Candado por carta compartido por el job y las confirmaciones (misma llave): serializa «ligar esta carta». */
+  static async lockCardLink(tx: Prisma.TransactionClient, cardId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CARD_LINK_LOCK_NS}::int, hashtext(${'cardlink:' + cardId}))`;
+  }
+
+  /**
+   * Crea el `CardProduct` SOLO si la carta sigue sin enlace y el producto no tiene dueño. Devuelve su id, o `null` si alguien se adelantó.
+   * Nunca mueve ni reescribe un enlace existente.
+   */
+  private async createLinkIfFree(
+    cardId: string,
+    data: { tcgplayerProductId: number; kind: CardProductKind; name: string; finishes: Finish[] },
+  ): Promise<string | null> {
+    return this.inTx(async (tx) => {
+      await CardProductResolverService.lockCardLink(tx, cardId);
+      if ((await tx.cardProduct.count({ where: { cardId } })) > 0) return null;
+      const made = await tx.cardProduct.createMany({ data: [{ cardId, ...data }], skipDuplicates: true });
+      if (made.count !== 1) return null;
+      return (await tx.cardProduct.findUniqueOrThrow({ where: { tcgplayerProductId: data.tcgplayerProductId }, select: { id: true } })).id;
+    });
   }
 
   /** Nombre que TCGCSV da al grupo (para mostrarlo al dueño); `null` si `listGroups` falla o no lo trae. Nunca lanza. */

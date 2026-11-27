@@ -9,12 +9,19 @@ import { AuditService } from '../audit/audit.service';
 import { CardLinkRepairService } from './card-link-repair.service';
 import { FinishReviewService } from './finish-review.service';
 import { LinkExceptionsService } from './link-exceptions.service';
+import { CardLinkConfirmService } from './card-link-confirm.service';
+import { AutoLinkAdminService } from './auto-link-admin.service';
 import { SetSearchKeyService } from './set-search-key.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
 /** §AUTO-ENLACE fase 3 — body de `POST /admin/catalog/link-exceptions/:setId/confirm`: el `groupId` entero de TCGCSV. */
 class ConfirmGroupDto {
   @IsInt() @Min(1) groupId!: number;
+}
+
+/** §AUTO-ENLACE §9.4 — body de `POST …/link-exceptions/:setId/cards/:cardId/confirm`: el `productId` entero de TCGCSV. */
+class ConfirmCardDto {
+  @IsInt() @Min(1) productId!: number;
 }
 
 /** §AUTO-ENLACE fase 4 — body de `POST /admin/catalog/finish-review/:inventoryItemId` (los valores se validan en el servicio ⇒ 422, contrato §8b). */
@@ -92,6 +99,8 @@ export class AdminCatalogController {
     private readonly searchKeys: SetSearchKeyService,
     private readonly linkExceptions: LinkExceptionsService,
     private readonly finishReview: FinishReviewService,
+    private readonly cardConfirm: CardLinkConfirmService,
+    private readonly autoAdmin: AutoLinkAdminService,
   ) {}
 
   @Get('remote-sets')
@@ -184,6 +193,39 @@ export class AdminCatalogController {
     @CurrentUser() user: { id: string; role: Role },
   ) {
     return this.linkExceptions.confirm(setId, dto.groupId, user);
+  }
+
+  /** GET /admin/catalog/link-exceptions/:setId/cards — cartas del set con `name_mismatch|collision` y sus candidatos (super_admin; contrato §9.4). */
+  @Get('link-exceptions/:setId/cards')
+  async listLinkExceptionCards(@Param('setId', new ParseUUIDPipe()) setId: string) {
+    return this.cardConfirm.list(setId);
+  }
+
+  /** POST /admin/catalog/link-exceptions/:setId/cards/:cardId/confirm {productId} — liga UNA carta (enlace + precios + bitácora en una transacción; contrato §9.4). */
+  @Post('link-exceptions/:setId/cards/:cardId/confirm')
+  @HttpCode(200)
+  async confirmLinkExceptionCard(
+    @Param('setId', new ParseUUIDPipe()) setId: string,
+    @Param('cardId', new ParseUUIDPipe()) cardId: string,
+    @Body() dto: ConfirmCardDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.cardConfirm.confirm(setId, cardId, dto.productId, user);
+  }
+
+  /** POST /admin/catalog/link-exceptions/:setId/unlink — revierte lo que el job creó en ese set (super_admin; contrato §9.6 iv). */
+  @Post('link-exceptions/:setId/unlink')
+  @HttpCode(200)
+  async unlinkSet(@Param('setId', new ParseUUIDPipe()) setId: string, @CurrentUser() user: { id: string; role: Role }) {
+    return this.autoAdmin.unlink(setId, user);
+  }
+
+  /** GET /admin/catalog/auto-link-runs?days=7 — lo que hizo el job (solo lectura sobre la bitácora; contrato §9.6 iii). */
+  @Get('auto-link-runs')
+  async autoLinkRuns(@Query('days') days?: string) {
+    const n = days == null || days === '' ? undefined : Number(days);
+    if (n != null && !Number.isInteger(n)) throw BusinessException.validation('VALIDATION_ERROR', 'days must be an integer');
+    return this.autoAdmin.runs(n);
   }
 
   /** GET /admin/catalog/finish-review — piezas antiguas que podrían ser 1.ª edición, por confirmar (solo lectura local; contrato §8b). */

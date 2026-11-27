@@ -106,11 +106,14 @@ export class LinkExceptionsService {
     const rows = await this.prisma.$queryRaw<{ entityId: string; action: string; createdAt: Date; after: unknown }[]>`
       SELECT DISTINCT ON ("entityId", "action") "entityId", "action", "createdAt", "after"
       FROM "AuditLog"
-      WHERE "action" IN ('catalog.auto_link', 'catalog.link_repair', 'catalog.group_confirmed') AND "entityId" = ANY(${ids}::text[])
+      WHERE "action" IN ('catalog.auto_link', 'catalog.link_repair', 'catalog.group_confirmed', 'catalog.auto_unlink') AND "entityId" = ANY(${ids}::text[])
       ORDER BY "entityId", "action", "createdAt" DESC`;
     for (const r of rows) {
       const a: LastAttempt = { createdAt: r.createdAt, action: r.action, after: (r.after ?? {}) as Record<string, unknown> };
-      if (r.action === 'catalog.auto_link') auto.set(r.entityId, a);
+      if (r.action === 'catalog.auto_link' || r.action === 'catalog.auto_unlink') {
+        const cur0 = auto.get(r.entityId);
+        if (!cur0 || cur0.createdAt < a.createdAt) auto.set(r.entityId, a); // la cuarentena de `unlink` manda sobre el último intento del job
+      }
       if (r.action === 'catalog.group_confirmed') continue;
       const cur = last.get(r.entityId);
       if (!cur || cur.createdAt < a.createdAt) last.set(r.entityId, a);
@@ -209,20 +212,33 @@ export class LinkExceptionsService {
     }
 
     const before = { groupId: set.cardGroupId, via: set.cardGroupVia };
-    await this.prisma.cardSet.update({ where: { id: setId }, data: { cardGroupId: groupId, cardGroupVia: 'confirmed' } });
+    // AE-10: el grupo confirmado y su bitácora van en UNA transacción (si `audit.log` falla, no queda grupo confirmado sin su fila).
+    let auditId: string;
+    try {
+      auditId = await this.prisma.$transaction(async (tx) => {
+        await tx.cardSet.update({ where: { id: setId }, data: { cardGroupId: groupId, cardGroupVia: 'confirmed' } });
+        return (
+          await tx.auditLog.create({
+            data: { actorUserId: user.id, actorRole: user.role, action: 'catalog.group_confirmed', entityType: 'CardSet', entityId: setId, before, after: { groupId, via: 'confirmed' } },
+            select: { id: true },
+          })
+        ).id;
+      });
+    } catch (e) {
+      await this.prisma.auditLog.deleteMany({ where: { id: claimId } }).catch(() => undefined); // nada se confirmó: el cupo se devuelve
+      throw e;
+    }
     const r = await this.repair.attemptSetConfirmed(setId, user.id, groups);
     if (r.error) {
-      // «No persiste nada»: se devuelve la elección anterior y el cupo.
-      await this.prisma.cardSet.update({ where: { id: setId }, data: { cardGroupId: before.groupId, cardGroupVia: before.via } });
-      await this.prisma.auditLog.deleteMany({ where: { id: claimId } }).catch(() => undefined);
+      // «No persiste nada»: se devuelve la elección anterior (junto con su fila de bitácora) y el cupo.
+      await this.prisma.$transaction([
+        this.prisma.cardSet.update({ where: { id: setId }, data: { cardGroupId: before.groupId, cardGroupVia: before.via } }),
+        this.prisma.auditLog.deleteMany({ where: { id: { in: [auditId, claimId] } } }),
+      ]);
       throw this.upstream(setId, new Error(r.error));
     }
-    await this.audit.log({
-      actorUserId: user.id, actorRole: user.role, action: 'catalog.group_confirmed', entityType: 'CardSet', entityId: setId,
-      before, after: { groupId, via: 'confirmed', linked: r.linked, priced: r.priced },
-    });
     // La confirmación reinicia la espera 1/3/7 del job para este set (progreso o no, hubo una decisión humana nueva).
-    await this.audit.log({ actorUserId: null, action: 'catalog.auto_link', entityType: 'CardSet', entityId: setId, after: { setId, groupId, via: 'confirmed', linked: r.linked, priced: r.priced, reason: r.reason, noProgress: false, nextAttemptAt: null, tries: 0, trigger: 'confirm' } });
+    await this.audit.log({ actorUserId: null, action: 'catalog.auto_link', entityType: 'CardSet', entityId: setId, after: { setId, groupId, via: 'confirmed', linked: r.linked, priced: r.priced, reason: r.reason, held: r.held, finishesAdded: r.finishesAdded, ...(r.sanity ? { sanity: r.sanity } : {}), linkedCardIds: r.linkedCardIds, noProgress: false, nextAttemptAt: null, tries: 0, trigger: 'confirm' } });
     return {
       setId,
       groupUsed: { groupId, name: group.name, via: 'confirmed' },
