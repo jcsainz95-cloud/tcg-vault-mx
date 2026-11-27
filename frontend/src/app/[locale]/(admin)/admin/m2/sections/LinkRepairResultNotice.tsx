@@ -47,6 +47,14 @@ export function LinkRepairResultNotice({
     return null;
   })();
 
+  // Motivos que ya van en la frase principal (solo la rama `none` los pinta); el resto se avisa aparte, una sola vez.
+  const pricedOnly = !!result && result.linked === 0 && (result.priced ?? 0) > 0;
+  const leadKeys: string[] = result && result.linked === 0 && !pricedOnly && !result.reason ? result.reasons.map((r) => r.key) : [];
+  // `pricedOnly` no pinta motivos: los de cartas (salvo acabado y nombre, que tienen su aviso) se listan en su propia frase.
+  const pricedOnlyReasons = pricedOnly && result
+    ? result.reasons.filter((r) => r.key !== 'finishNotInProduct' && r.key !== 'nameMismatch')
+    : [];
+
   return (
     <>
       {!hasError && linkSkipped && (
@@ -72,8 +80,12 @@ export function LinkRepairResultNotice({
           {result.piecesCorrected > 0 && ` ${t('piecesCorrected', { n: result.piecesCorrected })}`}
           {result.piecesExcluded.length > 0 &&
             ` ${t('piecesExcluded', { list: result.piecesExcluded.map((e) => tf(`excl.${e.key}`, { n: e.count })).join(', ') })}`}
-          {(result.finishNotInProduct ?? 0) > 0 && !result.reasons.some((r) => r.key === 'finishNotInProduct') &&
+          {pricedOnlyReasons.length > 0 &&
+            ` ${t('reasonsNote', { list: pricedOnlyReasons.map((r) => (r.count == null ? reasonText(r.key) : countText(r.key, r.count))).join(', ') })}`}
+          {(result.finishNotInProduct ?? 0) > 0 && !leadKeys.includes('finishNotInProduct') &&
             ` ${t('finishNotice', { n: result.finishNotInProduct ?? 0 })}`}
+          {(result.nameMismatch ?? 0) > 0 && !leadKeys.includes('nameMismatch') &&
+            ` ${t('nameMismatchNotice', { n: result.nameMismatch ?? 0 })}`}
           {result.groupUsed && ` ${t('groupUsed', { name: groupLabel(result.groupUsed, tf) })}`}
           {result.nextAttemptAt && ` ${t('nextAttempt', { when: timeOf(result.nextAttemptAt) })}`}
           {onDismiss && (

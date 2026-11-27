@@ -4537,6 +4537,8 @@
           "imported": "Imported {n, plural, one {# card} other {# cards}}.",
           "noLocalId": "Cards were imported, but the system did not return the set id needed to link prices for {name}. Press the button again.",
           "pricedOnly": "There were no new cards to link in {name}.",
+          "reasonsNote": "Reasons left unlinked: {list}.",
+          "nameMismatchNotice": "{n, plural, one {# card was} other {# cards were}} left unlinked because its name does not match the product.",
           "priced": "{n, plural, one {# price updated} other {# prices updated}}.",
           "groupUsed": "Price group: {name}.",
           "groupLine": "Price group: {name} ({via})",

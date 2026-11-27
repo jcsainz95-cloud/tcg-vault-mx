@@ -45,6 +45,8 @@ export interface LinkRepairResult {
   piecesExcluded: Array<{ key: PieceExcludedKey; count: number }>;
   /** Cartas con un acabado que la fuente no da para ese producto (omitted `finish_not_in_product`), también con enlaces/precios. */
   finishNotInProduct?: number;
+  /** Cartas omitidas por nombre distinto (omitted `name_mismatch`), también con enlaces/precios. */
+  nameMismatch?: number;
 }
 
 interface RawLinkRepair {
@@ -101,8 +103,10 @@ export function readSetReason(r: unknown): LinkSetReason | null {
 export function readLinkRepair(raw: RawLinkRepair): LinkRepairResult {
   const linked = Number(raw.linked) || 0;
   const finishNotInProduct = (raw.omitted ?? []).filter((o) => o.reason === 'finish_not_in_product').reduce((n, o) => n + (Number(o.count) || 0), 0);
+  const nameMismatch = (raw.omitted ?? []).filter((o) => o.reason === 'name_mismatch').reduce((n, o) => n + (Number(o.count) || 0), 0);
   const base = {
     ...(finishNotInProduct > 0 ? { finishNotInProduct } : {}),
+    ...(nameMismatch > 0 ? { nameMismatch } : {}),
     priced: raw.priced == null ? null : Number(raw.priced) || 0,
     groupUsed: readGroupUsed(raw.groupUsed),
     reason: (LINK_SET_REASONS as readonly string[]).includes(raw.reason ?? '') ? (raw.reason as LinkSetReason) : null,

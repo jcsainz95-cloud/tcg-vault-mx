@@ -4537,6 +4537,8 @@
           "imported": "Se importaron {n, plural, one {# carta} other {# cartas}}.",
           "noLocalId": "Las cartas se importaron, pero el sistema aún no devolvió el identificador del set para enlazar precios en {name}. Vuelve a pulsar el botón.",
           "pricedOnly": "No hubo cartas nuevas por ligar en {name}.",
+          "reasonsNote": "Motivos que quedaron sin ligar: {list}.",
+          "nameMismatchNotice": "{n, plural, one {# carta quedó} other {# cartas quedaron}} sin ligar porque el nombre no coincide con el del producto.",
           "priced": "{n, plural, one {Se actualizó # precio} other {Se actualizaron # precios}}.",
           "groupUsed": "Grupo de precios: {name}.",
           "groupLine": "Grupo de precios: {name} ({via})",

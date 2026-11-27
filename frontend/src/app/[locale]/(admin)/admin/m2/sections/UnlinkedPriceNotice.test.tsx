@@ -197,6 +197,26 @@ describe('§AUTO-ENLACE fase 1 · correcciones tras gate', () => {
     expect(txt).toMatch(/Se actualizaron 4 precios/);
     expect(txt).toMatch(/3 cartas tienen un acabado que la fuente no da para ese producto; quedan sin precio de ese acabado/);
   });
+  it.each([
+    ['0/0', 0, 0, /No se pudo ligar ninguna carta en Scarlet: .*por nombre distinto.*acabado/],
+    ['0/28', 0, 28, /No hubo cartas nuevas por ligar en Scarlet\..*Se actualizaron 28 precios/],
+    ['5/0', 5, 0, /Se ligaron 5 cartas en Scarlet/],
+    ['5/28', 5, 28, /Se ligaron 5 cartas en Scarlet.*Se actualizaron 28 precios/],
+  ])('V3: caso real (finish 1 + name_mismatch 1) con linked/priced %s muestra ambos avisos una sola vez', async (_n, linked, priced, lead) => {
+    const real = repair.readLinkRepair({
+      linked, priced, omitted: [{ reason: 'finish_not_in_product', count: 1 }, { reason: 'name_mismatch', count: 1 }],
+    });
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(real);
+    renderWithProviders(<UnlinkedPriceNotice report={REPORT_G} />);
+    fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    const txt = (await screen.findByTestId('unlinked-result')).textContent ?? '';
+    expect(txt).toMatch(lead);
+    expect(txt.match(/un acabado que/g)).toHaveLength(1);
+    expect(txt.match(/nombre (distinto|no coincide)/g)).toHaveLength(1);
+    if (linked === 0 && priced === 0) return;
+    expect(txt).toMatch(/1 carta tiene un acabado que la fuente no da/);
+    expect(txt).toMatch(/1 carta quedó sin ligar porque el nombre no coincide/);
+  });
   it('M1: el resultado fijo de I-4 se puede cerrar', async () => {
     vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(R({ linked: 3, priced: 3 }));
     function Host() {
