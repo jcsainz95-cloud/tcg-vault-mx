@@ -43,8 +43,8 @@ const EQUATIONS: AuditEquation[] = [
   { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('a5', 'Compras (BD)', 'n')] },
   { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('f3', 'Pedidos pagados del periodo', 'pedidos')] },
   { id: 'E1', kind: 'sum', left: at('a1', 'Periodo actual', 'pedidos'), right: [all('c7', 'pedidos')] },
-  // E2 f3[Con origen registrado] = Σ b1.pedidos
-  { id: 'E2', kind: 'sum', left: at('f3', 'Con origen registrado (first_utm_source)', 'pedidos'), right: [all('b1', 'pedidos')] },
+  // E2 f3[Con origen (primer origen o visita)] = Σ b1.pedidos
+  { id: 'E2', kind: 'sum', left: at('f3', 'Con origen (primer origen o visita)', 'pedidos'), right: [all('b1', 'pedidos')] },
   // E3 por puerta m, en las cuatro columnas de b: b2[m] = Σ b1[<source> / m]
   ...[
     ['bio', 'Bio'],
@@ -90,6 +90,7 @@ const at18 = (ymd: string) => new Date(`${ymd}T18:00:00.000Z`);
 type Where = Record<string, unknown>;
 const matches = (o: Record<string, unknown>, where: Where = {}): boolean =>
   Object.entries(where).every(([k, cond]) => {
+    if (k === 'OR') return (cond as Where[]).some((w) => matches(o, w)); // §ORIGEN-VISITA
     const v = o[k];
     if (cond === undefined) return true;
     if (cond === null) return v === null || v === undefined;

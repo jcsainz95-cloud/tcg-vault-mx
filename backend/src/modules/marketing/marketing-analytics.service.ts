@@ -48,9 +48,41 @@ import { parseFirstUtm } from '../../common/first-utm';
 import { toMexicoCityDateKey } from '../../common/business-days';
 
 /** b1-b3 (§MKT.H.9): clave de fila desde `first_utm_*`; `null` ⇒ el pedido/solicitud no entra en esa tabla. */
-type BKey = (source: string | null, medium: string | null, content: string | null) => string | null;
+type BKey = (source: string | null, medium: string | null, content: string | null, kind?: OriginKind) => string | null;
+/**
+ * §ORIGEN-VISITA: origen EFECTIVO de un pedido/solicitud = `firstUtm*` si hay `firstUtmSource`; si no, `visit*` (utm de la visita o,
+ * sin utm, el referente de la lista cerrada). `kind` rotula la fuente (b1 prefija «visita · » a la clave; g1 suma la columna `source`).
+ */
+export type OriginKind = 'first' | 'visit';
+export const VISIT_KEY_PREFIX = 'visita · ';
+interface OriginCols {
+  firstUtmSource: string | null;
+  firstUtmMedium: string | null;
+  firstUtmContent: string | null;
+  visitUtmSource: string | null;
+  visitUtmMedium: string | null;
+  visitUtmContent: string | null;
+  visitReferrer: string | null;
+}
+export const ORIGIN_SELECT = {
+  firstUtmSource: true,
+  firstUtmMedium: true,
+  firstUtmContent: true,
+  visitUtmSource: true,
+  visitUtmMedium: true,
+  visitUtmContent: true,
+  visitReferrer: true,
+} as const;
+/** Filtro Prisma «tiene algún origen» (primer toque o visita). */
+export const HAS_ORIGIN_WHERE = { OR: [{ firstUtmSource: { not: null } }, { visitUtmSource: { not: null } }, { visitReferrer: { not: null } }] };
+export function effectiveOrigin(o: OriginCols): { source: string; medium: string | null; content: string | null; kind: OriginKind } | null {
+  if (o.firstUtmSource) return { source: o.firstUtmSource, medium: o.firstUtmMedium, content: o.firstUtmContent, kind: 'first' };
+  const vs = o.visitUtmSource ?? o.visitReferrer;
+  if (vs) return { source: vs, medium: o.visitUtmSource ? o.visitUtmMedium : null, content: o.visitUtmSource ? o.visitUtmContent : null, kind: 'visit' };
+  return null;
+}
 const DOOR_LABEL: Record<string, string> = { bio: 'Bio', story: 'Story', paid: 'Promoción', dm: 'Mensaje directo' };
-const bKeyOrigin: BKey = (s, m) => (s ? `${s} / ${m ?? '—'}` : null);
+const bKeyOrigin: BKey = (s, m, _c, kind) => (s ? `${kind === 'visit' ? VISIT_KEY_PREFIX : ''}${s} / ${m ?? '—'}` : null);
 const bKeyDoor: BKey = (_s, m) => (m && DOOR_LABEL[m] ? DOOR_LABEL[m] : null);
 // `dm` en una sola fila: un mensaje directo no tiene pieza que publicar.
 const bKeyPiece: BKey = (_s, m, c) => (m === 'dm' ? 'Mensaje directo (dm)' : (c ?? null));
@@ -65,6 +97,7 @@ import {
   cellId,
   type ComponentRow,
   type SafeComponentRow,
+  OTROS_LABEL,
   SMALL_CELL_HIDDEN,
   SMALL_CELL_SENTINEL,
   SMALL_CELL_THRESHOLD,
@@ -91,6 +124,9 @@ const BUY_BUTTON_DEFERRED = 'NO MEDIDO — el evento del botón COMPRAR todavía
 const B_SESSIONS_NOTE =
   'Sesiones por primer origen no entran: exigirían dimensiones de evento propias en la consola de GA4. Pedidos y solicitudes de quien aceptó la analítica.';
 const SC_UNCONNECTED = 'NO MEDIDO — Search Console sin conectar';
+export const F3_BUCKET_FIRST = 'Primer origen (90 d, con permiso)';
+export const F3_BUCKET_VISIT = 'Origen de visita';
+export const F3_BUCKET_NONE = 'Sin origen';
 /** b1-b3: nota literal de §MKT.H.14 («Fila de b1-b3»). */
 export const B_CELLS_NOTE = 'Pedidos y solicitudes se ocultan por separado: menos de 5 ⇒ «< 5» sin su MX$.';
 /** b5/b6 (v1.109): componentes y notas. */
@@ -432,7 +468,12 @@ export class MarketingAnalyticsService {
     const n = await this.prisma.order.count({
       where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES }, measurementConsentAnalytics: { not: null } },
     });
-    return n > 0;
+    if (n > 0) return true;
+    // §ORIGEN-VISITA: el origen de visita no depende de la medición; con él también hay origen que mostrar.
+    const v = await this.prisma.order.count({
+      where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES }, OR: [{ visitUtmSource: { not: null } }, { visitReferrer: { not: null } }] },
+    });
+    return v > 0;
   }
 
   /** f1 (§MKT.H.9): con `on`, **o** con `off` si el contador tiene alguna fila de las semanas del periodo. */
@@ -1325,6 +1366,14 @@ export class MarketingAnalyticsService {
     // «Con origen» = la base de b1 (E2): sin tráfico propio (MKT-V2 §4).
     const originRows = await this.prisma.order.findMany({ where: { ...where, firstUtmSource: { not: null } }, select: { firstUtmSource: true, firstUtmMedium: true } });
     const withOrigin = originRows.filter((o) => !isInternalUtm(o.firstUtmSource, o.firstUtmMedium)).length;
+    // §ORIGEN-VISITA: tres cubetas EXCLUYENTES que suman el total de pagados: primer origen (firstUtm*, con permiso), origen de
+    // visita (sin firstUtm*, con visit*) y sin origen (el resto, incluido el tráfico propio).
+    const visitRows = await this.prisma.order.findMany({
+      where: { ...where, firstUtmSource: null, OR: [{ visitUtmSource: { not: null } }, { visitReferrer: { not: null } }] },
+      select: { visitUtmSource: true, visitUtmMedium: true, visitReferrer: true },
+    });
+    const visitOnly = visitRows.filter((o) => (o.visitUtmSource ?? o.visitReferrer) && !isInternalUtm(o.visitUtmSource ?? o.visitReferrer, o.visitUtmMedium)).length;
+    const noOrigin = paid - withOrigin - visitOnly;
     const consented = await this.prisma.order.count({ where: { ...where, measurementConsentAnalytics: true } });
     const refused = await this.prisma.order.count({ where: { ...where, measurementConsentAnalytics: false } });
     const before = await this.prisma.order.count({ where: { ...where, measurementConsentAnalytics: null } });
@@ -1340,13 +1389,19 @@ export class MarketingAnalyticsService {
       ],
       rows: [
         { concepto: 'Pedidos pagados del periodo', pedidos: paid, pct: paid === 0 ? null : 100 },
-        { concepto: 'Con origen registrado (first_utm_source)', pedidos: withOrigin, pct: pct(withOrigin) },
+        { concepto: 'Con origen (primer origen o visita)', pedidos: withOrigin + visitOnly, pct: pct(withOrigin + visitOnly) },
+        { concepto: F3_BUCKET_FIRST, pedidos: withOrigin, pct: pct(withOrigin) },
+        { concepto: F3_BUCKET_VISIT, pedidos: visitOnly, pct: pct(visitOnly) },
+        { concepto: F3_BUCKET_NONE, pedidos: noOrigin, pct: paid === 0 ? null : Math.round((100 - (pct(withOrigin) ?? 0) - (pct(visitOnly) ?? 0)) * 10) / 10 },
         { concepto: 'Aceptaron la analítica', pedidos: consented, pct: pct(consented) },
         { concepto: 'La rechazaron', pedidos: refused, pct: pct(refused) },
         { concepto: 'Sin elección registrada (no respondió al aviso, o pedido anterior a la medición)', pedidos: before, pct: pct(before) },
       ],
       measured: true,
-      notes: ['Totales SIN dimensión: cifras exactas. El origen solo se guarda si el cliente aceptó analítica.'],
+      notes: [
+        'Totales SIN dimensión: cifras exactas. El primer origen solo se guarda si el cliente aceptó analítica; el origen de visita se guarda sin cookies (solo la pestaña) y no cubre a quien vuelve otro día.',
+        'Primer origen + origen de visita + sin origen = 100 % de los pedidos pagados del periodo.',
+      ],
     };
   }
 
@@ -1486,12 +1541,14 @@ export class MarketingAnalyticsService {
     const safe = applySmallCellsByComponent(f.dims.parts[id] ?? [], privacy, f.forced.get(id));
     // `exact` sale en orden real (MKT.G.2): pedidos desc, solicitudes desc, clave. En `small_cells` el orden es el de R0.
     const rows = privacy === 'exact' ? [...safe].sort((a, b) => num(b, 'pedidos') - num(a, 'pedidos') || num(b, 'solicitudes') - num(a, 'solicitudes') || (a.key < b.key ? -1 : 1)) : safe;
+    const withSource = id === 'b1'; // §ORIGEN-VISITA: b1 rotula la fuente del origen de cada fila.
     return {
       id,
       title,
       source: 'BD',
       columns: [
         { key: col, labelEs: label, kind: 'text' },
+        ...(withSource ? [{ key: 'source', labelEs: 'Fuente del origen', kind: 'text' as const }] : []),
         { key: 'pedidos', labelEs: 'Pedidos pagados', kind: 'count' },
         { key: 'mxnPedidos', labelEs: 'MX$ pedidos (IVA incluido)', kind: 'money' },
         { key: 'solicitudes', labelEs: 'Solicitudes de venta', kind: 'count' },
@@ -1499,6 +1556,7 @@ export class MarketingAnalyticsService {
       ],
       rows: rows.map((r) => ({
         [col]: r.key,
+        ...(withSource ? { source: r.key === OTROS_LABEL ? 'mixed' : r.key.startsWith(VISIT_KEY_PREFIX) ? 'visit' : 'first' } : {}),
         pedidos: r.parts.pedidos.count as Cell,
         mxnPedidos: (r.parts.pedidos.money.mxnPedidos ?? null) as Cell,
         solicitudes: r.parts.solicitudes.count as Cell,
@@ -1518,17 +1576,22 @@ export class MarketingAnalyticsService {
     const range = mxRange(p.from, p.to);
     const [allOrders, allRequests] = await Promise.all([
       this.prisma.order.findMany({
-        where: { settledAt: range, status: { in: SOLD_STATUSES }, firstUtmSource: { not: null } },
-        select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, totalCents: true },
+        where: { settledAt: range, status: { in: SOLD_STATUSES }, ...HAS_ORIGIN_WHERE },
+        select: { ...ORIGIN_SELECT, totalCents: true },
       }),
       this.prisma.sellRequest.findMany({
-        where: { createdAt: range, firstUtmSource: { not: null } },
-        select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, quotedTotalCents: true },
+        where: { createdAt: range, ...HAS_ORIGIN_WHERE },
+        select: { ...ORIGIN_SELECT, quotedTotalCents: true },
       }),
     ]);
     // MKT-V2 §4: el tráfico propio (diag-*, qa-*…) no cuenta, ANTES de calcular totales de familia.
-    const orders = allOrders.filter((o) => !isInternalUtm(o.firstUtmSource, o.firstUtmMedium));
-    const requests = allRequests.filter((r) => !isInternalUtm(r.firstUtmSource, r.firstUtmMedium));
+    const own = <T extends OriginCols>(rows: T[]): (T & { eff: NonNullable<ReturnType<typeof effectiveOrigin>> })[] =>
+      rows.flatMap((r) => {
+        const eff = effectiveOrigin(r);
+        return eff && !isInternalUtm(eff.source, eff.medium) ? [{ ...r, eff }] : [];
+      });
+    const orders = own(allOrders);
+    const requests = own(allRequests);
     const rowsOf = (keyOf: BKey): ComponentRow[] => {
       const acc = new Map<string, { o: number; oc: number; s: number; sc: number }>();
       const bump = (k: string | null, f: 'o' | 's', cents: number) => {
@@ -1539,8 +1602,8 @@ export class MarketingAnalyticsService {
         acc.set(k, e);
       };
       // Una fila de `findMany` = un pedido / una solicitud ⇒ el conteo ES el nº de sujetos distintos.
-      for (const o of orders) bump(keyOf(o.firstUtmSource, o.firstUtmMedium, o.firstUtmContent), 'o', o.totalCents);
-      for (const r of requests) bump(keyOf(r.firstUtmSource, r.firstUtmMedium, r.firstUtmContent), 's', r.quotedTotalCents);
+      for (const o of orders) bump(keyOf(o.eff.source, o.eff.medium, o.eff.content, o.eff.kind), 'o', o.totalCents);
+      for (const r of requests) bump(keyOf(r.eff.source, r.eff.medium, r.eff.content, r.eff.kind), 's', r.quotedTotalCents);
       return [...acc.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([key, e]) => ({
@@ -1664,7 +1727,7 @@ export class MarketingAnalyticsService {
         rows: [{ concepto: G1_KEY, pedidos: row.count as Cell, mxn: (row.money.mxn ?? null) as Cell }],
         measured: true,
         notes: [
-          'Primer origen guardado con el pedido (solo de quien aceptó analítica): cuenta lo que se puede atribuir, no todo lo que trajo la promoción.',
+          'Origen guardado con el pedido (primer origen de quien aceptó analítica, o el de la visita sin cookies): cuenta lo que se puede atribuir, no todo lo que trajo la promoción.',
           cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} pedidos ⇒ «< 5» sin MX$.`),
         ],
       },
@@ -1676,10 +1739,21 @@ export class MarketingAnalyticsService {
     // Base de b1-b3 (`PAID_ORIGIN`, §MKT.H.14): sin `firstUtmSource` no entra, para que g1 ≡ b2[Promoción] sea identidad exacta.
     // MKT-V2 §4: igual que b1-b3, sin tráfico propio (por eso `findMany` y no `aggregate`: el patrón no se expresa en SQL).
     const rows = await this.prisma.order.findMany({
-      where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES }, firstUtmSource: { not: null }, firstUtmMedium: 'paid' },
-      select: { firstUtmSource: true, firstUtmMedium: true, totalCents: true },
+      where: {
+        settledAt: mxRange(p.from, p.to),
+        status: { in: SOLD_STATUSES },
+        // §ORIGEN-VISITA: origen efectivo = primer origen si hay; si no, el de visita.
+        OR: [
+          { firstUtmSource: { not: null }, firstUtmMedium: 'paid' },
+          { firstUtmSource: null, visitUtmSource: { not: null }, visitUtmMedium: 'paid' },
+        ],
+      },
+      select: { ...ORIGIN_SELECT, totalCents: true },
     });
-    const own = rows.filter((o) => !isInternalUtm(o.firstUtmSource, o.firstUtmMedium));
+    const own = rows.filter((o) => {
+      const e = effectiveOrigin(o);
+      return e !== null && e.medium === 'paid' && !isInternalUtm(e.source, e.medium);
+    });
     const cents = own.reduce((n, o) => n + o.totalCents, 0);
     return [{ key: G1_KEY, count: own.length, subjects: own.length, money: { mxn: centsToPesos(cents) } }];
   }

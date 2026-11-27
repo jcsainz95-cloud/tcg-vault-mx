@@ -1,4 +1,5 @@
 import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
+import { visitColumnsData, type VisitColumns } from '../../common/visit-origin';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
@@ -1598,7 +1599,7 @@ export class OrdersService {
     // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): columnas YA saneadas (consentimiento + `firstUtm*`) por
     // `MeasurementService.prepare`; vacías con el modo apagado. Se escriben en el MISMO `create` de la orden y solo en una
     // orden NUEVA (el reuso conserva lo que tenía). ⛔ No cambian ningún importe ni ninguna guarda.
-    measurementColumns: Partial<MeasurementColumns> = {},
+    measurementColumns: Partial<MeasurementColumns & VisitColumns> = {},
     // 💰 v1.110⟨descuentos⟩ (§DSC.6): el código (opcional) y la IP del límite de intentos. Sin código ⇒ la conducta de hoy.
     opts: { discountCode?: unknown; ip?: string | null } = {},
   ): Promise<CheckoutSessionResult & { discount?: DiscountQuoteDTO }> {
@@ -1695,6 +1696,8 @@ export class OrdersService {
           items: { create: lines },
           // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
           ...measurementColumnsData(measurementColumns),
+          // §ORIGEN-VISITA: origen de la visita (independiente del consentimiento); misma escritura, solo fila nueva.
+          ...visitColumnsData(measurementColumns),
           // 💰 v1.110 (§DSC.1): solo con código aplicado (sin él, el `INSERT` de hoy y el default 0).
           ...(applied ? { discountCents: applied.priced.discountCents } : {}),
         },

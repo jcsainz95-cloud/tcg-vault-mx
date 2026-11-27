@@ -1736,6 +1736,13 @@ model Order {
   firstUtmCampaign            String?
   firstUtmContent             String?
   firstUtmLandedAt            DateTime?
+  // §ORIGEN-VISITA (DECISIONES; API_CONTRACT_ORIGEN.md): origen de la VISITA (sessionStorage del navegador, sin cookies). NULLABLE,
+  // sin default, sin backfill: NULL = antes de la función o pestaña sin dato (≠ 'directo'). Separadas de `firstUtm*` (no se pisan).
+  visitUtmSource              String?
+  visitUtmMedium              String?
+  visitUtmCampaign            String?
+  visitUtmContent             String?
+  visitReferrer               VisitReferrer?
   // ======================= v1.102⟨mkt-fase2⟩ (m86, §MKT.H.2/.7 / ARCHITECTURE §14.6) =======================
   // Consentimiento de medición con el que se CREÓ el pedido (lo escribe la misma `tx` que crea la fila). NULLABLE, sin
   // default: NULL = creado con `MEASUREMENT_MODE=off` o antes de m86 («antes de Fase 2» en f3). Decide qué sale a
@@ -2654,6 +2661,13 @@ model SellRequest {
   firstUtmCampaign           String?
   firstUtmContent            String?
   firstUtmLandedAt           DateTime?
+  // §ORIGEN-VISITA (DECISIONES; API_CONTRACT_ORIGEN.md): origen de la VISITA (sessionStorage del navegador, sin cookies). NULLABLE,
+  // sin default, sin backfill: NULL = antes de la función o pestaña sin dato (≠ 'directo'). Separadas de `firstUtm*` (no se pisan).
+  visitUtmSource              String?
+  visitUtmMedium              String?
+  visitUtmCampaign            String?
+  visitUtmContent             String?
+  visitReferrer               VisitReferrer?
   // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.2/.7): mismas tres columnas de consentimiento que `Order` (NULL = modo off / antes de m86).
   measurementConsentAnalytics Boolean?
   measurementConsentAds       Boolean?
@@ -4335,4 +4349,17 @@ model ShippingQuoteLog {
 
   @@index([prefix2, profileKey, createdAt])
   @@index([createdAt])
+}
+
+/// §ORIGEN-VISITA: referente reducido EN EL NAVEGADOR a lista cerrada (sin dominio crudo ni URL). Crece de forma aditiva.
+enum VisitReferrer {
+  google
+  bing
+  chatgpt
+  perplexity
+  gemini
+  instagram
+  facebook
+  otro
+  directo
 }

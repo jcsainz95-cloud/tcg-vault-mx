@@ -80,6 +80,15 @@ describe('GET /admin/orders — columnas del motivo «tras envío» fuera de la 
     for (const row of res.data) for (const k of RAW) expect(row).not.toHaveProperty(k);
   });
 
+  it('I-2 (§ORIGEN-VISITA, DECISIONES 6(vii)): ninguna columna visit* viaja en la fila del listado', async () => {
+    const rows = [{ id: 'v', guestEmail: null, fullRefundAfterShipment: false, shippedRefundReason: null, visitUtmSource: 'instagram', visitUtmMedium: 'paid', visitUtmCampaign: 'c', visitUtmContent: 'r', visitReferrer: 'google', firstUtmSource: 'x' }];
+    const prisma: any = { $queryRaw: jest.fn(async () => []), order: { findMany: jest.fn(async () => rows), count: jest.fn(async () => 1) } };
+    const ctrl = new AdminOrdersController({} as OrdersService, prisma as PrismaService, { log: jest.fn() } as unknown as AuditService, {} as GuestOrderMailService, {} as OrderRefundService, { toDtos: jest.fn(async () => []) } as never, { dtosByIds: jest.fn(async () => []) } as never);
+    const res = await ctrl.list();
+    for (const k of ['visitUtmSource', 'visitUtmMedium', 'visitUtmCampaign', 'visitUtmContent', 'visitReferrer']) expect(res.data[0]).not.toHaveProperty(k);
+    expect(res.data[0]).toHaveProperty('firstUtmSource'); // preexistente: no se toca
+  });
+
   it('`refundReviewPending` sigue derivándose de las dos columnas quitadas (afterShipment ∧ sin motivo)', async () => {
     const res = await build().list();
     expect(res.data.map((r: any) => [r.id, r.refundReviewPending])).toEqual([

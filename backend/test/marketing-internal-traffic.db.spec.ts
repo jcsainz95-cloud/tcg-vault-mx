@@ -26,7 +26,7 @@ function build(withOwn: boolean) {
       count: jest.fn(async ({ where }: { where: Record<string, unknown> }) => ('firstUtmSource' in where ? 0 : 20)),
       aggregate: jest.fn(async () => ({ _count: { _all: 6 }, _sum: { totalCents: 60000 } })),
       findMany: jest.fn(async ({ where, select }: { where: Record<string, unknown>; select: Record<string, unknown> }) => {
-        if ('firstUtmMedium' in where) return [...Array.from({ length: 6 }, () => orderRow('google', 'paid')), ...own(6, () => orderRow(OWN, 'paid'))]; // g1
+        if ((where.OR as { firstUtmMedium?: string }[] | undefined)?.some((x) => x.firstUtmMedium === 'paid')) return [...Array.from({ length: 6 }, () => orderRow('google', 'paid')), ...own(6, () => orderRow(OWN, 'paid'))]; // g1
         if (!('totalCents' in select)) return [...Array.from({ length: 6 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'bio' })), ...own(6, () => ({ firstUtmSource: OWN, firstUtmMedium: 'bio' }))]; // f3
         return [
           ...Array.from({ length: 6 }, () => orderRow('instagram', 'bio')),

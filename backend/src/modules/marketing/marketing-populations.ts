@@ -23,11 +23,11 @@ export const MARKETING_POPULATIONS = {
   PI_START: { subject: 'pedido', source: 'BD' },
   /** v1.116 (a6): `PI_START` ∧ `settledAt IS NOT NULL` ∧ `status ∈ {settled, refunded, chargeback}`, pagado cuando sea (cohorte). */
   PI_START_PAID: { subject: 'pedido', source: 'BD' },
-  /** `PAID` ∧ `firstUtmSource IS NOT NULL` — base de b1, b2, b3 y g1. Sujeto: pedido. */
+  /** `PAID` ∧ origen efectivo (`firstUtmSource` o, si no, `visit*`; §ORIGEN-VISITA) — base de b1, b2, b3 y g1. Sujeto: pedido. */
   PAID_ORIGIN: { subject: 'pedido', source: 'BD' },
   /** `SellRequest` creada en el periodo. Sujeto: solicitud. */
   REQ: { subject: 'solicitud', source: 'BD' },
-  /** `REQ` ∧ `firstUtmSource IS NOT NULL`. Sujeto: solicitud. */
+  /** `REQ` ∧ origen efectivo (`firstUtm*` o `visit*`). Sujeto: solicitud. */
   REQ_ORIGIN: { subject: 'solicitud', source: 'BD' },
   /** `SellRequest.status = 'pagada'` ∧ `paidAt` en el periodo. Sujeto: solicitud. */
   REQ_PAID: { subject: 'solicitud', source: 'BD' },
@@ -148,7 +148,11 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
     class: 'accepted_total',
     components: [
       c('pedidos', [], 'PAID', { row: 'Pedidos pagados del periodo' }),
-      c('pedidos', [], 'PAID_ORIGIN', { row: 'Con origen registrado (first_utm_source)' }),
+      // §ORIGEN-VISITA: «con origen» = primer origen o visita (base de b1 = E2) y las tres cubetas que suman el total.
+      c('pedidos', [], 'PAID_ORIGIN', { row: 'Con origen (primer origen o visita)' }),
+      c('pedidos', [], 'PAID', { row: 'Primer origen (90 d, con permiso)', filter: 'firstUtmSource IS NOT NULL' }),
+      c('pedidos', [], 'PAID', { row: 'Origen de visita', filter: 'firstUtmSource IS NULL AND visit* IS NOT NULL' }),
+      c('pedidos', [], 'PAID', { row: 'Sin origen', filter: 'ni firstUtm* ni visit*' }),
       c('pedidos', [], 'PAID', { row: 'Aceptaron la analítica', filter: 'measurementConsentAnalytics = true' }),
       c('pedidos', [], 'PAID', { row: 'La rechazaron', filter: 'measurementConsentAnalytics = false' }),
       c('pedidos', [], 'PAID', {
@@ -221,7 +225,7 @@ export const MARKETING_EQUATIONS: readonly MarketingEquation[] = [
   { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('a5', 'Compras (BD)', 'n')] },
   { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('f3', 'Pedidos pagados del periodo', 'pedidos')] },
   { id: 'E1', kind: 'sum', left: at('a1', 'Periodo actual', 'pedidos'), right: [allOf('c7', 'pedidos')] },
-  { id: 'E2', kind: 'sum', left: at('f3', 'Con origen registrado (first_utm_source)', 'pedidos'), right: [allOf('b1', 'pedidos')] },
+  { id: 'E2', kind: 'sum', left: at('f3', 'Con origen (primer origen o visita)', 'pedidos'), right: [allOf('b1', 'pedidos')] },
   ...Object.entries(B2_DOORS).flatMap(([medium, door]) =>
     B_COLUMNS.map((column): MarketingEquation => ({ id: 'E3', kind: 'sum', left: at('b2', door, column), right: [{ table: 'b1', row: { keySuffix: ` / ${medium}` }, column }] })),
   ),

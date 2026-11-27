@@ -2,6 +2,7 @@ import { CardLanguage, Finish, StampType } from '@prisma/client';
 import { assertValidPhone } from '../users/phone-mx';
 import { orderLineVersionOf } from '../../common/card-version';
 import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
+import { visitColumnsData, type VisitColumns } from '../../common/visit-origin';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Locale, Order, OrderStatus, Prisma, ProductType, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -478,7 +479,7 @@ export class GuestCheckoutService {
     dto: GuestSessionDto,
     requestIp?: string | null,
     // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): columnas YA saneadas; ver `OrdersService.createSession`.
-    measurementColumns: Partial<MeasurementColumns> = {},
+    measurementColumns: Partial<MeasurementColumns & VisitColumns> = {},
   ) {
     // Destino bóveda ⇒ UPSELL, no error (criterio 48). El front NUNCA lo pinta como error.
     if (dto.fulfillmentMode === 'vault') {
@@ -696,6 +697,8 @@ export class GuestCheckoutService {
             ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
             // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
             ...measurementColumnsData(measurementColumns),
+          // §ORIGEN-VISITA: origen de la visita (independiente del consentimiento); misma escritura, solo fila nueva.
+          ...visitColumnsData(measurementColumns),
           },
         });
         // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias

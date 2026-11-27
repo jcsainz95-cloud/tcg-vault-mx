@@ -8550,6 +8550,9 @@
         "notMeasuredSr": "not measured yet: {motivo}",
         "none": "no data",
         "others": "Others (< 5 each)",
+        "sourceFirst": "First origin (with cookies)",
+        "sourceVisit": "Visit origin (no cookies)",
+        "sourceMixed": "Mixed / several sources",
         "smallN": "Small N, no verdict",
         "footnote": "< 5 means fewer than 5. The amount for those rows is hidden so no one can be identified."
       },
