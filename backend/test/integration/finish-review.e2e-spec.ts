@@ -8,6 +8,8 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { SettingKey } from '../../src/modules/settings/settings.constants';
+import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
+import { SEALED_SALE_PRICE_INCLUDE } from '../../src/common/money';
 
 jest.setTimeout(180_000);
 
@@ -124,28 +126,80 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     expect((await list('?cursor=basura')).status).toBe(422);
   });
 
-  it('blockedReason: venta, reservada, custodia, dueño cliente y sin precio destino', async () => {
+  it('§9.3: vendida/reservada/en custodia/de cliente NO aparecen ni cuentan en pending (ni en summary.pendingConfirm); sin precio destino = no_target_price; al liberar la reserva reaparece', async () => {
     const cid = await card(['normal', 'first_edition']);
     const noPrice = await card(['normal', 'first_edition'], { priced: ['normal'] });
+    const p0 = (await list()).body.pending;
     const sale = await piece(cid);
     const reserved = await piece(cid, { status: 'reserved' });
     const custody = await piece(cid, { status: 'in_custody' });
     const customer = await piece(cid, { ownerType: 'customer', ownerUserId: customerId });
     const np = await piece(noPrice);
+    const ok = await piece(cid);
     const order = await h.prisma.order.create({
       data: { orderNumber: `FR-${run}`, status: 'settled', priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', guestEmail: `fr-${run}@example.test`, fulfillmentMode: 'direct_ship', shippingAddressSnapshot: { street: 'Calle 1', city: 'CDMX', postalCode: '01000' }, subtotalCents: 100, processingFeeCents: 0, ivaCents: 0, totalCents: 100 },
     });
     await h.prisma.orderItem.create({ data: { orderId: order.id, inventoryItemId: sale, cardSnapshot: { name: 'x' }, unitPriceCents: 100 } });
-    const items = mine((await list('?limit=200')).body);
-    const reason = (id: string) => items.find((i) => i.inventoryItemId === id)?.blockedReason;
-    expect(reason(sale)).toBe('has_sale');
-    expect(reason(reserved)).toBe('reserved');
-    expect(reason(custody)).toBe('in_custody');
-    expect(reason(customer)).toBe('customer_owned');
-    expect(reason(np)).toBe('no_target_price');
-    expect(items.find((i) => i.inventoryItemId === np).targetPriceCents).toBeNull();
+    const r = await list('?limit=200');
+    const here = [sale, reserved, custody, customer, np, ok];
+    const items = mine(r.body).filter((i) => here.includes(i.inventoryItemId));
+    expect(items.map((i) => i.inventoryItemId).sort()).toEqual([np, ok].sort());
+    expect(r.body.pending).toBe(p0 + 2); // solo las dos resolubles cuentan
+    expect(items.find((i) => i.inventoryItemId === np)).toMatchObject({ blockedReason: 'no_target_price', targetPriceCents: null, hasManualPrice: false });
+    expect(items.find((i) => i.inventoryItemId === ok).blockedReason).toBeNull();
+    const sync = await h.api<any>('GET', '/admin/catalog/sync-status', { token: admin });
+    expect(sync.body.autoLink.pendingConfirm).toBe(p0 + 2);
+    // Se deriva del estado: liberar la reserva la hace reaparecer sin que nadie «limpie» nada.
+    await h.prisma.inventoryItem.update({ where: { id: reserved }, data: { status: 'in_stock' } });
+    expect(mine((await list('?limit=200')).body).map((i) => i.inventoryItemId)).toContain(reserved);
+    void here;
+    expect((await list()).body.pending).toBe(p0 + 3);
     await h.prisma.orderItem.deleteMany({ where: { orderId: order.id } });
     await h.prisma.order.delete({ where: { id: order.id } });
+    void custody; void customer;
+  });
+
+  it('§9.1 precio manual: la pieza con listPriceCents=500 se queda en 500 (y su precio no cambia) tras first_edition (manualPriceKept); sin manual toma el precio del acabado destino; hasManualPrice en la lista', async () => {
+    const cid = await card(['normal', 'first_edition']);
+    const manual = await piece(cid, { listPriceCents: 500 });
+    const plain = await piece(cid);
+    await h.app.get(ListingPriceService).run('manual_price', [manual]);
+    const priceBefore = (await h.prisma.listingPrice.findUniqueOrThrow({ where: { inventoryItemId: manual } })).unitPriceCents!;
+    const items = mine((await list('?limit=200')).body);
+    // El manual es L=500 (la columna); el servidor cobra su P (con IVA): el MISMO antes y después, el acabado no lo mueve.
+    expect(items.find((i) => i.inventoryItemId === manual)).toMatchObject({ hasManualPrice: true, currentPriceCents: priceBefore, targetPriceCents: priceBefore });
+    expect(items.find((i) => i.inventoryItemId === plain)).toMatchObject({ hasManualPrice: false });
+    const target = items.find((i) => i.inventoryItemId === plain).targetPriceCents;
+    expect(target).toBeGreaterThan(priceBefore);
+    const rm = await decide(manual, { decision: 'first_edition', expectedFinish: 'normal' });
+    expect(rm.status).toBe(200);
+    expect(rm.body.before).toEqual({ finish: 'normal', unitPriceCents: priceBefore });
+    expect(rm.body.after).toEqual({ finish: 'first_edition', unitPriceCents: priceBefore, manualPriceKept: true });
+    expect(rm.body.before).not.toHaveProperty('listPriceCents');
+    expect(JSON.stringify(rm.body)).not.toContain('listPriceCents');
+    expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: manual } })).listPriceCents).toBe(500);
+    const rp = await decide(plain, { decision: 'first_edition', expectedFinish: 'normal' });
+    expect(rp.body.after).toEqual({ finish: 'first_edition', unitPriceCents: target, manualPriceKept: false });
+    expect((await decide(manual, { decision: 'first_edition', expectedFinish: 'normal' })).body.alreadyResolved).toBe(true);
+  });
+
+  it('§9.2 si el recálculo de ListingPrice falla: after.unitPriceCents=null, bitácora price_pending, y la pieza NUNCA muestra el precio del acabado anterior', async () => {
+    const cid = await card(['normal', 'first_edition']);
+    const id = await piece(cid);
+    const lps = h.app.get(ListingPriceService);
+    await lps.run('manual_price', [id]);
+    const old = await h.prisma.listingPrice.findUniqueOrThrow({ where: { inventoryItemId: id } });
+    expect(old.variantKey).toMatch(/\|normal$/);
+    const spy = jest.spyOn(lps, 'run').mockRejectedValueOnce(new Error('boom'));
+    const r = await decide(id, { decision: 'first_edition', expectedFinish: 'normal' });
+    spy.mockRestore();
+    expect(r.status).toBe(200);
+    expect(r.body.after).toEqual({ finish: 'first_edition', unitPriceCents: null, manualPriceKept: false });
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.finish_review_price_pending', entityId: id } })).toBe(1);
+    const item = (await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id }, include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE } })) as never;
+    const sale = (await lps.salesFor([item], await h.app.get(require('../../src/modules/settings/settings.service').SettingsService).getIvaDials())).get(id)!;
+    // la fila vieja sigue en la tabla pero ya no es «vigente»: el lector no la usa
+    expect(sale.kind === 'priced' ? sale.decision.unitPriceCents : null).not.toBe(old.unitPriceCents);
   });
 
   it('POST first_edition: cambia el acabado y el precio, audita; repetir = 200 alreadyResolved sin escribir; la contraria = 409 ALREADY_RESOLVED; sale de la lista', async () => {
@@ -156,7 +210,8 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     expect((await decide(id, { decision: 'first_edition', expectedFinish: 'normal' }, operator)).status).toBe(403);
     const r = await decide(id, { decision: 'first_edition', expectedFinish: 'normal' });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ inventoryItemId: id, decision: 'first_edition', alreadyResolved: false, before: { finish: 'normal' }, after: { finish: 'first_edition' } });
+    expect(r.body).toMatchObject({ inventoryItemId: id, decision: 'first_edition', alreadyResolved: false, before: { finish: 'normal' }, after: { finish: 'first_edition', manualPriceKept: false } });
+    expect(JSON.stringify(r.body)).not.toContain('listPriceCents');
     expect(r.body.after.unitPriceCents).toBe(target);
     expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id } })).finish).toBe('first_edition');
     const row = await h.prisma.listingPrice.findUnique({ where: { inventoryItemId: id } });

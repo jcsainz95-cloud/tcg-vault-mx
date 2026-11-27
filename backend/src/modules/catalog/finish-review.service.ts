@@ -6,7 +6,7 @@ import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import type { SaleItem } from '../pricing/sale-decision.service';
-import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
+import { SEALED_SALE_PRICE_INCLUDE, isPresentAmount } from '../../common/money';
 
 /** Acabado destino por acabado actual (WotC: «Unlimited» → 1.ª edición). Solo estas dos transiciones existen. */
 const TARGET_OF: Partial<Record<Finish, Finish>> = { normal: 'first_edition', holofoil: 'first_edition_holofoil' };
@@ -25,13 +25,16 @@ export interface FinishReviewItem {
   targetFinish: 'first_edition' | 'first_edition_holofoil';
   currentPriceCents: number | null;
   targetPriceCents: number | null;
-  blockedReason: BlockedReason;
+  /** `InventoryItem.listPriceCents` explícito (> 0): el precio de ESTA pieza lo puso el dueño; se conserva siempre (§9.1). */
+  hasManualPrice: boolean;
+  /** §9.3: solo `null | 'no_target_price'` — las piezas con venta/reserva/custodia/de cliente no entran en la lista. */
+  blockedReason: null | 'no_target_price';
 }
 export interface FinishReviewDecision {
   inventoryItemId: string;
   decision: 'keep' | 'first_edition';
-  before: { finish: Finish; unitPriceCents: number | null; listPriceCents: number | null };
-  after: { finish: Finish; unitPriceCents: number | null; listPriceCents: number | null };
+  before: { finish: Finish; unitPriceCents: number | null };
+  after: { finish: Finish; unitPriceCents: number | null; manualPriceKept: boolean };
   alreadyResolved: boolean;
 }
 
@@ -49,8 +52,11 @@ export class FinishReviewService {
   ) {}
 
   /** Predicado de «entra en la lista» (raw, normal|holofoil, la carta ofrece el destino, viva, sin decisión previa). */
+  // §9.3: solo piezas que alguien puede resolver HOY (dueño plataforma, in_stock|listed, sin reserva ni OrderItem). Se deriva del estado en cada lectura.
   private static readonly PENDING_WHERE = Prisma.sql`
-    i."productType" = 'raw' AND i."finish" IN ('normal', 'holofoil') AND i."status" NOT IN ('lost', 'damaged', 'withdrawn')
+    i."productType" = 'raw' AND i."finish" IN ('normal', 'holofoil') AND i."status" IN ('in_stock', 'listed')
+    AND i."ownerType" = 'platform' AND i."reservedByOrderId" IS NULL
+    AND NOT EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."inventoryItemId" = i."id")
     AND ((i."finish" = 'normal' AND 'first_edition'::"Finish" = ANY (c."availableFinishes"))
       OR (i."finish" = 'holofoil' AND 'first_edition_holofoil'::"Finish" = ANY (c."availableFinishes")))
     AND NOT EXISTS (SELECT 1 FROM "AuditLog" a WHERE a."action" = 'catalog.finish_review' AND a."entityId" = i."id")`;
@@ -85,14 +91,6 @@ export class FinishReviewService {
     return { pending, items, nextCursor: rows.length > limit && last ? `${last.rank}|${last.folio}` : null };
   }
 
-  private blockedOf(i: { ownerType: string; status: InventoryStatus; reservedByOrderId: string | null; _count: { orderItems: number } }): BlockedReason {
-    if (i.ownerType !== 'platform') return 'customer_owned';
-    if (i._count.orderItems > 0 || ['shipped', 'delivered'].includes(i.status)) return 'has_sale';
-    if (i.reservedByOrderId != null || ['reserved', 'picking'].includes(i.status)) return 'reserved';
-    if (i.status === 'in_custody') return 'in_custody';
-    return null;
-  }
-
   private async hydrate(ids: string[]): Promise<FinishReviewItem[]> {
     if (ids.length === 0) return [];
     const rows = (await this.prisma.inventoryItem.findMany({
@@ -106,7 +104,7 @@ export class FinishReviewService {
     return rows.map((r) => {
       const s = sales.get(r.id);
       const target = s?.kind === 'priced' ? s.decision.unitPriceCents : null;
-      const blocked = this.blockedOf(r) ?? (target == null ? 'no_target_price' : null);
+      const blocked = target == null ? ('no_target_price' as const) : null;
       return {
         inventoryItemId: r.id, folio: r.folio, cardId: r.cardId, setName: r.card.set?.name ?? '',
         cardName: r.card.name,
@@ -114,7 +112,8 @@ export class FinishReviewService {
         status: r.status,
         currentFinish: r.finish as FinishReviewItem['currentFinish'],
         targetFinish: TARGET_OF[r.finish] as FinishReviewItem['targetFinish'],
-        currentPriceCents: r.listingPrice?.unitPriceCents ?? null, targetPriceCents: target, blockedReason: blocked,
+        currentPriceCents: r.listingPrice?.unitPriceCents ?? null, targetPriceCents: target,
+        hasManualPrice: isPresentAmount(r.listPriceCents), blockedReason: blocked,
       };
     });
   }
@@ -140,15 +139,22 @@ export class FinishReviewService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<{ id: string; finish: Finish; status: InventoryStatus; ownerType: string; reservedByOrderId: string | null; productType: string; cardId: string }[]>`
-        SELECT "id", "finish", "status", "ownerType", "reservedByOrderId", "productType", "cardId" FROM "InventoryItem" WHERE "id" = ${inventoryItemId} FOR UPDATE`;
+      const rows = await tx.$queryRaw<{ id: string; finish: Finish; status: InventoryStatus; ownerType: string; reservedByOrderId: string | null; productType: string; cardId: string; listPriceCents: number | null }[]>`
+        SELECT "id", "finish", "status", "ownerType", "reservedByOrderId", "productType", "cardId", "listPriceCents" FROM "InventoryItem" WHERE "id" = ${inventoryItemId} FOR UPDATE`;
       const item = rows[0];
       if (!item) throw BusinessException.notFound();
       const prev = await tx.auditLog.findFirst({ where: { action: ACTION, entityId: inventoryItemId }, orderBy: { createdAt: 'desc' }, select: { after: true } });
       if (prev) {
-        const was = (prev.after as { decision?: string; before?: DecisionSide; after?: DecisionSide } | null) ?? {};
+        const was = (prev.after as { decision?: string; before?: Partial<BeforeSide>; after?: Partial<AfterSide> } | null) ?? {};
         if (was.decision === decision) {
-          return { inventoryItemId, decision, before: was.before ?? this.side(item.finish), after: was.after ?? this.side(item.finish), alreadyResolved: true } as FinishReviewDecision;
+          // Repetición: lo que se registró entonces, en la forma vigente (sin `listPriceCents`, que filas de la 1.ª versión aún traen en bitácora).
+          const b = was.before ?? {};
+          const a = was.after ?? {};
+          return {
+            inventoryItemId, decision: decision as 'keep' | 'first_edition', alreadyResolved: true,
+            before: { finish: b.finish ?? item.finish, unitPriceCents: b.unitPriceCents ?? null },
+            after: { finish: a.finish ?? item.finish, unitPriceCents: a.unitPriceCents ?? null, manualPriceKept: a.manualPriceKept ?? isPresentAmount(item.listPriceCents) },
+          };
         }
         throw BusinessException.conflict('ALREADY_RESOLVED', 'This piece already has a different decision', { inventoryItemId, decision: was.decision });
       }
@@ -163,9 +169,11 @@ export class FinishReviewService {
         : null;
       if (blocked) throw BusinessException.conflict('ITEM_LOCKED', 'This piece cannot be changed now', { inventoryItemId, blockedReason: blocked });
 
-      const lp = await tx.listingPrice.findUnique({ where: { inventoryItemId }, select: { unitPriceCents: true, listPriceCents: true } });
-      const before: DecisionSide = { finish: item.finish, unitPriceCents: lp?.unitPriceCents ?? null, listPriceCents: lp?.listPriceCents ?? null };
-      let after: DecisionSide = before;
+      const lp = await tx.listingPrice.findUnique({ where: { inventoryItemId }, select: { unitPriceCents: true } });
+      const manual = isPresentAmount(item.listPriceCents);
+      const before: BeforeSide = { finish: item.finish, unitPriceCents: lp?.unitPriceCents ?? null };
+      // §9.1: el precio manual de la pieza (`InventoryItem.listPriceCents`) se CONSERVA siempre; `updateMany` no lo toca (solo `finish`).
+      let after: AfterSide = { ...before, manualPriceKept: manual };
       if (decision === 'first_edition') {
         if (targetPrice == null) throw BusinessException.conflict('NO_TARGET_PRICE', 'There is no price for the 1st Edition finish', { inventoryItemId });
         const to = TARGET_OF[item.finish]!;
@@ -177,7 +185,7 @@ export class FinishReviewService {
         if (w.count !== 1) throw BusinessException.conflict('ITEM_LOCKED', 'This piece cannot be changed now', { inventoryItemId, blockedReason: 'reserved' });
         // La fila de precio vieja (llave `…|<acabado anterior>`) YA no es «vigente» para la pieza (`isCurrentRow` compara la llave): el lector precia en vivo con el acabado nuevo
         // y encola `missing_row`. ⛔ No se escribe `ListingPrice` aquí (G-11: solo `listing-price.service.ts` bajo `LISTING_PRICE_LOCK_KEY`).
-        after = { finish: to, unitPriceCents: targetPrice, listPriceCents: null };
+        after = { finish: to, unitPriceCents: targetPrice, manualPriceKept: manual };
       }
       await this.audit.log({ actorUserId: user.id, actorRole: user.role, action: ACTION, entityType: 'InventoryItem', entityId: inventoryItemId, before, after: { decision, before, after } }, tx);
       return { inventoryItemId, decision, before, after, alreadyResolved: false } as FinishReviewDecision;
@@ -185,24 +193,32 @@ export class FinishReviewService {
 
     if (decision === 'first_edition' && !result.alreadyResolved) {
       // Recalcula la fila con la ruta de valuación existente (fuera de la transacción: tiene su propia cola y candados). Si falla, el lector sigue pricing en vivo.
+      // §9.2: tras el commit, solo para esta clave. Si falla: `after.unitPriceCents:null` y la bitácora lo marca (`listingPrice:'pending'`); el barrido lo recalcula.
+      // Mientras no haya fila de la clave nueva, el lector (`isCurrentRow`) NO usa la del acabado anterior: precia en vivo o da PRICE_PENDING.
+      let ok = false;
       try {
         await this.listingPrice.run('manual_price', [inventoryItemId]);
-        const row = await this.prisma.listingPrice.findUnique({ where: { inventoryItemId }, select: { unitPriceCents: true, listPriceCents: true } });
-        if (row) result.after = { ...result.after, unitPriceCents: row.unitPriceCents, listPriceCents: row.listPriceCents };
+        const row = await this.prisma.listingPrice.findUnique({ where: { inventoryItemId }, select: { variantKey: true, status: true, unitPriceCents: true } });
+        if (row && row.status === 'priced' && row.variantKey.endsWith(`|${result.after.finish}`)) {
+          result.after = { ...result.after, unitPriceCents: row.unitPriceCents };
+          ok = true;
+        }
       } catch {
-        // el precio en vivo ya es el del acabado nuevo; la fila la recoge el recálculo diario
+        ok = false;
+      }
+      if (!ok) {
+        result.after = { ...result.after, unitPriceCents: null };
+        await this.audit.log({ actorUserId: user.id, actorRole: user.role, action: `${ACTION}_price_pending`, entityType: 'InventoryItem', entityId: inventoryItemId, before: null, after: { listingPrice: 'pending', finish: result.after.finish } }).catch(() => undefined);
       }
     }
     return result;
   }
-
-  private side(finish: Finish): DecisionSide {
-    return { finish, unitPriceCents: null, listPriceCents: null };
-  }
 }
 
-interface DecisionSide {
+interface BeforeSide {
   finish: Finish;
   unitPriceCents: number | null;
-  listPriceCents: number | null;
+}
+interface AfterSide extends BeforeSide {
+  manualPriceKept: boolean;
 }
