@@ -4527,6 +4527,8 @@
           "rateGeneric": "Espera unos minutos antes de reintentar este set.",
           "upstream": "La fuente de precios no respondió, intenta más tarde.",
           "conflictsCount": "{n} con dueño distinto",
+          "imported": "Se importaron {n, plural, one {# carta} other {# cartas}}.",
+          "noLocalId": "Las cartas se importaron, pero el sistema aún no devolvió el identificador del set para enlazar precios en {name}. Vuelve a pulsar el botón.",
           "pricedOnly": "No hubo cartas nuevas por ligar en {name}.",
           "priced": "{n, plural, one {Se actualizó # precio} other {Se actualizaron # precios}}.",
           "groupUsed": "Grupo de precios: {name}.",
@@ -4576,8 +4578,8 @@
         "repairSet": {
           "label": "Actualizar este set",
           "aria": "Actualizar {name}: cartas, imágenes y precios",
-          "phase1": "{name} — fase 1 de 2: trayendo cartas e imágenes…",
-          "phase2": "{name} — fase 2 de 2: variantes y precios…"
+          "phase1": "{name} — trayendo cartas e imágenes del set…",
+          "phase2": "{name} — enlazando cartas y actualizando precios…"
         },
         "figure": {
           "context": "de {n} del set",
@@ -4605,17 +4607,6 @@
             "unknown": "El sistema perdió el rastro y no puede decir qué se escribió: <b>—</b>. Revisa la lista de sets; si alguno se ve mal, repáralo desde su fila.",
             "catalogPhaseFailed": "<b>No se pudieron traer cartas nuevas</b>: la fuente de catálogo no respondió. Los precios y las variantes sí se actualizaron.",
             "failed": "No se pudo arrancar la sincronización, así que no se escribió nada. Los precios y las cartas siguen como estaban."
-          },
-          "repairSet": {
-            "done": "<b>{name}</b>: <b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b> · <b>{cards} cartas tocadas</b> ",
-            "pending": "<b>{name}</b>: <b>{prices} precios escritos</b> · <b>{variants} variantes actualizadas</b>. <b>{pending} variantes quedaron sin precio</b> y siguen en la cola de pendientes.",
-            "notDone": "<b>{name}</b>: <b>no se escribió ningún precio ni ninguna variante.</b> Este set no se pudo emparejar con la fuente de precios (TCGCSV). <b>Sus precios siguen como estaban.</b>",
-            "unreachable": "<b>{name}</b>: <b>{prices} precios escritos</b>, pero la fuente de precios no respondió por completo. Repite cuando esté disponible.",
-            "catalogPhaseFailed": "<b>{name}</b>: no se pudieron traer <b>cartas nuevas</b> (la fuente de catálogo no respondió), pero <b>{prices} precios escritos</b> y <b>{variants} variantes actualizadas</b>.",
-            "pricePhaseFailed": "<b>{name}</b>: las cartas se trajeron, pero <b>los precios no se pudieron actualizar</b>: <b>—</b>. Sus precios siguen como estaban.",
-            "failed": "<b>{name}</b>: <b>no se importó ninguna carta y no se tocó ningún precio.</b> La fuente de catálogo y la de precios no respondieron.",
-            "unknown": "<b>{name}</b>: el sistema no puede decir qué se escribió: <b>—</b>. Revisa el set antes de darlo por reparado.",
-            "unknownFigure": "<b>{name}</b>: <b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b>. Cuántas cartas tocó esta corrida: <b>—</b>, el sistema no lo pudo medir."
           }
         }
       },

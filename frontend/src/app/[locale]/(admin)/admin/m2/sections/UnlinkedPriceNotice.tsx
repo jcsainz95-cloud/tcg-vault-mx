@@ -3,13 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFormatter, useTranslations } from 'next-intl';
 import { RefreshCw } from 'lucide-react';
-import { repairCatalogLinks, type LinkGroupUsed, type LinkRepairResult, type LinkSetReason } from '@/lib/api/catalog-link-repair';
+import { repairCatalogLinks, type LinkGroupUsed, type LinkSetReason } from '@/lib/api/catalog-link-repair';
 import { getLinkExceptions, NO_BUTTON_REASONS } from '@/lib/api/catalog-link-exceptions';
-import { asApiError } from '@/lib/api-client';
 import type { UnlinkedPriceReport } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
-import { useErrorMessage } from '@/components/ui/QueryState';
+import { LinkRepairResultNotice } from './LinkRepairResultNotice';
 
 /** Fila normalizada: sale de `link-exceptions` (§AUTO-ENLACE §2) o, si no responde, de `sync-status.unlinkedPrice`. */
 interface Row {
@@ -33,7 +32,6 @@ interface Row {
 export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | undefined }) {
   const t = useTranslations('admin.m2.catalog.unlinkedPrice');
   const format = useFormatter();
-  const getError = useErrorMessage('operator');
   const qc = useQueryClient();
   const exceptions = useQuery({ queryKey: ['link-exceptions'], queryFn: getLinkExceptions, retry: false });
   const retry = useMutation({
@@ -61,53 +59,19 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const lastName = retry.variables?.name ?? '';
   const lastSetId = retry.variables?.setId ?? null;
 
-  const apiErr = retry.isError ? asApiError(retry.error) : null;
-  const errorText = (() => {
-    if (!apiErr) return null;
-    if (apiErr.status === 429) {
-      const secs = Number((apiErr.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds);
-      return Number.isFinite(secs) && secs > 0 ? t('rate', { minutes: Math.max(1, Math.ceil(secs / 60)) }) : t('rateGeneric');
-    }
-    if (apiErr.status === 503 || apiErr.code === 'UPSTREAM_ERROR') return t('upstream');
-    return null;
-  })();
-  const res: LinkRepairResult | undefined = retry.data;
   const tf = t as unknown as (k: string, v?: Record<string, unknown>) => string;
   const reasonText = (k: string) => tf(`reason.${k}`);
-  const countText = (k: string, n: number) => tf(`reasonCount.${k}`, { n });
   const setReasonText = (r: LinkSetReason) => tf(`setReason.${r}`);
   const hasLinkable = linkable.length > 0;
   const dateOf = (iso: string) => format.dateTime(new Date(iso), { dateStyle: 'short', timeStyle: 'short' });
 
   /** Resultado de la última acción, con motivo en claro. Se monta junto a la fila pulsada. */
   const result = (
-    <>
-      {retry.isSuccess && res && (
-        <p role="status" className="mt-2 border-l-2 border-ink pl-2 text-sm" data-testid="unlinked-result">
-          {res.linked > 0
-            ? t('ok', { n: res.linked, name: lastName })
-            : (res.priced ?? 0) > 0
-              ? t('pricedOnly', { name: lastName })
-              : t('none', {
-                  name: lastName,
-                  reason: res.reason
-                    ? setReasonText(res.reason)
-                    : res.reasons.map((r) => (r.count == null ? reasonText(r.key) : countText(r.key, r.count))).join(', '),
-                })}
-          {res.priced != null && res.priced > 0 && ` ${t('priced', { n: res.priced })}`}
-          {res.piecesCorrected > 0 && ` ${t('piecesCorrected', { n: res.piecesCorrected })}`}
-          {res.piecesExcluded.length > 0 &&
-            ` ${t('piecesExcluded', { list: res.piecesExcluded.map((e) => tf(`excl.${e.key}`, { n: e.count })).join(', ') })}`}
-          {res.groupUsed && ` ${t('groupUsed', { name: res.groupUsed.name })}`}
-          {res.nextAttemptAt && ` ${t('nextAttempt', { when: dateOf(res.nextAttemptAt) })}`}
-        </p>
-      )}
-      {retry.isError && (
-        <p role="alert" className="mt-2 border-l-2 border-danger pl-2 text-sm text-danger" data-testid="unlinked-error">
-          {errorText ?? `${t('err', { name: lastName })} ${getError(retry.error)}`}
-        </p>
-      )}
-    </>
+    <LinkRepairResultNotice
+      name={lastName}
+      result={retry.isSuccess ? retry.data : null}
+      error={retry.isError ? retry.error : undefined}
+    />
   );
   const resultInRow = lastSetId != null && linkable.some((s) => s.setId === lastSetId);
 

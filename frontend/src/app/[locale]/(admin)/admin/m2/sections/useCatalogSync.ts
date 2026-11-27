@@ -8,12 +8,12 @@ import {
   getRemoteSets,
   syncCatalog,
   syncAllCatalog,
-  refreshVariants,
   refreshVariantsAll,
   getRefreshVariantsStatus,
   getSyncStatus,
 } from '@/lib/api';
-import type { CatalogSyncResponse, RefreshVariantsResponse, RemoteSetDTO } from '@/types/contract';
+import type { RemoteSetDTO } from '@/types/contract';
+import { repairCatalogLinks, type LinkRepairResult } from '@/lib/api/catalog-link-repair';
 import { useKeepSessionAlive } from '@/lib/keep-alive';
 
 /**
@@ -26,9 +26,8 @@ import { useKeepSessionAlive } from '@/lib/keep-alive';
  *  1. **Importar sets nuevos** — `sync-all` (barrido asíncrono observable por `sync-status`).
  *  2. **Sincronizar todo (forzar)** — `sync-all {force}` **y luego** `refresh-variants-all`: dos
  *     barridos asíncronos **encadenados por la pantalla** (límite conocido: §32.15 R4).
- *  3. **Sincronizar este set** — `sync {setId, force}` **y luego** `refresh-variants {setId}`,
- *     síncrona y con cifras contables. ⭐ **La fase 2 corre aunque la 1 falle** (regla dura 4):
- *     si la fuente de catálogo se cae, los precios se actualizan igual y el aviso lo dice.
+ *  3. **Actualizar este set** (§AUTO-ENLACE 4b) — `sync {setId}` SOLO si `localSetId==null` (si falla se corta)
+ *     **y luego** `link-repair {setId: localSetId}`, que enlaza y precia en la misma llamada.
  *
  * ⛔ **Aquí NO se calcula ningún veredicto ni ningún tono.** Este hook devuelve HECHOS medidos
  * (cifras por fase, fallos por fase); el veredicto sale de `computeVerdict` (§32.4a) en la vista.
@@ -42,13 +41,13 @@ import { useKeepSessionAlive } from '@/lib/keep-alive';
  */
 export type PhaseOutcome<T> = { ok: true; data: T } | { ok: false; error: unknown };
 
-/** Lo que la acción 3 midió, fase por fase. Sin veredicto: eso lo decide §32.4a con estas cifras. */
+/** Lo que la acción 3 midió (§AUTO-ENLACE 4b): cartas traídas por `sync` (si hizo falta) y el resultado de `link-repair`. */
 export interface RepairSetResult {
   set: RemoteSetDTO;
-  /** fase 1 — cartas e imágenes (`POST /admin/catalog/sync {setId, force:true}`). */
-  catalog: PhaseOutcome<CatalogSyncResponse>;
-  /** fase 2 — variantes y precios (`POST /admin/catalog/refresh-variants {setId}`). */
-  variants: PhaseOutcome<RefreshVariantsResponse>;
+  /** cartas escritas por `sync` en esta acción; `null` = el set ya estaba importado y no se llamó. */
+  imported: number | null;
+  /** resultado de `link-repair`; `null` = `sync` no devolvió `localSetId` (backend previo). */
+  link: LinkRepairResult | null;
 }
 
 /** Fase en curso de una acción de dos fases (para el rótulo del progreso, §32.5b/§32.5c). */
@@ -307,24 +306,20 @@ export function useCatalogSync() {
   const [repairPhase, setRepairPhase] = useState<SyncPhase | null>(null);
   const repairSetMutation = useMutation({
     mutationFn: async (set: RemoteSetDTO): Promise<RepairSetResult> => {
-      setRepairPhase('catalog');
-      let catalog: PhaseOutcome<CatalogSyncResponse>;
-      try {
-        catalog = { ok: true, data: await syncCatalog({ setId: set.id, force: true }) };
-      } catch (error) {
-        // ⭐ Regla dura 4: una fase que NO depende de la fuente caída no se cancela porque la otra
-        // falle. La fuente de catálogo (pokemontcg.io) y la de precios (TCGCSV) son distintas.
-        catalog = { ok: false, error };
+      // §AUTO-ENLACE 4b: `sync` SOLO si el set no está importado; si falla, se corta (sin link-repair).
+      let localSetId = set.localSetId ?? null;
+      let imported: number | null = null;
+      if (localSetId == null) {
+        setRepairPhase('catalog');
+        const synced = await syncCatalog({ setId: set.id, force: true });
+        imported = synced.cardsUpserted ?? 0;
+        localSetId = synced.localSetId ?? null;
+        qc.invalidateQueries({ queryKey: ['remote-sets'] });
       }
-      qc.invalidateQueries({ queryKey: ['remote-sets'] });
+      if (localSetId == null) return { set, imported, link: null };
       setRepairPhase('variants');
-      let variants: PhaseOutcome<RefreshVariantsResponse>;
-      try {
-        variants = { ok: true, data: await refreshVariants({ setId: set.id }) };
-      } catch (error) {
-        variants = { ok: false, error };
-      }
-      return { set, catalog, variants };
+      const link = await repairCatalogLinks(localSetId);
+      return { set, imported, link };
     },
     onSettled: () => {
       setRepairPhase(null);

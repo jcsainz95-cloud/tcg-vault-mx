@@ -6256,6 +6256,11 @@ export interface RemoteSetDTO {
   printedTotal?: number;
   imported: boolean;
   cardCount: number;
+  /** §AUTO-ENLACE 4b: UUID local del set (null = aún sin importar). Ausente en backends previos. */
+  localSetId?: string | null;
+  groupUsed?: { groupId: number; name: string; via: string } | null;
+  reason?: string | null;
+  nextAttemptAt?: string | null;
 }
 
 // POST /admin/catalog/sync — §M2-CS.0/§M2-CS.1.
@@ -6279,6 +6284,8 @@ export interface CatalogSyncResponse {
   mode: 'single' | 'from_date';
   /** ids de sets omitidos por estar ya importados desde TCGCSV (no se pisan). Ausente en backends previos. */
   shadowed?: string[];
+  /** §AUTO-ENLACE 4b: UUID local del set tras `sync {setId}`. Ausente en backends previos. */
+  localSetId?: string | null;
 }
 
 // POST /admin/catalog/backfill — ⛔ **RETIRADO de la UI** (`DESIGN_SYSTEM §32.1`, «backfill

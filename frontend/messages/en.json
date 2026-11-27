@@ -4527,6 +4527,8 @@
           "rateGeneric": "Wait a few minutes before retrying this set.",
           "upstream": "The price source did not respond, try again later.",
           "conflictsCount": "{n} with a different owner",
+          "imported": "Imported {n, plural, one {# card} other {# cards}}.",
+          "noLocalId": "Cards were imported, but the system did not return the set id needed to link prices for {name}. Press the button again.",
           "pricedOnly": "There were no new cards to link in {name}.",
           "priced": "{n, plural, one {# price updated} other {# prices updated}}.",
           "groupUsed": "Price group: {name}.",
@@ -4576,8 +4578,8 @@
         "repairSet": {
           "label": "Update this set",
           "aria": "Update {name}: cards, images and prices",
-          "phase1": "{name} — phase 1 of 2: bringing in cards and images…",
-          "phase2": "{name} — phase 2 of 2: variants and prices…"
+          "phase1": "{name} — fetching the set's cards and images…",
+          "phase2": "{name} — linking cards and updating prices…"
         },
         "figure": {
           "context": "of {n} in the set",
@@ -4605,17 +4607,6 @@
             "unknown": "The system lost track and cannot say what was written: <b>—</b>. Check the set list; if one looks wrong, repair it from its row.",
             "catalogPhaseFailed": "<b>New cards could not be brought in</b>: the catalog source did not respond. Prices and variants were updated.",
             "failed": "The sync could not be started, so nothing was written. Prices and cards stayed as they were."
-          },
-          "repairSet": {
-            "done": "<b>{name}</b>: <b>{variants} variants updated</b> · <b>{prices} prices written</b> · <b>{cards} cards touched</b> ",
-            "pending": "<b>{name}</b>: <b>{prices} prices written</b> · <b>{variants} variants updated</b>. <b>{pending} variants got no price</b> and stay in the pending queue.",
-            "notDone": "<b>{name}</b>: <b>no price and no variant were written.</b> This set could not be matched against the price source (TCGCSV). <b>Its prices stay as they were.</b>",
-            "unreachable": "<b>{name}</b>: <b>{prices} prices written</b>, but the price source did not respond fully. Repeat when it is available.",
-            "catalogPhaseFailed": "<b>{name}</b>: <b>new cards</b> could not be brought in (the catalog source did not respond), but <b>{prices} prices written</b> and <b>{variants} variants updated</b>.",
-            "pricePhaseFailed": "<b>{name}</b>: cards were brought in, but <b>prices could not be updated</b>: <b>—</b>. Its prices stay as they were.",
-            "failed": "<b>{name}</b>: <b>no card was imported and no price was touched.</b> The catalog source and the price source did not respond.",
-            "unknown": "<b>{name}</b>: the system cannot say what was written: <b>—</b>. Check the set before calling it repaired.",
-            "unknownFigure": "<b>{name}</b>: <b>{variants} variants updated</b> · <b>{prices} prices written</b>. How many cards this run touched: <b>—</b>, the system could not measure it."
           }
         }
       },

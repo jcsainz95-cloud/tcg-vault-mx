@@ -3,9 +3,13 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import * as linkRepair from '@/lib/api/catalog-link-repair';
+import type { LinkRepairResult } from '@/lib/api/catalog-link-repair';
 import type {
   CatalogSyncStatusResponse,
   RefreshVariantsResponse,
+  RemoteSetDTO,
+  RemoteSetsResponse,
   RefreshVariantsStatusResponse,
 } from '@/types/contract';
 import { CatalogSyncSection } from './CatalogSyncSection';
@@ -104,133 +108,129 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-/* ══════════════════ SUPERFICIE 1 · la acción de fila (§32.5c — aquí se corrige D2) ══════════════ */
+/* ══════════════════ SUPERFICIE 1 · la acción de fila (§AUTO-ENLACE 4b) ══════════════ */
 
-describe('§32.5c · «Actualizar este set» — la superficie que quemó al dueño', () => {
-  /**
-   * ⭐⭐ **CS-1, el encargo entero en un test.** Un set que no resuelve en TCGCSV devuelve
-   * `pricesUpserted: 0` y `cardProductsUpserted: 0`. Antes eso salía **verde** con
-   * «191 cartas procesadas · 0 precios». Ahora: versalita `NO SE HIZO`, tono `warning`, **cero
-   * cifras de contexto**, y la frase dice **la causa** y **la consecuencia**.
-   */
-  it('⭐⭐ CS-1: 0 precios y 0 variantes ⇒ NO SE HIZO, en warning, sin cifras y con la consecuencia', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue({
-      ...REFRESH_OK,
-      cardsProcessed: 0,
-      cardProductsUpserted: 0,
-      pricesUpserted: 0,
+const LINK_OK: LinkRepairResult = {
+  linked: 12,
+  priced: 30,
+  groupUsed: { groupId: 77, name: 'SV08 Surging Sparks', via: 'auto' },
+  reason: null,
+  nextAttemptAt: null,
+  reasons: [],
+  piecesCorrected: 0,
+  piecesExcluded: [],
+};
+
+function remoteSets(extra: Partial<RemoteSetDTO> = {}): RemoteSetsResponse {
+  return {
+    data: [
+      { id: 'sv08', name: 'Surging Sparks', imported: true, cardCount: 191, localSetId: 'loc-sv08', ...extra },
+      { id: 'sv05', name: 'Temporal Forces', imported: false, cardCount: 0, localSetId: null },
+    ],
+    degraded: false,
+    source: 'remote',
+  } as RemoteSetsResponse;
+}
+
+async function updateTemporalForces() {
+  const [btn] = await screen.findAllByRole('button', { name: /Actualizar Temporal Forces/ });
+  fireEvent.click(btn);
+}
+
+describe('§AUTO-ENLACE 4b · «Actualizar este set» = sync (si falta) → link-repair', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'getRemoteSets').mockResolvedValue(remoteSets());
+  });
+
+  it('set ya importado: NO llama sync, llama link-repair con el UUID local y NO llama refresh-variants', async () => {
+    const sync = vi.spyOn(api, 'syncCatalog');
+    const refresh = vi.spyOn(api, 'refreshVariants');
+    const repair = vi.spyOn(linkRepair, 'repairCatalogLinks').mockResolvedValue(LINK_OK);
+    renderWithProviders(<Harness />, 'es');
+    await repairSurgingSparks();
+
+    const res = (await screen.findAllByTestId('unlinked-result'))[0]!;
+    expect(repair).toHaveBeenCalledWith('loc-sv08');
+    expect(sync).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(res.textContent).toMatch(/Se ligaron 12 cartas/);
+    expect(res.textContent).toMatch(/Se actualizaron 30 precios/);
+    expect(res.textContent).toMatch(/Grupo de precios: SV08 Surging Sparks/);
+    expect(res.textContent).not.toMatch(/Se importaron/);
+  });
+
+  it('set sin localSetId: sync primero, luego link-repair con el localSetId de la respuesta, y «Se importaron N»', async () => {
+    const order: string[] = [];
+    const sync = vi.spyOn(api, 'syncCatalog').mockImplementation(async () => {
+      order.push('sync');
+      return { jobId: 'j', cardsUpserted: 140, localSetId: 'loc-sv05' } as never;
+    });
+    const refresh = vi.spyOn(api, 'refreshVariants');
+    const repair = vi.spyOn(linkRepair, 'repairCatalogLinks').mockImplementation(async () => {
+      order.push('link-repair');
+      return { ...LINK_OK, linked: 0, priced: 0, reason: 'group_none' };
     });
     renderWithProviders(<Harness />, 'es');
-    await repairSurgingSparks();
+    await updateTemporalForces();
 
-    const notice = await findNotice(/NO SE HIZO/i);
-    // (a) La palabra se lee antes que el color, y el color NO es verde.
-    expectWarning(notice);
-    // (b) La causa y la consecuencia, que es la pregunta real del dueño: «¿lo dejé peor?».
-    expect(notice.textContent).toMatch(/no se escribió ningún precio ni ninguna variante/i);
-    expect(notice.textContent).toMatch(/TCGCSV/);
-    expect(notice.textContent).toMatch(/precios siguen como estaban/i);
-    // (c) ⛔ CERO cifras de contexto: el «191» es exactamente el número que produjo la quemada.
-    expect(notice.textContent).not.toMatch(/191/);
-    // (d) H8: «procesadas» queda PROHIBIDA en un aviso de resultado.
-    expect(notice.textContent).not.toMatch(/procesad/i);
+    const res = (await screen.findAllByTestId('unlinked-result'))[0]!;
+    expect(sync).toHaveBeenCalledWith({ setId: 'sv05', force: true });
+    expect(repair).toHaveBeenCalledWith('loc-sv05');
+    expect(order).toEqual(['sync', 'link-repair']);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(res.textContent).toMatch(/Se importaron 140 cartas/);
+    expect(res.textContent).toMatch(/No se pudo ligar ninguna carta en Temporal Forces/);
   });
 
-  /**
-   * Control positivo — el candado tiene que poder decir que sí. Con escritura real, verde.
-   * Sin este caso, «nunca pintes verde» se podría cumplir cableando el warning a la fuerza.
-   */
-  it('H1 (control positivo): con escritura real SÍ hay verde, y con su recibo al lado', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue(REFRESH_OK);
-    renderWithProviders(<Harness />, 'es');
-    await repairSurgingSparks();
-
-    const notice = await findNotice(/HECHO/i);
-    expect(notice.className).toContain('border-success');
-    // El verde deja de ser una respuesta y pasa a ser una respuesta CON RECIBO (§32.7.2).
-    expect(notice.textContent).toMatch(/236 precios escritos/);
-    expect(notice.textContent).toMatch(/240 variantes actualizadas/);
-  });
-
-  /** ⭐ CS-2 — una cifra ausente se pinta «—», nunca `0`, y degrada el veredicto (H4 + paso 2). */
-  it('⭐ CS-2: `cardsProcessed: null` ⇒ «—» y PARCIAL (⛔ jamás un 0 en su lugar)', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue({ ...REFRESH_OK, cardsProcessed: null });
-    renderWithProviders(<Harness />, 'es');
-    await repairSurgingSparks();
-
-    const notice = await findNotice(/PARCIAL/i);
-    expectWarning(notice);
-    expect(notice.textContent).toMatch(/—/);
-    expect(notice.textContent).toMatch(/no lo pudo medir/i);
-    // Lo que SÍ se midió se sigue diciendo: «no lo sé» no borra lo que sí se contó.
-    expect(notice.textContent).toMatch(/236 precios escritos/);
-  });
-
-  /**
-   * ⭐ CS-3 / regla dura 4 — **una fase que no depende de la fuente caída NO se cancela porque la
-   * otra falle**. Si la fuente de catálogo no responde, los precios se actualizan igual, la
-   * segunda fase SE LLAMA, y el aviso nombra lo que faltó (H9).
-   */
-  it('⭐ CS-3: si la fase 1 falla, la fase 2 corre igual y el aviso nombra lo que faltó', async () => {
-    vi.spyOn(api, 'syncCatalog').mockRejectedValue(
-      new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'pokemontcg.io no respondió' }),
-    );
-    const refresh = vi.spyOn(api, 'refreshVariants').mockResolvedValue(REFRESH_OK);
-    renderWithProviders(<Harness />, 'es');
-    await repairSurgingSparks();
-
-    const notice = await findNotice(/PARCIAL/i);
-    expectWarning(notice);
-    expect(refresh).toHaveBeenCalledWith({ setId: 'sv08' });
-    expect(notice.textContent).toMatch(/no se pudieron traer/i);
-    expect(notice.textContent).toMatch(/236 precios escritos/);
-  });
-
-  /** §32.5c — las dos fuentes caídas: no corrió nada ⇒ FALLÓ, y con `role="alert"` (§32.10). */
-  it('las dos fuentes caídas ⇒ FALLÓ, interrumpe (role=alert) y dice que nada se tocó', async () => {
+  it('⭐ si sync falla: muestra el error y NO llama link-repair', async () => {
     vi.spyOn(api, 'syncCatalog').mockRejectedValue(new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'x' }));
-    vi.spyOn(api, 'refreshVariants').mockRejectedValue(new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'x' }));
+    const repair = vi.spyOn(linkRepair, 'repairCatalogLinks').mockResolvedValue(LINK_OK);
+    renderWithProviders(<Harness />, 'es');
+    await updateTemporalForces();
+
+    const err = (await screen.findAllByTestId('unlinked-error'))[0]!;
+    expect(err.getAttribute('role')).toBe('alert');
+    expect(repair).not.toHaveBeenCalled();
+    expect(screen.queryAllByTestId('unlinked-result')).toHaveLength(0);
+  });
+
+  it('sync sin localSetId (backend previo): avisa y NO inventa un id para link-repair', async () => {
+    vi.spyOn(api, 'syncCatalog').mockResolvedValue({ jobId: 'j', cardsUpserted: 5 } as never);
+    const repair = vi.spyOn(linkRepair, 'repairCatalogLinks').mockResolvedValue(LINK_OK);
+    renderWithProviders(<Harness />, 'es');
+    await updateTemporalForces();
+
+    const res = (await screen.findAllByTestId('unlinked-result'))[0]!;
+    expect(repair).not.toHaveBeenCalled();
+    expect(res.textContent).toMatch(/Se importaron 5 cartas/);
+    expect(res.textContent).toMatch(/Vuelve a pulsar/);
+  });
+
+  it('deshabilita el botón mientras corre', async () => {
+    let release: (r: LinkRepairResult) => void = () => {};
+    vi.spyOn(linkRepair, 'repairCatalogLinks').mockReturnValue(new Promise((r) => { release = r; }));
     renderWithProviders(<Harness />, 'es');
     await repairSurgingSparks();
 
-    const notice = await findNotice(/FALLÓ/i);
-    expect(notice.getAttribute('role')).toBe('alert');
-    expectNotGreen(notice);
-    expect(notice.textContent).toMatch(/no se importó ninguna carta y no se tocó ningún precio/i);
+    await waitFor(() => {
+      const [btn] = screen.getAllByRole('button', { name: /Actualizar Surging Sparks/ });
+      expect(btn).toBeDisabled();
+    });
+    release(LINK_OK);
+    (await screen.findAllByTestId('unlinked-result'))[0]!;
   });
 
-  /** `pending > 0` es trabajo que quedó sin hacer ⇒ PARCIAL, aunque se hayan escrito precios. */
-  it('§32.5c: `pending > 0` ⇒ PARCIAL y la cola de pendientes se nombra', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue({ ...REFRESH_OK, pending: 4 });
+  it('muestra grupo y motivo por fila si vienen, y tolera su ausencia', async () => {
+    vi.spyOn(api, 'getRemoteSets').mockResolvedValue(
+      remoteSets({ groupUsed: { groupId: 1, name: 'SV08 Grupo', via: 'confirmed' }, reason: 'collisions' }),
+    );
     renderWithProviders(<Harness />, 'es');
-    await repairSurgingSparks();
-
-    const notice = await findNotice(/PARCIAL/i);
-    expectWarning(notice);
-    expect(notice.textContent).toMatch(/4 variantes quedaron sin precio/i);
+    const row = (await screen.findAllByTestId('set-group-sv08'))[0]!;
+    expect(row.textContent).toMatch(/SV08 Grupo/);
+    expect(row.textContent).toMatch(/Hay cartas con el mismo número|colision|número/i);
+    expect(screen.queryAllByTestId('set-group-sv05')).toHaveLength(0);
   });
 
-  /**
-   * §32.4c — ⛔ **identificadores técnicos fuera de la frase del dueño**. La acción de fila
-   * llamaba a `catalog.syncDone`, que pintaba «Sync encolado: 0 set(s) (job catalog-sync-…)»:
-   * un `jobId` crudo, un sustantivo falso («encolado» sobre un endpoint síncrono) y una cifra
-   * que era `setsWritten`. Nada de eso puede volver.
-   */
-  it('§32.4c: ni «encolado», ni `jobId`, ni «procesadas» en la frase de la fila', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue(REFRESH_OK);
-    renderWithProviders(<Harness />, 'es');
-    await repairSurgingSparks();
-
-    const notice = await findNotice(/HECHO/i);
-    expect(notice.textContent).not.toMatch(/encolad/i);
-    expect(notice.textContent).not.toMatch(/job [a-z-]*\d/i);
-    expect(notice.textContent).not.toMatch(/procesad/i);
-  });
-
-  /**
-   * §32.1 — la fila NO importada es lo que reemplazó al `backfill` a ciegas: se señala en la
-   * tabla y se trae desde ahí. Su botón NO puede estar deshabilitado.
-   */
   it('§32.1: el botón de la fila también está disponible en un set NO importado', async () => {
     renderWithProviders(<Harness />, 'es');
     const [btn] = await screen.findAllByRole('button', { name: /Actualizar Temporal Forces/ });
@@ -765,10 +765,11 @@ describe('§32.2 / §32.10 · la forma de la sección', () => {
 
   /** ⭐ CS-10 — barrido sobre TODOS los avisos de la sección: ni «procesad*», ni ids crudos. */
   it('⭐ CS-10: ningún aviso de la sección dice «procesad*» ni enseña un id crudo', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue(REFRESH_OK);
+    vi.spyOn(api, 'getRemoteSets').mockResolvedValue(remoteSets());
+    vi.spyOn(linkRepair, 'repairCatalogLinks').mockResolvedValue(LINK_OK);
     renderWithProviders(<Harness />, 'es');
     await repairSurgingSparks();
-    await findNotice(/HECHO/i);
+    (await screen.findAllByTestId('unlinked-result'))[0]!;
 
     for (const n of notices()) {
       expect(n.textContent).not.toMatch(/procesad/i);

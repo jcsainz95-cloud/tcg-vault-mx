@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDateTimeMx, formatTimeMx } from '@/lib/format';
 import { RefreshCw, Layers } from 'lucide-react';
@@ -33,7 +33,9 @@ import {
 } from '@/lib/verdict';
 import { SyncProgress } from './shared';
 import { UnlinkedPriceNotice } from './UnlinkedPriceNotice';
-import type { CatalogSync, RepairSetResult } from './useCatalogSync';
+import { LINK_SET_REASONS, readGroupUsed } from '@/lib/api/catalog-link-repair';
+import { LinkRepairResultNotice } from './LinkRepairResultNotice';
+import type { CatalogSync } from './useCatalogSync';
 
 /**
  * M2 › **Sincronización del catálogo** — `DESIGN_SYSTEM §32` (v4.0, decisión del dueño).
@@ -536,78 +538,15 @@ export function forceAllView(args: {
   return { state: 'result', verdict, phraseKey, vars, jobId: variantsStatus?.jobId ?? null };
 }
 
-/**
- * ACCIÓN 3 · «Sincronizar este set» — la de REPARACIÓN (§32.5c). Aquí se corrige D2.
- *
- * ⭐⭐ `pricesUpserted === 0 && cardProductsUpserted === 0` ⇒ **`NO SE HIZO`**, tono `warning`,
- * **cero cifras de contexto**, con la **causa** y la **consecuencia** (H9). Hoy ese mismo
- * desenlace se pintaba verde con «191 cartas procesadas · 0 precios».
- */
-export function repairSetView(result: RepairSetResult): ActionView {
-  const { set, catalog, variants } = result;
-  const name = set.name;
-  if (!variants.ok) {
-    // La fase 2 no llegó a medir nada. Si además cayó la fase 1, no corrió NADA ⇒ FALLÓ.
-    const verdict = computeVerdict({
-      nothingRan: !catalog.ok,
-      writes: [],
-      failedOrPending: true,
-      hadWork: true,
-    });
-    return {
-      state: 'result',
-      verdict,
-      phraseKey: catalog.ok ? 'result.repairSet.pricePhaseFailed' : 'result.repairSet.failed',
-      vars: { name },
-    };
-  }
-  const v = variants.data;
-  const verdict = computeVerdict({
-    nothingRan: false,
-    // ⭐ Las cifras que deciden son las de la fase 2. `cardsProcessed` es «cartas que ESTA corrida
-    // tocó» y puede ser `null` = no se pudo saber ⇒ «—» y NUNCA un cero de relleno (H4/CS-2).
-    writes: [v.cardProductsUpserted, v.pricesUpserted, v.cardsProcessed],
-    failedOrPending: !catalog.ok || v.pending > 0 || !v.tcgcsvReachable,
-    // ⛔ `hadWork` no se asume: había trabajo si el set tiene cartas que emparejar.
-    hadWork: v.cardsInSet > 0,
-  });
-  const vars: Vars = {
-    name,
-    variants: formatFigure(v.cardProductsUpserted),
-    prices: formatFigure(v.pricesUpserted),
-    cards: formatFigure(v.cardsProcessed),
-    inSet: v.cardsInSet,
-    pending: v.pending,
-  };
-  if (verdict === 'notDone') {
-    // ⛔ CERO cifras de contexto: aquí un «de 191 del set» es justo el número que quemó al dueño.
-    return { state: 'result', verdict, phraseKey: 'result.repairSet.notDone', vars: { name } };
-  }
-  if (verdict === 'noChanges') {
-    return { state: 'result', verdict, phraseKey: 'result.repairSet.notDone', vars: { name } };
-  }
-  if (verdict === 'unknown') {
-    return { state: 'result', verdict, phraseKey: 'result.repairSet.unknown', vars: { name } };
-  }
-  if (verdict === 'partial') {
-    const phraseKey = !catalog.ok
-      ? 'result.repairSet.catalogPhaseFailed'
-      : !v.tcgcsvReachable
-        ? 'result.repairSet.unreachable'
-        : v.pending > 0
-          ? 'result.repairSet.pending'
-          : 'result.repairSet.unknownFigure';
-    return { state: 'result', verdict, phraseKey, vars };
-  }
-  return { state: 'result', verdict, phraseKey: 'result.repairSet.done', vars };
-}
-
 /* ─────────────────────────────────── LA SECCIÓN ─────────────────────────────────── */
 
 export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   const t = useTranslations('admin.m2.catalog');
   const tv = useTranslations('common.verdict');
   const tc = useTranslations('common');
+  const tu = useTranslations('admin.m2.catalog.unlinkedPrice');
+  const tuf = tu as unknown as (k: string, v?: Record<string, unknown>) => string;
+  const format = useFormatter();
   const getError = useErrorMessage('operator');
 
   const {
@@ -671,7 +610,6 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
     stateLost: forceAllStateLost,
     started: forceAllMutation.isSuccess || refreshVariantsAllMutation.isSuccess,
   });
-  const repairView = repairSetMutation.data ? repairSetView(repairSetMutation.data) : null;
   /** La selección que rigió ESTA corrida de «Importar sets nuevos» (§M2-CS.4). Contexto, no trabajo. */
   const importSelection = selectionOf({
     launched: importNewMutation.data ?? null,
@@ -735,6 +673,20 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
       render: (s) => (
         <div className="flex min-w-0 flex-col gap-2">
           <span lang="en">{s.name}</span>
+          {(() => {
+            // Lectura tolerante (§AUTO-ENLACE 4b): sin campos ⇒ nada; motivo desconocido ⇒ no se pinta.
+            const group = readGroupUsed(s.groupUsed);
+            const reason = (LINK_SET_REASONS as readonly string[]).includes(s.reason ?? '') ? s.reason : null;
+            if (!group && !reason && !s.nextAttemptAt) return null;
+            return (
+              <p className="text-xs font-normal text-muted" data-testid={`set-group-${s.id}`}>
+                {group ? tu('groupLine', { name: group.name, via: tuf(`via.${group.via}`) }) : tu('groupNone')}
+                {reason && ` · ${tuf(`setReason.${reason}`)}`}
+                {s.nextAttemptAt &&
+                  ` · ${tu('nextAttempt', { when: format.dateTime(new Date(s.nextAttemptAt), { dateStyle: 'short', timeStyle: 'short' }) })}`}
+              </p>
+            );
+          })()}
           {repairSetMutation.variables?.id === s.id && (
             <div data-testid={`set-result-${s.id}`} className="font-normal">
               {repairPhase != null && (
@@ -742,9 +694,14 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
                   {t(repairPhase === 'catalog' ? 'repairSet.phase1' : 'repairSet.phase2', { name: s.name })}
                 </p>
               )}
-              {repairView != null && repairPhase == null && renderNotice(repairView)}
-              {repairSetMutation.isError && (
-                <p role="alert" className="text-sm text-danger">{getError(repairSetMutation.error)}</p>
+              {repairPhase == null && (repairSetMutation.isSuccess || repairSetMutation.isError) && (
+                <LinkRepairResultNotice
+                  name={s.name}
+                  result={repairSetMutation.data?.link}
+                  imported={repairSetMutation.data?.imported}
+                  linkSkipped={repairSetMutation.isSuccess && repairSetMutation.data?.link == null}
+                  error={repairSetMutation.isError ? repairSetMutation.error : undefined}
+                />
               )}
             </div>
           )}
