@@ -53,8 +53,8 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await page.setViewportSize({ width: 390, height: 800 });
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
-    await expect(page.getByTestId('auto-link-counter')).toContainText('Quedan 14 cartas sin precio · ayer se repararon 87');
-    await expect(page.getByTestId('auto-link-job')).toContainText('Reparación automática: Encendida');
+    await expect(page.getByTestId('auto-link-counter')).toContainText('Quedan 14 cartas sin precio · ayer se repararon 87 (87 con precio)');
+    await expect(page.getByTestId('auto-link-job')).toContainText('Reparación automática encendida');
     const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
     await expect(notice.getByText(/Mejor candidato: Classic Collection/)).toBeVisible();
     await notice.getByRole('button', { name: /Confirmar el grupo Classic Collection para 30th/ }).click();
@@ -62,5 +62,20 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await expect(res).toContainText('Confirmado en 30th Celebration Classic Collection: 9 cartas ligadas y 18 precios actualizados.');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     expect(overflow).toBe(false);
+  });
+
+  test('§8a/§8b: apagar pide confirmación; piezas antiguas se deciden junto a la pieza', async ({ page }) => {
+    mockOnly('`link-exceptions`, `finish-review` y el dial salen de `lib/mock/link-repair.ts`');
+    await page.setViewportSize({ width: 390, height: 800 });
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    await page.getByTestId('auto-link-toggle').click();
+    await page.getByTestId('auto-link-confirm-off').click();
+    await expect(page.getByTestId('auto-link-job')).toContainText('Reparación automática apagada');
+    const review = page.getByTestId('finish-review');
+    await expect(review).toContainText('piezas antiguas por confirmar');
+    await review.getByRole('button', { name: /Marcar Rocket's Snorlax como 1\.ª edición/ }).click();
+    await expect(review.getByTestId('finish-review-result')).toContainText('ahora es 1.ª edición, precio MX$3,897.00');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   });
 });

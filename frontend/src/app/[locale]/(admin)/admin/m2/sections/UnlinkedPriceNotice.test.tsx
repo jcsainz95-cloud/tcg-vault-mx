@@ -20,7 +20,7 @@ const REPORT: UnlinkedPriceReport = {
 };
 
 const SUM: exc.LinkExceptionsSummary = {
-  unlinkedCards: 12, unlinkedSets: 2, repairedYesterday: 5, pricedYesterday: 5, lastRunAt: null, nextRunAt: null, waitingDecision: null, autoLinkEnabled: null,
+  unlinkedCards: 12, unlinkedSets: 2, repairedYesterday: 5, pricedYesterday: 5, lastRunAt: null, nextRunAt: null, waitingDecision: null, pendingConfirm: null, autoLinkEnabled: null,
 };
 const R = (o: Partial<repair.LinkRepairResult>): repair.LinkRepairResult => ({
   linked: 0, priced: null, groupUsed: null, reason: null, nextAttemptAt: null, reasons: [], piecesCorrected: 0, piecesExcluded: [], ...o,

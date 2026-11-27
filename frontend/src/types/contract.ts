@@ -6463,6 +6463,8 @@ export interface CatalogSyncStatusResponse {
   attempt?: number | null;
   /** §PRECIO-SIN-ENLACE (aditivo): cartas sin enlace a su producto de precio. Ausente = 0 cartas. */
   unlinkedPrice?: UnlinkedPriceReport;
+  /** §AUTO-ENLACE §8c: resumen del job diario (idéntico a `link-exceptions.summary`). `summary` es del barrido. */
+  autoLink?: Record<string, unknown> | null;
 }
 
 /** §PRECIO-SIN-ENLACE: solo sets con `unlinked > 0`, orden desc, máx. 100. `null` = no medido. */

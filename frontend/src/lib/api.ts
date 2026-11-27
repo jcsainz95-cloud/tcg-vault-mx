@@ -17,9 +17,10 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
-import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm } from './mock/link-repair';
+import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm, mockSetAutoLink, mockFinishReview, mockFinishDecision } from './mock/link-repair';
 import { registerLinkRepairMock } from './api/catalog-link-repair';
-import { registerLinkExceptionsMock } from './api/catalog-link-exceptions';
+import { registerLinkExceptionsMock, registerAutoLinkDialMock } from './api/catalog-link-exceptions';
+import { registerFinishReviewMock } from './api/catalog-finish-review';
 import * as flujoMock from './mock/buylist-flujo';
 import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
@@ -420,6 +421,13 @@ registerLinkExceptionsMock({
   list: () => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockLinkExceptions()), 200)) : null),
   confirm: (setId, groupId) =>
     MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkConfirm(setId, groupId)); } catch (e) { rej(e); } }, 400)) : null,
+});
+registerAutoLinkDialMock((on) =>
+  MOCKS_BUILD && config.useMocks ? new Promise<void>((res) => setTimeout(() => { mockSetAutoLink(on); res(); }, 200)) : null);
+registerFinishReviewMock({
+  list: () => (MOCKS_BUILD && config.useMocks ? new Promise((res) => setTimeout(() => res(mockFinishReview()), 200)) : null),
+  decide: (id, d, f) =>
+    MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockFinishDecision(id, d, f)); } catch (e) { rej(e); } }, 400)) : null,
 });
 registerLinkRepairMock((setId) =>
   MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkRepair(setId)); } catch (e) { rej(e); } }, 400)) : null);

@@ -4667,17 +4667,61 @@
           }
         },
         "autoLink": {
-          "aria": "Automatic price repair",
           "counter": "{remaining, plural, one {# card left without a price} other {# cards left without a price}}",
           "repaired": "yesterday {n} {n, plural, one {was} other {were}} repaired",
-          "state": "Automatic repair: {state}",
-          "on": "On",
-          "off": "Off",
+          "priced": "{n} priced",
+          "onState": "Automatic repair on",
+          "offState": "Automatic repair off",
+          "offHint": "Nothing is repaired on its own until you turn it on. «Update this set» still works.",
+          "pendingConfirm": "{n, plural, one {# older piece to confirm} other {# older pieces to confirm}}",
+          "turnOn": "Turn on",
+          "turnOff": "Turn off",
+          "toggleErr": "Could not change automatic repair.",
+          "confirmOffTitle": "Turn off automatic repair?",
+          "confirmOffBody": "It will stop linking and pricing cards on its own every day. Cards without a price stay that way until you turn it on or use «Update this set». A run in progress finishes its batch.",
+          "confirmOff": "Turn off",
+          "cancel": "Cancel",
+          "aria": "Automatic price repair",
           "last": "last run {when}",
-          "neverRan": "has not run yet",
-          "next": "next {when}",
-          "waiting": "{n, plural, one {# waits} other {# wait}} for your decision",
-          "offHint": "It is off: nothing is repaired on its own until it is turned on."
+          "neverRan": "Has not run yet",
+          "next": "next run {when}",
+          "waiting": "{n, plural, one {# waits} other {# wait}} for your decision"
+        },
+        "finishReview": {
+          "aria": "Older pieces to confirm",
+          "title": "{n, plural, one {# older piece to confirm} other {# older pieces to confirm}}",
+          "lead": "These pieces were added as Normal or Holofoil, but the card also exists as 1st Edition. Nothing changes by itself: tell us whether each one is 1st Edition (finish and price change) or Unlimited (stays as is).",
+          "finish": {
+            "normal": "Normal",
+            "holofoil": "Holofoil",
+            "first_edition": "1st Edition (non-holo)",
+            "first_edition_holofoil": "1st Edition Holo"
+          },
+          "finishChange": "{from} → {to}",
+          "priceChange": "price {from} → {to}",
+          "noPrice": "no price",
+          "first": "It is 1st Edition",
+          "keep": "It is Unlimited, keep",
+          "firstAria": "Mark {name} as 1st Edition",
+          "keepAria": "Keep {name} as is",
+          "more": "Show more",
+          "alreadyResolved": "This piece was already resolved; nothing was changed.",
+          "doneKeep": "{name}: stays as is.",
+          "doneFirst": "{name}: now 1st Edition, price {price}.",
+          "blocked": {
+            "has_sale": "It has a sale: it cannot be changed for now.",
+            "reserved": "It is reserved: it cannot be changed for now.",
+            "in_custody": "It is in custody: it cannot be changed for now.",
+            "customer_owned": "It belongs to a customer: it cannot be changed.",
+            "no_target_price": "There is no 1st Edition price yet; you can only keep it as is."
+          },
+          "err": {
+            "ITEM_LOCKED": "The piece has an order, a reservation or changed status: nothing was touched.",
+            "NO_TARGET_PRICE": "There is no 1st Edition price for this card; nothing was changed. You can keep it as is.",
+            "ALREADY_RESOLVED": "The opposite decision was already made for this piece.",
+            "STALE": "The piece changed finish while you were deciding. Reload the list.",
+            "generic": "Could not save the decision."
+          }
         }
       },
       "sealedSpreads": {

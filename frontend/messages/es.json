@@ -4667,17 +4667,61 @@
           }
         },
         "autoLink": {
-          "aria": "Reparación automática de precios",
           "counter": "{remaining, plural, one {Queda # carta sin precio} other {Quedan # cartas sin precio}}",
           "repaired": "ayer se {n, plural, one {reparó #} other {repararon #}}",
-          "state": "Reparación automática: {state}",
-          "on": "Encendida",
-          "off": "Apagada",
+          "priced": "{n} con precio",
+          "onState": "Reparación automática encendida",
+          "offState": "Reparación automática apagada",
+          "offHint": "Nada se repara solo hasta que la enciendas. «Actualizar este set» sigue funcionando.",
+          "pendingConfirm": "{n, plural, one {# pieza antigua por confirmar} other {# piezas antiguas por confirmar}}",
+          "turnOn": "Encender",
+          "turnOff": "Apagar",
+          "toggleErr": "No se pudo cambiar la reparación automática.",
+          "confirmOffTitle": "¿Apagar la reparación automática?",
+          "confirmOffBody": "Dejará de ligar y poner precio sola cada día. Las cartas sin precio se quedarán así hasta que la enciendas o uses «Actualizar este set». Una corrida en curso termina su tanda.",
+          "confirmOff": "Apagar",
+          "cancel": "Cancelar",
+          "aria": "Reparación automática de precios",
           "last": "última corrida {when}",
-          "neverRan": "aún no ha corrido",
-          "next": "próxima {when}",
-          "waiting": "{n, plural, one {# espera tu decisión} other {# esperan tu decisión}}",
-          "offHint": "Está apagada: nada se repara solo hasta que se encienda."
+          "neverRan": "Aún no ha corrido",
+          "next": "próxima corrida {when}",
+          "waiting": "{n, plural, one {# espera tu decisión} other {# esperan tu decisión}}"
+        },
+        "finishReview": {
+          "aria": "Piezas antiguas por confirmar",
+          "title": "{n, plural, one {# pieza antigua por confirmar} other {# piezas antiguas por confirmar}}",
+          "lead": "Estas piezas se dieron de alta como Normal u Holofoil, pero la carta también existe como 1st Edition. Nada cambia solo: dinos si cada una es 1.ª edición (cambia el acabado y el precio) o Unlimited (se queda igual).",
+          "finish": {
+            "normal": "Normal",
+            "holofoil": "Holofoil",
+            "first_edition": "1st Edition (no holo)",
+            "first_edition_holofoil": "1st Edition Holo"
+          },
+          "finishChange": "{from} → {to}",
+          "priceChange": "precio {from} → {to}",
+          "noPrice": "sin precio",
+          "first": "Es 1.ª edición",
+          "keep": "Es Unlimited, dejar así",
+          "firstAria": "Marcar {name} como 1.ª edición",
+          "keepAria": "Dejar {name} como está",
+          "more": "Ver más",
+          "alreadyResolved": "Esta pieza ya estaba resuelta; no se cambió nada.",
+          "doneKeep": "{name}: se queda como está.",
+          "doneFirst": "{name}: ahora es 1.ª edición, precio {price}.",
+          "blocked": {
+            "has_sale": "Tiene una venta: no se puede cambiar por ahora.",
+            "reserved": "Está reservada: no se puede cambiar por ahora.",
+            "in_custody": "Está en custodia: no se puede cambiar por ahora.",
+            "customer_owned": "Es de un cliente: no se puede cambiar.",
+            "no_target_price": "Aún no hay precio de 1.ª edición; solo puedes dejarla como está."
+          },
+          "err": {
+            "ITEM_LOCKED": "La pieza tiene un pedido, reserva o cambió de estado: no se tocó nada.",
+            "NO_TARGET_PRICE": "No hay precio de 1.ª edición para esta carta; no se cambió nada. Puedes dejarla como está.",
+            "ALREADY_RESOLVED": "Ya se había tomado la decisión contraria para esta pieza.",
+            "STALE": "La pieza cambió de acabado mientras decidías. Recarga la lista.",
+            "generic": "No se pudo guardar la decisión."
+          }
         }
       },
       "sealedSpreads": {

@@ -15,6 +15,8 @@ export interface LinkExceptionsSummary {
   lastRunAt: string | null;
   nextRunAt: string | null;
   waitingDecision: number | null;
+  /** §8c: piezas antiguas por confirmar (= `finish-review.pending`). */
+  pendingConfirm: number | null;
   /** Dial `auto_link_enabled`. `null` = el backend aún no lo informa (no se afirma estado). */
   autoLinkEnabled: boolean | null;
 }
@@ -42,7 +44,7 @@ export interface LinkExceptions {
 export const NO_BUTTON_REASONS: readonly LinkSetReason[] = ['tcgcsv_source', 'not_in_provider'];
 
 interface RawExceptions {
-  summary?: Partial<Record<'unlinkedCards' | 'unlinkedSets' | 'repairedYesterday' | 'pricedYesterday' | 'waitingDecision', number>> & {
+  summary?: Partial<Record<'unlinkedCards' | 'unlinkedSets' | 'repairedYesterday' | 'pricedYesterday' | 'waitingDecision' | 'pendingConfirm', number>> & {
     lastRunAt?: string | null; nextRunAt?: string | null; autoLinkEnabled?: boolean;
   };
   sets?: Array<{
@@ -51,6 +53,24 @@ interface RawExceptions {
     lastAttemptAt?: string | null; tries?: number; canConfirm?: boolean;
     candidates?: Array<{ groupId?: number; name?: string; publishedOn?: string | null; productCount?: number; score?: number }>;
   }>;
+}
+
+type RawSummary = NonNullable<RawExceptions['summary']>;
+const numOrNull = (v: unknown): number | null => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+/** Resumen del job (§8c): igual en `link-exceptions.summary` y en `sync-status.autoLink`. Lectura tolerante. */
+export function readAutoLinkSummary(m: RawSummary | null | undefined): LinkExceptionsSummary {
+  const r = m ?? {};
+  return {
+    unlinkedCards: Number(r.unlinkedCards) || 0,
+    unlinkedSets: numOrNull(r.unlinkedSets),
+    repairedYesterday: numOrNull(r.repairedYesterday),
+    pricedYesterday: numOrNull(r.pricedYesterday),
+    lastRunAt: r.lastRunAt ?? null,
+    nextRunAt: r.nextRunAt ?? null,
+    waitingDecision: numOrNull(r.waitingDecision),
+    pendingConfirm: numOrNull(r.pendingConfirm),
+    autoLinkEnabled: typeof r.autoLinkEnabled === 'boolean' ? r.autoLinkEnabled : null,
+  };
 }
 
 export function readLinkExceptions(raw: RawExceptions): LinkExceptions {
@@ -78,20 +98,9 @@ export function readLinkExceptions(raw: RawExceptions): LinkExceptions {
         })),
       canConfirm: s.canConfirm === true,
     }));
-  const m = raw.summary ?? {};
-  const num = (v: unknown): number | null => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
   return {
-    unlinkedCards: Number(m.unlinkedCards) || 0,
-    summary: {
-      unlinkedCards: Number(m.unlinkedCards) || 0,
-      unlinkedSets: num(m.unlinkedSets),
-      repairedYesterday: num(m.repairedYesterday),
-      pricedYesterday: num(m.pricedYesterday),
-      lastRunAt: m.lastRunAt ?? null,
-      nextRunAt: m.nextRunAt ?? null,
-      waitingDecision: num(m.waitingDecision),
-      autoLinkEnabled: typeof m.autoLinkEnabled === 'boolean' ? m.autoLinkEnabled : null,
-    },
+    unlinkedCards: Number(raw.summary?.unlinkedCards) || 0,
+    summary: readAutoLinkSummary(raw.summary),
     sets,
   };
 }
@@ -136,4 +145,15 @@ export async function confirmLinkException(setId: string, groupId: number): Prom
     collisions: Number(raw.collisions) || 0,
     conflicts: Number(raw.conflicts) || 0,
   };
+}
+
+/** §8a: interruptor de la reparación automática (`PUT /admin/settings`, solo super_admin). */
+let dialMock: ((on: boolean) => Promise<void> | null) | null = null;
+export function registerAutoLinkDialMock(fn: typeof dialMock): void {
+  dialMock = fn;
+}
+export async function setAutoLinkEnabled(on: boolean): Promise<void> {
+  const mocked = dialMock?.(on) ?? null;
+  if (mocked) return mocked;
+  await apiRequest('/admin/settings', { method: 'PUT', body: { autoLinkEnabled: on ? 'on' : 'off' } });
 }
