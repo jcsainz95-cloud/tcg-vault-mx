@@ -115,13 +115,15 @@ describe('CatalogSyncService.sync — set puntual, upsert idempotente', () => {
   });
 
   it('setId remoto sin cartas → setsQueued 0 (no importado)', async () => {
-    const prisma = buildPrisma();
+    const prisma: any = buildPrisma();
+    prisma.cardSet.findUnique = jest.fn(async () => null);
     const client = {
       getCardsBySet: jest.fn(async () => ({ data: [], page: 1, pageSize: 250, count: 0, totalCount: 0 })),
     } as unknown as PokemonTcgIoClient;
     const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
     const res = await svc.sync('emptyset');
     expect(res.setsQueued).toBe(0);
+    expect((res as any).localSetId).toBeNull(); // §AUTO-ENLACE 4b: no importado ⇒ sin UUID
     expect(prisma.cardSet.upsert).not.toHaveBeenCalled();
   });
 });

@@ -17,6 +17,34 @@ export interface GroupUsed {
   via: 'auto' | 'confirmed' | 'promo_table';
 }
 
+/**
+ * §AUTO-ENLACE 4b: último resultado de `card-link-repair` por set (UNA consulta a la bitácora para todos los ids; 0 llamadas a proveedores).
+ * Mismo parseo que `unlinkedPrice`. Sin intento previo ⇒ el set no figura en el mapa.
+ */
+export async function lastLinkOutcomes(
+  prisma: PrismaService,
+  setIds: string[],
+): Promise<Map<string, { groupUsed: GroupUsed | null; reason: LinkExceptionReason | null }>> {
+  const out = new Map<string, { groupUsed: GroupUsed | null; reason: LinkExceptionReason | null }>();
+  if (setIds.length === 0) return out;
+  const audits = await prisma.auditLog.findMany({
+    where: { action: 'catalog.link_repair', entityId: { in: setIds } },
+    orderBy: { createdAt: 'desc' },
+    distinct: ['entityId'],
+    select: { entityId: true, after: true },
+  });
+  for (const a of audits) {
+    if (!a.entityId) continue;
+    const after = (a.after ?? {}) as { groupUsed?: unknown; reason?: unknown };
+    const gu = after.groupUsed as Partial<GroupUsed> | null | undefined;
+    out.set(a.entityId, {
+      groupUsed: gu && typeof gu.groupId === 'number' && gu.via ? { groupId: gu.groupId, name: typeof gu.name === 'string' ? gu.name : null, via: gu.via } : null,
+      reason: typeof after.reason === 'string' ? (after.reason as LinkExceptionReason) : null,
+    });
+  }
+  return out;
+}
+
 /** Forma EXACTA de `GET /admin/catalog/sync-status` → `unlinkedPrice` (aditivo, §PRECIO-SIN-ENLACE). */
 export interface UnlinkedPriceSet {
   setId: string;

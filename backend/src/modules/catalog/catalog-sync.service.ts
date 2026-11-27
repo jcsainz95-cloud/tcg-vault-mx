@@ -17,6 +17,7 @@ import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
 import { normalizeRarity, isRarityMapped } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
+import { lastLinkOutcomes } from './card-link-repair.service';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { AuditService } from '../audit/audit.service';
 import { isTcgcsvOrigin, tcgcsvSetExternalId } from './tcgcsv-card-name';
@@ -110,6 +111,8 @@ export type SetImportOutcome = {
   cardsBefore: number | null;
   /** P-PROMOS (§5.12): el set de pokemontcg.io está SOMBREADO por el set local `tcgcsv:<groupId>`; no se escribió nada. */
   shadowedBy?: { ptcgSetId: string; groupId: number };
+  /** §AUTO-ENLACE 4b: UUID del `CardSet` creado/existente (match por `externalId`); solo en el sync single. */
+  localSetId?: string;
   /** P-PROMOS-VIEJAS (§5.13): productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo si hubo). */
   promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' | 'field_too_long' | 'stale_in_use' }[];
 };
@@ -536,9 +539,13 @@ export class CatalogSyncService implements OnModuleInit {
       );
       // P-PROMOS (§5.12): los sets `tcgcsv:` NO son remotos de pokemontcg.io; no entran a esta lista.
       const localSets = (await this.prisma.cardSet.findMany()).filter((s) => !isTcgcsvOrigin(s.externalId));
+      const fbOutcomes = await lastLinkOutcomes(this.prisma, localSets.map((s) => s.id));
       const data = localSets
         .map((s) => ({
           id: s.externalId,
+          localSetId: s.id,
+          groupUsed: fbOutcomes.get(s.id)?.groupUsed ?? null,
+          reason: fbOutcomes.get(s.id)?.reason ?? null,
           name: s.name,
           series: s.series ?? null,
           releaseDate: s.releaseDate ?? null,
@@ -550,12 +557,18 @@ export class CatalogSyncService implements OnModuleInit {
       return { data, degraded: true, source: 'local' as const };
     }
 
-    const localSets = await this.prisma.cardSet.findMany({ select: { externalId: true } });
+    const localSets = await this.prisma.cardSet.findMany({ select: { id: true, externalId: true } });
     const localExternalIds = new Set(localSets.map((s) => s.externalId));
+    const localIdByExternal = new Map(localSets.map((s) => [s.externalId, s.id]));
+    // §AUTO-ENLACE 4b: una sola consulta a la bitácora para TODAS las filas (sin N+1, 0 llamadas a proveedores).
+    const outcomes = await lastLinkOutcomes(this.prisma, [...localIdByExternal.values()]);
 
     const data = remote
       .map((s) => ({
         id: s.id,
+        localSetId: localIdByExternal.get(s.id) ?? null,
+        groupUsed: outcomes.get(localIdByExternal.get(s.id) ?? '')?.groupUsed ?? null,
+        reason: outcomes.get(localIdByExternal.get(s.id) ?? '')?.reason ?? null,
         name: s.name,
         series: s.series ?? null,
         releaseDate: s.releaseDate ?? null,
@@ -583,8 +596,14 @@ export class CatalogSyncService implements OnModuleInit {
       }
       const res = await this.importSetByExternalId(setId, { force });
       const tally = tallyImports([res]);
+      // §AUTO-ENLACE 4b: mismo match por `externalId` que usa el import (upsertSet). Noop/sombreado ⇒ búsqueda local.
+      const localSetId =
+        res.localSetId ??
+        (await this.prisma.cardSet.findUnique({ where: { externalId: setId }, select: { id: true } }))?.id ??
+        null;
       return {
         jobId: `catalog-sync-${Date.now()}`,
+        localSetId,
         // Sets que esta llamada REALMENTE procesó (escribió cartas). Antes era `res.imported ? 1 : 0`
         // con `imported` literal `true` ⇒ SIEMPRE 1. Ahora sale de lo que se contó (D1).
         setsQueued: tally.setsWritten,
@@ -1586,7 +1605,7 @@ export class CatalogSyncService implements OnModuleInit {
     if (firstImport || opts.force === true) {
       promoSkipped = await this.runCardProductResolver(localSet.id, setId);
     }
-    return { ...CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted), ...(promoSkipped ? { promoSkipped } : {}) };
+    return { ...CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted), localSetId: localSet.id, ...(promoSkipped ? { promoSkipped } : {}) };
   }
 
   /**
