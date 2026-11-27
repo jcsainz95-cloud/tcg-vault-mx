@@ -4,6 +4,7 @@
  */
 import type { LinkRepairResult } from '../api/catalog-link-repair';
 import type { UnlinkedPriceReport } from '@/types/contract';
+import { ApiClientError } from '../api-client';
 
 export const MOCK_SET_CLASSIC = '3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b';
 export const MOCK_SET_SV = '8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d';
@@ -28,6 +29,8 @@ export const mockUnlinkedPrice: UnlinkedPriceReport = {
 
 /** Respuesta de `POST /admin/catalog/link-repair`: liga, precia, y `nextAttemptAt` = enfriamiento del botón (+10 min). */
 export function mockLinkRepair(setId: string): LinkRepairResult {
+  // El set SV simula el límite 429 de la ruta (§7.4): 5 min.
+  if (setId === MOCK_SET_SV) throw new ApiClientError(429, { code: 'RATE_LIMITED', message: 'rate', details: { retryAfterSeconds: 300 } });
   const known = setId === MOCK_SET_CLASSIC;
   return {
     linked: known ? 6 : 0,
@@ -38,6 +41,7 @@ export function mockLinkRepair(setId: string): LinkRepairResult {
     reasons: known ? [] : [{ key: 'collisions', count: null }],
     piecesCorrected: 0,
     piecesExcluded: [],
+    ...(known ? { finishNotInProduct: 2 } : {}),
   };
 }
 

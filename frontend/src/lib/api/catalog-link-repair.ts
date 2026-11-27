@@ -4,8 +4,6 @@
  * cambia nombres, solo cambia `readLinkRepair`.
  */
 import { apiRequest } from '../api-client';
-import { config } from '../config';
-import { mockLinkRepair } from '../mock/link-repair';
 
 export type LinkRepairReasonKey =
   | 'collisions'
@@ -45,6 +43,8 @@ export interface LinkRepairResult {
   reasons: Array<{ key: LinkRepairReasonKey; count: number | null }>;
   piecesCorrected: number;
   piecesExcluded: Array<{ key: PieceExcludedKey; count: number }>;
+  /** Cartas con un acabado que la fuente no da para ese producto (omitted `finish_not_in_product`), también con enlaces/precios. */
+  finishNotInProduct?: number;
 }
 
 interface RawLinkRepair {
@@ -100,7 +100,9 @@ export function readSetReason(r: unknown): LinkSetReason | null {
 
 export function readLinkRepair(raw: RawLinkRepair): LinkRepairResult {
   const linked = Number(raw.linked) || 0;
+  const finishNotInProduct = (raw.omitted ?? []).filter((o) => o.reason === 'finish_not_in_product').reduce((n, o) => n + (Number(o.count) || 0), 0);
   const base = {
+    ...(finishNotInProduct > 0 ? { finishNotInProduct } : {}),
     priced: raw.priced == null ? null : Number(raw.priced) || 0,
     groupUsed: readGroupUsed(raw.groupUsed),
     reason: (LINK_SET_REASONS as readonly string[]).includes(raw.reason ?? '') ? (raw.reason as LinkSetReason) : null,
@@ -132,10 +134,16 @@ export function readLinkRepair(raw: RawLinkRepair): LinkRepairResult {
   return { linked: 0, reasons: [{ key: 'other', count: null }], ...base };
 }
 
+/** El mock lo cablea `api.ts` (único importador de `lib/mock`); devuelve `null` si no hay que simular. */
+type LinkRepairMock = (setId: string) => Promise<LinkRepairResult> | null;
+let mockImpl: LinkRepairMock | null = null;
+export function registerLinkRepairMock(fn: LinkRepairMock | null): void {
+  mockImpl = fn;
+}
+
 export async function repairCatalogLinks(setId: string): Promise<LinkRepairResult> {
-  if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true' && config.useMocks) {
-    return mockLinkRepair(setId);
-  }
+  const mocked = mockImpl?.(setId) ?? null;
+  if (mocked) return mocked;
   const raw = await apiRequest<RawLinkRepair>('/admin/catalog/link-repair', { method: 'POST', body: { setId } });
   return readLinkRepair(raw);
 }

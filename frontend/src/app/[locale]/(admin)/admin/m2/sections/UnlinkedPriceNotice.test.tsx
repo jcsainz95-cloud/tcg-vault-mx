@@ -99,7 +99,7 @@ describe('UnlinkedPriceNotice · nombre y motivos', () => {
     await screen.findByTestId('unlinked-result');
     fireEvent.click(screen.getByText('drop'));
     expect(screen.queryByRole('button', { name: /Actualizar este set: Scarlet/ })).toBeNull();
-    expect(screen.getByTestId('unlinked-result').textContent).toBe('Se ligaron 29 cartas en Scarlet.');
+    expect(screen.getByTestId('unlinked-result').textContent).toBe('Se ligaron 29 cartas en Scarlet.Cerrar');
   });
   it('I-13: con 0 ligadas lista hasta 2 motivos de cartas con su cuenta', async () => {
     vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(R({ linked: 0, reasons: [{ key: 'nameMismatch', count: 1 }, { key: 'ownerConflict', count: 2 }], piecesCorrected: 0, piecesExcluded: [] }));
@@ -185,6 +185,35 @@ describe('§AUTO-ENLACE fase 1 · correcciones tras gate', () => {
     const res = await screen.findByTestId('unlinked-result');
     expect(res.textContent).toContain('Se ligaron 3 cartas en Scarlet');
     expect(res.closest('[data-testid="unlinked-resolved"]')).not.toBeNull();
+  });
+  it('V3: con linked>0 y priced>0 se muestra el aviso de finish_not_in_product (caso real vía readLinkRepair)', async () => {
+    const real = repair.readLinkRepair({ linked: 5, priced: 4, omitted: [{ reason: 'finish_not_in_product', count: 3 }] });
+    expect(real.finishNotInProduct).toBe(3);
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(real);
+    renderWithProviders(<UnlinkedPriceNotice report={REPORT_G} />);
+    fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    const txt = (await screen.findByTestId('unlinked-result')).textContent ?? '';
+    expect(txt).toMatch(/Se ligaron 5 cartas/);
+    expect(txt).toMatch(/Se actualizaron 4 precios/);
+    expect(txt).toMatch(/3 cartas tienen un acabado que la fuente no da para ese producto; quedan sin precio de ese acabado/);
+  });
+  it('M1: el resultado fijo de I-4 se puede cerrar', async () => {
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(R({ linked: 3, priced: 3 }));
+    function Host() {
+      const [done, setDone] = useState(false);
+      return (
+        <>
+          <button onClick={() => setDone(true)}>refrescar</button>
+          <UnlinkedPriceNotice report={done ? { ...REPORT_G, sets: [REPORT_G.sets[1]!] } : REPORT_G} />
+        </>
+      );
+    }
+    renderWithProviders(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    await screen.findByTestId('unlinked-result');
+    fireEvent.click(screen.getByText('refrescar'));
+    fireEvent.click(await screen.findByTestId('unlinked-result-close'));
+    await waitFor(() => expect(screen.queryByTestId('unlinked-result')).toBeNull());
   });
   it('I-1: availableAgainAt/nextAttemptAt se lee como enfriamiento, nunca «se reintenta solo»', async () => {
     expect(repair.readLinkRepair({ linked: 1, availableAgainAt: '2026-11-27T12:00:00Z' }).nextAttemptAt).toBe('2026-11-27T12:00:00Z');

@@ -22,5 +22,29 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await expect(result).toContainText('Se ligaron 6 cartas');
     await expect(result).toContainText('Disponible de nuevo a las');
     await expect(result).not.toContainText('reintenta solo');
+    // V3: con enlaces y precios, el aviso de acabado sigue visible.
+    await expect(result).toContainText('un acabado que la fuente no da para ese producto');
+  });
+
+  test('M-3: mientras un botón corre, los demás «Actualizar este set» quedan deshabilitados', async ({ page }) => {
+    mockOnly('`link-repair` de `lib/mock/link-repair.ts` con 400 ms de latencia simulada');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
+    const classic = notice.getByRole('button', { name: /Actualizar este set: 30th Celebration/ });
+    const sv = notice.getByRole('button', { name: /Actualizar este set: Scarlet/ });
+    await classic.click();
+    await expect(sv).toBeDisabled();
+    await expect(notice.getByTestId('unlinked-result')).toBeVisible();
+    await expect(sv).toBeEnabled();
+  });
+
+  test('429: el set SV simula el límite y el aviso dice cuántos minutos esperar', async ({ page }) => {
+    mockOnly('`link-repair` del set SV responde 429 en `lib/mock/link-repair.ts`');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
+    await notice.getByRole('button', { name: /Actualizar este set: Scarlet/ }).click();
+    await expect(notice.getByTestId('unlinked-error')).toContainText('5');
   });
 });

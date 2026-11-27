@@ -11,7 +11,7 @@ import { useErrorMessage } from '@/components/ui/QueryState';
  * `imported` = cartas traídas por `sync` en la misma acción (null/undefined = no hubo sync).
  */
 export function LinkRepairResultNotice({
-  name, result, error, imported, linkSkipped, failedPhase,
+  name, result, error, imported, linkSkipped, failedPhase, onDismiss,
 }: {
   name: string;
   result?: LinkRepairResult | null;
@@ -21,6 +21,8 @@ export function LinkRepairResultNotice({
   linkSkipped?: boolean;
   /** Fase en la que falló la acción de la tabla: `catalog` = la importación de cartas (`sync`); `variants` = `link-repair`. */
   failedPhase?: 'catalog' | 'variants' | null;
+  /** Si viene, el resultado se puede cerrar (resultado fijo de I-4, §7.7). */
+  onDismiss?: () => void;
 }) {
   const t = useTranslations('admin.m2.catalog.unlinkedPrice');
   const format = useFormatter();
@@ -70,14 +72,26 @@ export function LinkRepairResultNotice({
           {result.piecesCorrected > 0 && ` ${t('piecesCorrected', { n: result.piecesCorrected })}`}
           {result.piecesExcluded.length > 0 &&
             ` ${t('piecesExcluded', { list: result.piecesExcluded.map((e) => tf(`excl.${e.key}`, { n: e.count })).join(', ') })}`}
+          {(result.finishNotInProduct ?? 0) > 0 && !result.reasons.some((r) => r.key === 'finishNotInProduct') &&
+            ` ${t('finishNotice', { n: result.finishNotInProduct ?? 0 })}`}
           {result.groupUsed && ` ${t('groupUsed', { name: groupLabel(result.groupUsed, tf) })}`}
           {result.nextAttemptAt && ` ${t('nextAttempt', { when: timeOf(result.nextAttemptAt) })}`}
+          {onDismiss && (
+            <button type="button" onClick={onDismiss} className="ml-2 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-testid="unlinked-result-close">
+              {t('dismiss')}
+            </button>
+          )}
         </p>
       )}
       {hasError && (
         <p role="alert" className="mt-2 border-l-2 border-danger pl-2 text-sm text-danger" data-testid="unlinked-error">
           {!importFailed && imported != null && `${t('imported', { n: imported })} `}
           {errorText ?? `${importFailed ? t('errImport', { name }) : t('err', { name })} ${getError(error)}`}
+          {onDismiss && (
+            <button type="button" onClick={onDismiss} className="ml-2 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-testid="unlinked-result-close">
+              {t('dismiss')}
+            </button>
+          )}
         </p>
       )}
     </>

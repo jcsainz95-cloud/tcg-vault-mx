@@ -17,7 +17,8 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
-import { mockUnlinkedPrice } from './mock/link-repair';
+import { mockUnlinkedPrice, mockLinkRepair } from './mock/link-repair';
+import { registerLinkRepairMock } from './api/catalog-link-repair';
 import * as flujoMock from './mock/buylist-flujo';
 import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
@@ -412,6 +413,10 @@ import type {
  * `config.useMocks` sigue siendo el interruptor en runtime (las pruebas lo alternan).
  */
 const MOCKS_BUILD = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
+
+// §AUTO-ENLACE: `lib/api/catalog-link-repair.ts` no importa `lib/mock`; el mock se cablea aquí.
+registerLinkRepairMock((setId) =>
+  MOCKS_BUILD && config.useMocks ? new Promise((res, rej) => setTimeout(() => { try { res(mockLinkRepair(setId)); } catch (e) { rej(e); } }, 400)) : null);
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>

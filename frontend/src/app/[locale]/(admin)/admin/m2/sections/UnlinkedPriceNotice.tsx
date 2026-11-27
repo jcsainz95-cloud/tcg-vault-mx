@@ -77,12 +77,14 @@ export function UnlinkedPriceNotice({ report }: { report: UnlinkedPriceReport | 
   const hasLinkable = linkable.length > 0;
   const timeOf = (iso: string) => format.dateTime(new Date(iso), { timeStyle: 'short' });
   const hasResult = retry.isSuccess || retry.isError;
+  const resultInRowEarly = retry.variables?.setId != null && linkable.some((s) => s.setId === retry.variables?.setId);
   if (!linkable.length && !noButton.length && !hasResult) return null;
   const groupText = (g: LinkGroupUsed) => t('groupLine', { name: groupLabel(g, tf), via: tf(`via.${g.via}`) });
 
   /** Resultado de la última acción, con motivo en claro. Se monta junto a la fila pulsada. */
   const result = (
     <LinkRepairResultNotice
+      onDismiss={!resultInRowEarly ? () => retry.reset() : undefined}
       name={lastName}
       result={retry.isSuccess ? retry.data : null}
       error={retry.isError ? retry.error : undefined}
