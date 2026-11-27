@@ -59,18 +59,40 @@ export function isNameParen(label: string): boolean {
  * paréntesis de `NAME_PARENS`/`KEEP_PARENS`, normalizado. «Metagross (Delta Species)» y «Metagross» ⇒ `metagross`.
  */
 export function linkNameKey(raw: string | null | undefined): string {
-  const s = (raw ?? '').replace(/\(([^()]*)\)/g, (m, l: string) => (isNameParen(l) ? ' ' : m));
+  let s = (raw ?? '').replace(/\(([^()]*)\)/g, (m, l: string) => (isNameParen(l) ? ' ' : m));
+  // §7.8b(e2) Unown: la letra única `(X)`/`[X]` (X = letra, `!` o `?`) NO se borra: queda como marca ` #x` al final de la llave
+  // (`normalizeMatchText` borraría `!`/`?` y ligaría «Unown (!)» con «Unown (?)»). La comparación asimétrica está en `linkKeysCompatible`.
+  let letter = '';
+  if (/^\s*unown\b/i.test(s)) {
+    s = s.replace(/[([]\s*([A-Za-z!?])\s*[)\]]/g, (_m, l: string) => {
+      letter = ` #${l === '!' ? 'excl' : l === '?' ? 'ques' : l.toLowerCase()}`;
+      return ' ';
+    });
+  }
   // «Gyarados ★ δ» ≡ «Gyarados Star (Delta Species)»: la `δ` FINAL equivale al paréntesis `(Delta Species)` que se quita (NAME_PARENS).
-  return normalizeMatchText(symbolsToWords(s)).replace(/ delta$/, '');
+  return normalizeMatchText(symbolsToWords(s)).replace(/ delta$/, '') + letter;
+}
+
+const LETTER_MARK = / #(?:[a-z]|excl|ques)$/;
+/**
+ * §7.8b(e2): dos llaves de nombre (`número|llave`) son compatibles si son iguales, o si EXACTAMENTE un lado trae letra de Unown
+ * y el resto de la llave es igual. Letras distintas ⇒ nunca.
+ */
+export function linkKeysCompatible(a: string, b: string): boolean {
+  if (a === b) return true;
+  const ma = LETTER_MARK.test(a);
+  const mb = LETTER_MARK.test(b);
+  if (ma === mb) return false;
+  return a.replace(LETTER_MARK, '') === b.replace(LETTER_MARK, '');
 }
 
 /**
  * §AUTO-ENLACE §7.8b — tabla CERRADA de símbolos del nombre (ambos lados, tras minúsculas y quitar acentos y ANTES de quitar
  * puntuación): ♂→m, ♀→f, ★→star, δ→delta, ◇→prism star, α→alpha, β→beta, γ→gamma (cada uno por su palabra entre espacios).
  */
-const SYMBOL_WORDS: Readonly<Record<string, string>> = { '♂': 'm', '♀': 'f', '★': 'star', '☆': 'star', 'δ': 'delta', '◇': 'prism star', 'α': 'alpha', 'β': 'beta', 'γ': 'gamma' };
+const SYMBOL_WORDS: Readonly<Record<string, string>> = { '♂': 'm', '♀': 'f', '★': 'star', 'δ': 'delta', '◇': 'prism star', 'α': 'alpha', 'β': 'beta', 'γ': 'gamma' };
 function symbolsToWords(s: string): string {
-  return s.toLowerCase().replace(/[♂♀★☆δ◇αβγ]/g, (c) => ` ${SYMBOL_WORDS[c]} `);
+  return s.toLowerCase().replace(/[♂♀★δ◇αβγ]/g, (c) => ` ${SYMBOL_WORDS[c]} `);
 }
 
 /**
@@ -232,3 +254,6 @@ export function parseTcgcsvCardName(
   if (s === '') return { ok: false, reason: 'empty_name' };
   return { ok: true, name: s, number: ext, stamp };
 }
+
+/** Formato de un `setId` externo (única definición; hoja del grafo, sin ciclo entre `catalog-sync` y `card-link-repair`). */
+export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;

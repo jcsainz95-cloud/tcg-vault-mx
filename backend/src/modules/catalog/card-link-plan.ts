@@ -1,5 +1,5 @@
 import { CardProductKind } from '@prisma/client';
-import { linkNameKey, parseTcgcsvCardName, stripProductNameSuffixes } from './tcgcsv-card-name';
+import { linkKeysCompatible, linkNameKey, parseTcgcsvCardName, stripProductNameSuffixes } from './tcgcsv-card-name';
 
 /**
  * §PRECIO-SIN-ENLACE (fase 1) — PLAN PURO de enlace carta local ↔ producto TCGCSV del grupo.
@@ -96,7 +96,9 @@ export function planCardLinks(
   }
   const nameOfProduct = (p: LinkProduct, n: string): string => {
     const ks = namesOfProduct(p);
-    return ks.find((k) => cardsByKey.has(`${n}|${k}`)) ?? ks[0];
+    // Si el producto trae letra de Unown (2.ª llave con marca) y ninguna llave existe local, la llave de comparación es la CON letra:
+    // «Unown (J)» vs «Unown (K)» ⇒ letras distintas ⇒ no liga (e2). La sin letra solo vale si el local tampoco la trae.
+    return ks.find((k) => cardsByKey.has(`${n}|${k}`)) ?? ks[ks.length - 1];
   };
   const prodsByNum = new Map<string, number>();
   const prodsByKey = new Map<string, number>();
@@ -127,7 +129,7 @@ export function planCardLinks(
     const sameKey = cardsByKey.get(kk.k) ?? [];
     if (sameKey.length === 1 && prodsByKey.get(kk.k) === 1) return sameKey[0].productCount === 0 ? sameKey[0] : null;
     const sameNum = cardsByNum.get(kk.n) ?? [];
-    if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1 && `${kk.n}|${linkNameKey(sameNum[0].name)}` === kk.k) {
+    if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1 && linkKeysCompatible(`${kk.n}|${linkNameKey(sameNum[0].name)}`, kk.k)) {
       return sameNum[0].productCount === 0 ? sameNum[0] : null;
     }
     return null;
@@ -176,7 +178,7 @@ export function planCardLinks(
     const sameNum = cardsByNum.get(kk.n) ?? [];
     if (sameNum.length === 1 && prodsByNum.get(kk.n) === 1) {
       const c = sameNum[0];
-      if (`${kk.n}|${linkNameKey(c.name)}` !== kk.k) {
+      if (!linkKeysCompatible(`${kk.n}|${linkNameKey(c.name)}`, kk.k)) {
         miss(p.productId, 'name_mismatch');
         continue;
       }

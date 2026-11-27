@@ -96,6 +96,7 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
       ['Miracle Sphere Alpha', '129', 'Miracle Sphere α'],
       ['Unown (J)', '76', 'Unown [J]'],
       ['Unown (A)', '1', 'Unown'],
+      ['Nidoran (F)', '66', 'Nidoran ♀'],
     ];
     for (const [pn, num, cn] of ok) {
       const r = plan([prod(1, pn, `${num}/100`)], [card('c1', num, cn)]);
@@ -108,6 +109,22 @@ describe('planCardLinks — reglas de enlace (CA-5)', () => {
     }
     // Los textuales siguen siendo excepción.
     expect(plan([prod(1, "Boss's Orders - 172/193", '172/193')], [card('c1', '172', "Boss's Orders (Ghetsis)")]).unlinked).toEqual([{ productId: 1, reason: 'name_mismatch' }]);
+  });
+
+  it('§7.8b(e2): Unown asimétrico: letras distintas (incl. ! y ?) nunca ligan; una sola letra se quita en ese lado', () => {
+    for (const [pn, cn] of [['Unown (J)', 'Unown (K)'], ['Unown [!]', 'Unown [?]'], ['Unown (!)', 'Unown (?)']] as const) {
+      const r = plan([prod(1, pn, '9/100')], [card('c1', '9', cn)]);
+      expect([pn, cn, r.links.size]).toEqual([pn, cn, 0]);
+    }
+    // Iguales ligan; el local con letra y el proveedor sin ella (y al revés) ligan si el número es único en ambos lados.
+    for (const [pn, cn] of [['Unown (!)', 'Unown [!]'], ['Unown', 'Unown (J)'], ['Unown (A)', 'Unown']] as const) {
+      const r = plan([prod(1, pn, '9/100')], [card('c1', '9', cn)]);
+      expect([pn, cn, r.links.get(1)?.cardId]).toEqual([pn, cn, 'c1']);
+    }
+    // «Unown» local vs dos «Unown (X)» con el mismo número ⇒ collision.
+    const c = plan([prod(1, 'Unown (A)', '9/100'), prod(2, 'Unown (B)', '9/100')], [card('c1', '9', 'Unown')]);
+    expect(c.links.size).toBe(0);
+    expect(c.unlinked.map((u) => u.reason)).toEqual(['collision', 'collision']);
   });
 
   it('§7.8 respaldo: parseo fallido + «[...]», « - NNN/NNN» y paréntesis finales ⇒ llave igual a la local; nunca una tercera', () => {

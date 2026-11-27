@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { CardProductResolverService } from './card-product-resolver.service';
-import { isTcgcsvOrigin } from './tcgcsv-card-name';
+import { isTcgcsvOrigin, SET_ID_PATTERN } from './tcgcsv-card-name';
 import { safeErrorTag } from '../shipments/guest-mail-link';
 
 export type NotLinkableReason = 'no_group' | 'tcgcsv_source' | 'promo_route';
@@ -100,8 +100,6 @@ const ACTION = 'catalog.link_repair';
 const CLAIM = 'catalog.link_repair_claim';
 /** AE-3: reclamo de `POST /admin/catalog/sync {setId}` (1 por set cada 10 min; mismo candado y patrón que `link-repair`). */
 const SYNC_CLAIM = 'catalog.sync_claim';
-/** Mismo patrón que `SET_ID_PATTERN` de `catalog-sync.service` (copiado: importarlo crea un ciclo). V5: se valida ANTES de escribir el reclamo. */
-const SYNC_SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const DEPLOY_MARKER = 'catalog.link_repair_deploy';
 const DEPLOY_START = 'catalog.link_repair_deploy_start';
 
@@ -414,7 +412,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
    * `runForSet` (misma NAMESPACE, llave `sync:<setId>`). Devuelve el id del reclamo para devolverlo si el proveedor falla.
    */
   async claimSync(externalSetId: string, actorUserId: string): Promise<string> {
-    if (!SYNC_SET_ID_PATTERN.test(externalSetId)) throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
+    if (!SET_ID_PATTERN.test(externalSetId)) throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
     const now = Date.now();
     let claimId = '';
     const wait = await this.prisma.$transaction(async (tx) => {

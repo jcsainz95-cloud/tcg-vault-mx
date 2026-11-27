@@ -20,7 +20,7 @@ import { FinishReconciler } from './finish-reconciler.service';
 import { lastLinkOutcomes } from './card-link-repair.service';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { AuditService } from '../audit/audit.service';
-import { isTcgcsvOrigin, tcgcsvSetExternalId } from './tcgcsv-card-name';
+import { isTcgcsvOrigin, SET_ID_PATTERN, tcgcsvSetExternalId } from './tcgcsv-card-name';
 import { importableGroupForPtcgSet, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
@@ -85,7 +85,7 @@ export const CATALOG_SYNC_BUDGET_MAX_MS = 40 * 60 * 1000;
 export const CATALOG_SYNC_PAUSE_MAX_MS = 10 * 60 * 1000;
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
-export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export { SET_ID_PATTERN };
 
 /**
  * D1 (v1.64) — RESULTADO REAL de importar UN set. Tres hechos DISTINTOS que antes viajaban
