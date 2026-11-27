@@ -29,15 +29,15 @@ Al recibir: `convertToInventory` escribe `language = receivedLanguage ?? languag
 Orden de cálculo (una función en `decideBuyLine`; el front no calcula dinero):
 1. `mercadoRef` = referencia de la versión elegida: carta normal ⇒ mercado EN de la carta; de liga ⇒ referencia de SU producto de liga (opción A de §3.1).
 2. `mercadoAjustado = mercadoRef × (100 − P)/100` si `es`, con `P = buylist_spanish_penalty_pct` (si inglés, igual a `mercadoRef`). Ej.: MX$1,000 → MX$850.
-3. `oferta = curva_de_compra(mercadoAjustado)` = `mercadoAjustado × pct(mercadoAjustado)`; con 70 %: MX$850 → MX$595. La curva se evalúa sobre el mercado YA castigado (default; consecuencia: en tramos medios el % base puede bajar un escalón).
+3. `oferta = curva_de_compra(mercadoAjustado)` = `mercadoAjustado × pct(mercadoAjustado)`; con la semilla (50 % sobre MX$500): MX$1,000 → MX$850 → MX$425; la oferta en inglés de MX$1,000 es MX$500. La curva se evalúa sobre el mercado YA castigado (default; consecuencia: en tramos medios el % base puede bajar un escalón).
 4. Anti-inflado: `oferta ≤ ofertaEN` de la misma versión, nunca por encima de la referencia; candado §PRE y «precio pendiente» de la inglesa detienen a la española. Bounty no aplica a ES ni a liga.
 `breakdown` por línea, en ESE orden: `{marketMxnCents, languagePenalty:{pct,cents(negativo)}|null, adjustedMarketCents, basePct, baseOfferCents, finalOfferCents}`; mesa M5 (suma a `marketMxnCents/standardPctBp/standardOfferCents` de §BUYLIST-MESA), solicitud del vendedor y correos lo pintan igual: «Mercado MX$1,000 · Idioma español −15 % = −MX$150 · Mercado ajustado MX$850 · Base 70 % · Te pagamos MX$595». Siempre `base + castigo = final` exacto en centavos enteros. Línea EN: `languagePenalty:null`.
 `quotedPriceCents` = `finalOfferCents`; `marketMxnCents` instrumentado = `mercadoRef`; `priceBasis`/`marketBracket` como hoy. Dial inválido ⇒ falla cerrado (`offers.es=null`).
 
 ### 3.1 Precio de la carta de liga (PENDIENTE DEL DUEÑO; default A)
-- **A (recomendada):** la oferta parte del mercado de SU producto de liga (el mismo que usa la venta) y pasa por el mismo cálculo. Ej. ilustrativo (no es carta medida; base 70 % plano): normal MX$200, liga MX$600 ⇒ liga en inglés MX$420; liga en español 600→510→**MX$357**; normal en español 200→170→MX$119.
-- **B:** se paga como la carta normal más un porcentaje fijo de «prima de liga» (dial, ej. +25 %): liga en inglés 140 × 1.25 = **MX$175**; en español 119 × 1.25 = MX$149. No depende de que exista mercado de liga ni se mueve con él.
-- Consecuencia: A paga cerca del valor real (competitivo, el vendedor de una carta de MX$600 no se va), pero sigue el precio de un producto de poca liquidez (mitigado por el candado y por «sin oferta» si no hay referencia fresca). B es estable y simple pero deja ~58 % menos al vendedor de la liga del ejemplo, que la ofrecerá en otro lado, y nos quita piezas que luego vendemos al precio de liga.
+- **A (recomendada):** la oferta parte del mercado de SU producto de liga (el mismo que usa la venta) y pasa por el mismo cálculo. Ej. ilustrativo (no es carta medida; curva semilla, ambos mercados ≥ MX$500 ⇒ 50 %): normal MX$500, su liga MX$1,000 ⇒ liga en inglés **MX$500**; liga en español 1000→850→**MX$425**; normal en inglés MX$250 y en español 500→425→MX$212.50.
+- **B:** se paga como la carta normal más un porcentaje fijo de «prima de liga» (dial, ej. +25 %): liga en inglés 250 × 1.25 = **MX$312.50**; en español 212.50 × 1.25 ≈ MX$265.63. No depende de que exista mercado de liga ni se mueve con él.
+- Consecuencia: A paga cerca del valor real (competitivo; el vendedor de una carta de MX$1,000 no se va), pero sigue el precio de un producto de poca liquidez (mitigado por el candado y por «sin oferta» si no hay referencia fresca). B es estable y simple pero deja ~37 % menos al vendedor de la liga del ejemplo (312.50 vs 500), que la ofrecerá en otro lado, y nos quita piezas que luego vendemos al precio de liga.
 
 ## 4. Recepción: versión distinta a la declarada
 El operador confirma idioma y liga por línea (un toque; default = declarado). Si coincide: nada. Si difiere, el servidor decide solo con CAS (idempotente, una vez), mirando `versionOffers[receivedKey]`:
@@ -53,7 +53,7 @@ El operador confirma idioma y liga por línea (un toque; default = declarado). S
 
 ## 6. Criterios de aceptación (medibles)
 1. Sin `language` ni producto de liga, `offerCents` igual al de antes del cambio en 20/20 cartas (regresión cero).
-2. 20 cartas elegibles: `final = curva(round(mercado×(100−P)/100))` exacto al centavo, `≤ offers.en` en 20/20; con P=0 coinciden; cambiar el dial afecta solo cotizaciones nuevas (solicitudes creadas, congeladas). Ejemplo fijo en test: 1000 → 850 → 595 con base 70 %.
+2. 20 cartas elegibles: `final = curva(round(mercado×(100−P)/100))` exacto al centavo, `≤ offers.en` en 20/20; con P=0 coinciden; cambiar el dial afecta solo cotizaciones nuevas (solicitudes creadas, congeladas). Ejemplo fijo en test (curva semilla): 1000 → 850 → 425.
 3. `breakdown` presente en 100 % de líneas ES/liga de mesa, solicitud y correos, en el orden de §3; `base+castigo=final` en 20/20.
 4. `/quote`, `/quote/batch` y `POST /requests` dan el MISMO monto para la misma (carta, acabado, idioma, producto) en 20/20.
 5. Producto `promo`/`deck_exclusive`/`variant`, graduada o dial apagado ⇒ no elegible (400 con código); producto `stamped` ya NO se rechaza y sí se cotiza; sin referencia fresca ⇒ `offerCents:null`, no se paga la normal.

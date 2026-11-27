@@ -54,7 +54,7 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 - Ciclo: solicitud (celular + dirección + KYC con INE cifrada) → oferta por correo → acepta/rechaza → guía Skydropx **de entrada** pagada por nosotros y **descontada del pago** → recepción y verificación → pago **SPEI** (solo súper-admin) → publicar.
 - Sin oferta en 7 días hábiles ⇒ correo «no procederemos». Aceptada sin guía en 7 días ⇒ se cancela sola.
   Aceptada no se cancela: se rechazan cartas en mala condición con motivo. El operador puede declinar (auditado).
-- **§BUYLIST-ES** (HECHOS 2026-11-27; `docs/API_CONTRACT_BUYLIST_ES.md`): el vendedor marca cada carta Inglés/Español (default inglés) y, si existe, «De liga»; español = mercado −15 % (dial) y luego el % habitual (1,000→850→595), en ese orden y por separado en mesa, solicitud y correos; si llega otra versión, ajuste automático. Precio de liga: pregunta abierta (DECISIONES).
+- **§BUYLIST-ES** (HECHOS 2026-11-27; `docs/API_CONTRACT_BUYLIST_ES.md`): el vendedor marca por carta Inglés/Español (y «De liga»); español = mercado −15 % y luego el % de la curva (1,000→850→425), desglosado en mesa y correos. Detalle: DECISIONES.
 - **Bounties**: nunca pagan arriba del mercado (`min(bounty, mercado)`); se pueden eliminar.
 - Topes AML/mensuales por vendedor según dial; KYC lo verifica **solo el dueño**.
 
