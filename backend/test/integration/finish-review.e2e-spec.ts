@@ -160,6 +160,20 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     void custody; void customer;
   });
 
+  it('§10.8 hasManualPrice = listPriceCents != null: un 0 explícito cuenta como manual (se conserva, manualPriceKept) y no es lo mismo que NULL', async () => {
+    const cid = await card(['normal', 'first_edition']);
+    const zero = await piece(cid, { listPriceCents: 0 });
+    const none = await piece(cid);
+    const items = mine((await list('?limit=200')).body);
+    expect(items.find((i) => i.inventoryItemId === zero)).toMatchObject({ hasManualPrice: true });
+    expect(items.find((i) => i.inventoryItemId === none)).toMatchObject({ hasManualPrice: false });
+    const r = await decide(zero, { decision: 'first_edition', expectedFinish: 'normal' });
+    expect(r.status).toBe(200);
+    expect(r.body.after.manualPriceKept).toBe(true);
+    expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: zero } })).listPriceCents).toBe(0);
+    expect((await decide(zero, { decision: 'first_edition', expectedFinish: 'normal' })).body.after.manualPriceKept).toBe(true);
+  });
+
   it('§9.1 precio manual: la pieza con listPriceCents=500 se queda en 500 (y su precio no cambia) tras first_edition (manualPriceKept); sin manual toma el precio del acabado destino; hasManualPrice en la lista', async () => {
     const cid = await card(['normal', 'first_edition']);
     const manual = await piece(cid, { listPriceCents: 500 });

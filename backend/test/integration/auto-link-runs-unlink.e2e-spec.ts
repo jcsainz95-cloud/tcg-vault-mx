@@ -84,7 +84,7 @@ describe('E2E — §AUTO-ENLACE §9.6 freno por set, auto-link-runs y unlink', (
   });
 
   it('§9.6 (ii) grupo EQUIVOCADO: 6/6 variantes con referencia previa saltan ×36 ⇒ el set NO se publica (0 enlaces, 0 PriceReference tcgcsv, 0 casos), reason price_sanity y espera 7 días; el set sano sí', async () => {
-    const r = await job.run({ trigger: 'manual', maxSets: 50 });
+    const r = await job.run({ trigger: 'manual', maxSets: 50, onlySetIds: setIds });
     const w = r.sets.find((s) => s.setId === W.setId)!;
     expect(w).toMatchObject({ linked: 0, priced: 0, reason: 'price_sanity' });
     expect(await h.prisma.cardProduct.count({ where: { cardId: { in: W.cardIds } } })).toBe(0);
@@ -96,7 +96,7 @@ describe('E2E — §AUTO-ENLACE §9.6 freno por set, auto-link-runs y unlink', (
     expect(wait).toBeGreaterThan(6 * 86_400_000);
     expect(wait).toBeLessThanOrEqual(7 * 86_400_000);
     // espera 7 días: ni mañana ni pasado lo vuelve a elegir.
-    expect((await job.pickSets(50, new Date(Date.now() + 2 * 86_400_000))).some((s) => s.setId === W.setId)).toBe(false);
+    expect((await job.pickSets(50, new Date(Date.now() + 2 * 86_400_000), setIds)).some((s) => s.setId === W.setId)).toBe(false);
     // y la lista de excepciones lo dice
     const ex = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
     expect(ex.body.sets.find((s: any) => s.setId === W.setId)).toMatchObject({ reason: 'price_sanity' });
@@ -161,10 +161,27 @@ describe('E2E — §AUTO-ENLACE §9.6 freno por set, auto-link-runs y unlink', (
     expect(au.after).toMatchObject({ reason: 'reverted', unlinked: 1 });
     const q = Date.parse(r.body.quarantineUntil) - Date.now();
     expect(q).toBeGreaterThan(29 * 86_400_000);
-    expect((await job.pickSets(50, new Date(Date.now() + 10 * 86_400_000))).some((s) => s.setId === G.setId)).toBe(false); // 30 días de cuarentena
+    expect((await job.pickSets(50, new Date(Date.now() + 10 * 86_400_000), setIds)).some((s) => s.setId === G.setId)).toBe(false); // 30 días de cuarentena
     const ex = await h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
     expect(ex.body.sets.find((s: any) => s.setId === G.setId)).toMatchObject({ reason: 'reverted' });
     const again = await unlink(G.setId);
     expect([again.status, code(again)]).toEqual([429, 'RATE_LIMITED']);
+  });
+  it('§10.3 unlink sin enlaces del job (corrida con linked=0 / barrido) ⇒ 409 NOTHING_TO_UNLINK: sin cuarentena, sin auditoría de reversa, sin reclamo y el grupo no se toca; `aborted` de auto-link-runs es string|null', async () => {
+    const idle = await h.prisma.cardSet.create({ data: { externalId: `ru-I-${run}`, name: `Sin enlaces del job ${run}`, cardGroupId: GG, cardGroupVia: 'auto' } });
+    setIds.push(idle.id);
+    const runId = randomUUID();
+    await h.prisma.auditLog.create({ data: { actorUserId: null, action: 'catalog.auto_link', entityType: 'CardSet', entityId: idle.id, after: { setId: idle.id, runId, sweep: true, linked: 0, linkedCardIds: [], via: 'auto', groupId: GG } } });
+    await h.prisma.auditLog.create({ data: { actorUserId: null, action: 'catalog.auto_link_run', entityType: 'CardSet', after: { runId, setsTried: 0, linked: 0, priced: 0, aborted: 'call_cap' } } });
+    const r = await unlink(idle.id);
+    expect([r.status, code(r)]).toEqual([409, 'NOTHING_TO_UNLINK']);
+    expect(await h.prisma.auditLog.count({ where: { action: { in: ['catalog.auto_unlink', 'catalog.auto_unlink_claim'] }, entityId: idle.id } })).toBe(0);
+    expect(await h.prisma.cardSet.findUniqueOrThrow({ where: { id: idle.id }, select: { cardGroupVia: true } })).toEqual({ cardGroupVia: 'auto' });
+    expect((await unlink(idle.id)).status).toBe(409); // repetible: no consume el cupo de 10 min
+    const rr = await runs('?days=1');
+    const mine = rr.body.runs.find((x: any) => x.runId === runId);
+    expect(mine.aborted).toBe('call_cap');
+    expect(rr.body.runs.every((x: any) => x.aborted === null || typeof x.aborted === 'string')).toBe(true);
+    expect(rr.body.runs.some((x: any) => x.aborted === null)).toBe(true);
   });
 });

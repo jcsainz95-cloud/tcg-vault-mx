@@ -36,7 +36,7 @@ export interface CardToConfirm {
   cardId: string;
   name: string;
   number: string;
-  reason: 'name_mismatch' | 'collision';
+  reason: 'name_mismatch' | 'collision' | 'no_source_product';
   candidates: CardCandidate[];
 }
 
@@ -123,7 +123,10 @@ export class CardLinkConfirmService {
     for (const c of unlinked) {
       const n = normalizeCardNumber(c.number);
       const cands = free.filter((d) => normalizeCardNumber(d.number!) === n);
-      if (cands.length === 0) continue;
+      if (cands.length === 0) {
+        items.push({ cardId: c.id, name: c.name, number: c.number, reason: 'no_source_product', candidates: [] });
+        continue;
+      }
       items.push({
         cardId: c.id, name: c.name, number: c.number,
         reason: cands.length > 1 || (unlinkedByNumber.get(n) ?? 0) > 1 ? 'collision' : 'name_mismatch',

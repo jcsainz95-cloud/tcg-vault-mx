@@ -39,7 +39,7 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     }
     return s.id;
   }
-  const clear = async () => h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.auto_link_claim', 'catalog.auto_link', 'catalog.auto_link_run', 'catalog.link_repair', 'catalog.group_confirm_claim', 'catalog.group_confirmed'] } } });
+  const clear = async () => h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.auto_link_claim', 'catalog.auto_link', 'catalog.auto_link_run', 'catalog.link_repair', 'catalog.group_confirm_claim', 'catalog.group_confirmed', 'catalog.group_confirm_reverted'] } } });
   const list = async () => (await h.api<{ summary: Record<string, unknown>; sets: any[] }>('GET', '/admin/catalog/link-exceptions', { token: admin }));
   const confirm = (setId: string, groupId: unknown, token = admin) => h.api<any>('POST', `/admin/catalog/link-exceptions/${setId}/confirm`, { token, json: { groupId } });
 
@@ -79,7 +79,7 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     const sid = await mkSet('A', name, null, null);
     const f = (await h.api('GET', '/admin/catalog/link-exceptions', { token: operator })).status;
     expect(f).toBe(403);
-    const r = await job.run({ retryDelayMs: 0 }); // el job intenta, no resuelve (empate real) y deja motivo + candidatos
+    const r = await job.run({ retryDelayMs: 0, onlySetIds: setIds }); // el job intenta, no resuelve (empate real) y deja motivo + candidatos
     expect(r.sets.find((s) => s.setId === sid)).toMatchObject({ linked: 0, reason: 'group_ambiguous' });
     const calls = (h.app.get(TcgcsvCatalogClient).listGroups as jest.Mock).mock.calls.length;
     const res = await list();
@@ -126,7 +126,7 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
   it('el job NO pisa un grupo confirmado: pptSetId apunta a G3 pero manda el confirmado G2; la columna sigue `confirmed`', async () => {
     await clear();
     const sid = await mkSet('B', `Exc Beta ${run}`, String(G3), G2, 3, G2);
-    const r = await job.run({ retryDelayMs: 0 });
+    const r = await job.run({ retryDelayMs: 0, onlySetIds: setIds });
     expect(r.sets.find((s) => s.setId === sid)).toMatchObject({ linked: 3 });
     const cps = await h.prisma.cardProduct.findMany({ where: { card: { setId: sid } }, select: { tcgplayerProductId: true } });
     expect(cps.map((c) => c.tcgplayerProductId).sort()).toEqual(synth(G2).map((p) => p.productId).sort());
@@ -136,7 +136,7 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
   it('el grupo `auto` se guarda informativo al ligar por regla y se recalcula (no manda); idempotente', async () => {
     await clear();
     const sid = await mkSet('C', `Exc Gamma ${run}`, String(G3), null, 3, G3);
-    const r = await job.run({ retryDelayMs: 0 });
+    const r = await job.run({ retryDelayMs: 0, onlySetIds: setIds });
     expect(r.sets.find((s) => s.setId === sid)).toMatchObject({ linked: 3 });
     expect(await h.prisma.cardSet.findUniqueOrThrow({ where: { id: sid }, select: { cardGroupId: true, cardGroupVia: true } })).toEqual({ cardGroupId: G3, cardGroupVia: 'auto' });
   });
@@ -149,8 +149,8 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     const nf = await confirm(sid, 999_999_991);
     expect(nf.status).toBe(422);
     expect(nf.body.code ?? nf.body.error?.code).toBe('GROUP_NOT_FOUND');
-    expect([400, 422]).toContain((await confirm(sid, 'x')).status);
-    expect([400, 422]).toContain((await confirm(sid, 1.5)).status);
+    expect((await confirm(sid, 'x')).status).toBe(422);
+    expect((await confirm(sid, 1.5)).status).toBe(422);
     expect(await h.prisma.cardSet.findUniqueOrThrow({ where: { id: sid }, select: { cardGroupId: true, cardGroupVia: true } })).toEqual({ cardGroupId: null, cardGroupVia: null });
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirmed', entityId: sid } })).toBe(0);
   });
@@ -163,7 +163,11 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     expect(bad.status).toBe(503);
     expect(JSON.stringify(bad.body)).not.toMatch(/secret-detail|boom/);
     expect(await h.prisma.cardSet.findUniqueOrThrow({ where: { id: sid }, select: { cardGroupId: true, cardGroupVia: true } })).toEqual({ cardGroupId: null, cardGroupVia: null });
-    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirmed', entityId: sid } })).toBe(0);
+    // §10 menor: la bitácora NO se borra — queda la fila de la confirmación intentada, la de su reversa y el reclamo marcado liberado.
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirmed', entityId: sid } })).toBe(1);
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirm_reverted', entityId: sid } })).toBe(1);
+    const claim = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'catalog.group_confirm_claim', entityId: sid } });
+    expect(claim.after).toMatchObject({ released: true });
     failing.clear();
     expect((await confirm(sid, G1)).status).toBe(200);
   });
@@ -183,14 +187,14 @@ describe('E2E — §AUTO-ENLACE fase 3 link-exceptions + confirm', () => {
     expect(await h.prisma.cardSet.findUniqueOrThrow({ where: { id: sid }, select: { cardGroupId: true, cardGroupVia: true } })).toEqual({ cardGroupId: null, cardGroupVia: null });
     expect(await h.prisma.card.count({ where: { setId: sid, cardProducts: { some: {} } } })).toBe(0);
     expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirmed', entityId: sid } })).toBe(0);
-    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirm_claim', entityId: sid } })).toBe(0); // el cupo no se consumió
+    expect(await h.prisma.auditLog.count({ where: { action: 'catalog.group_confirm_claim', entityId: sid, NOT: { after: { path: ['released'], equals: true } } } })).toBe(0); // el cupo no se consumió (la fila queda marcada, no se borra)
     expect((await confirm(sid, G1)).status).toBe(200); // reintento inmediato posible
   });
 
   it('si el grupo confirmado deja de existir en listGroups ⇒ reason `group_none` y vuelve a la lista (sin caer a otra fuente)', async () => {
     await clear();
     const sid = await mkSet('F', `Exc Zeta ${run}`, String(G2), 999_999_777, 3, G2);
-    const r = await job.run({ retryDelayMs: 0 });
+    const r = await job.run({ retryDelayMs: 0, onlySetIds: setIds });
     expect(r.sets.find((s) => s.setId === sid)).toMatchObject({ linked: 0, reason: 'group_none' });
     const mine = (await list()).body.sets.find((s) => s.setId === sid);
     expect(mine).toMatchObject({ reason: 'group_none', canConfirm: true });

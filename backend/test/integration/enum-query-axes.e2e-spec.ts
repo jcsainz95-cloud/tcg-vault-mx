@@ -2194,7 +2194,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `GET /admin/users/:id/notes` — paginación, no conjunto de tokens; fuera de forma ⇒ `400 {field}`. ⛔ `QUERY_SIN_NOMBRE` NO sube.
     // 💰 **122 → 128 (§REPORTES-CEO F2b; ratificado por el arquitecto en el contrato, 4248ab2b):** `from`/`to` (días MX `YYYY-MM-DD`; forma ⇒ `400 {field}`, inexistente o año fuera de 2020..2100 ⇒ `422 {field}`) de
     // `GET /admin/reports/finance/pnl` y `/pnl/series`, y `count` (entero 1..12) y `asOf` (día ≤ hoy MX) de `/pnl/series`. No son conjuntos de tokens. ⛔ `QUERY_SIN_NOMBRE` NO sube.
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(128);
+    // 💰 **128 → 131 (§AUTO-ENLACE §10; clasificación pedida por el orquestador, ⚠️ PENDIENTE de ratificar por el arquitecto):** `days` (entero 1..60, 422 fuera) de `GET /admin/catalog/auto-link-runs`,
+    // `cursor` (opaco, lo emite el servidor) y `limit` (entero ≤ 50) de `GET /admin/catalog/finish-review`. Paginación/ventana numérica, no conjuntos de tokens. ⛔ `QUERY_SIN_NOMBRE` NO sube.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(131);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

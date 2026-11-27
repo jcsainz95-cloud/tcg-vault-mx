@@ -25,6 +25,17 @@ export async function unlinkedBySet(prisma: Pick<PrismaService, '$queryRaw'>): P
     HAVING COUNT(*) > COUNT(l."cardId")`;
 }
 
+/** Sets con ≥ 1 carta y TODAS ligadas (candidatos al barrido de acabados de §10.2). Consulta local, una pasada. */
+export async function fullyLinkedSets(prisma: Pick<PrismaService, '$queryRaw'>): Promise<{ setId: string; name: string; externalId: string }[]> {
+  return prisma.$queryRaw<{ setId: string; name: string; externalId: string }[]>`
+    WITH linked AS (SELECT DISTINCT "cardId" FROM "CardProduct")
+    SELECT s."id" AS "setId", s."name", s."externalId"
+    FROM "Card" c JOIN "CardSet" s ON s."id" = c."setId"
+    LEFT JOIN linked l ON l."cardId" = c."id"
+    GROUP BY s."id", s."name", s."externalId"
+    HAVING COUNT(*) = COUNT(l."cardId")`;
+}
+
 /**
  * Sets que TCGCSV NO tiene (tabla curada, residuo irreductible de B3; DECISIONES §AUTO-ENLACE 6.v). Cada fila lleva su prueba.
  * Se compara por nombre normalizado (acentos/mayúsculas/puntuación fuera) porque el `externalId` de pokemontcg.io no es estable para estos.

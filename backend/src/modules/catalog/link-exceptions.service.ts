@@ -7,7 +7,7 @@ import { SettingsService } from '../settings/settings.service';
 import { promoGroupFor } from './promo-set-groups';
 import { autoLinkEnabled } from './catalog-auto-link.service';
 import { CardLinkRepairService, LINK_REPAIR_GATE_NAMESPACE, LINK_REPAIR_MANUAL_COOLDOWN_MS, LinkExceptionReason } from './card-link-repair.service';
-import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
+import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart, type UnlinkedSetRow } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
 import { scoreGroupCandidates, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
 import { FinishReviewService } from './finish-review.service';
@@ -34,8 +34,13 @@ export interface LinkExceptionSet {
   unlinked: number;
   total: number;
   reason: LinkExceptionReason;
-  groupUsed: { groupId: number; name: string | null; via: 'auto' | 'confirmed' | 'promo_table' } | null;
+  groupUsed: { groupId: number; name: string | null; via: 'auto' | 'b3' | 'confirmed' | 'promo_table' } | null;
   candidates: GroupCandidate[];
+  /** §10.1 `b3_unverified`: ≤ 5 precios retenidos (mercado, sin margen ni IVA) para que el dueño juzgue el grupo. */
+  sample?: { cardName: string; number: string; finish: string; newPriceCents: number }[];
+  /** §10.4: cartas con candidato (botón «Revisar N cartas») y cartas sin producto en la fuente (informativo); de la última pasada, 0 si aún no se mide. */
+  reviewable: number;
+  noSourceProduct: number;
   canConfirm: boolean;
   lastAttemptAt: string | null;
   nextAttemptAt: string | null;
@@ -121,9 +126,24 @@ export class LinkExceptionsService {
     return { last, auto };
   }
 
+  /** Sets con grupo B3 aún sin confirmar cuyo último intento retuvo variantes (`b3_unverified`) y que NO están ya en la lista por cartas sin ligar. */
+  private async b3PendingRows(already: ReadonlySet<string>): Promise<UnlinkedSetRow[]> {
+    const sets = await this.prisma.cardSet.findMany({ where: { cardGroupVia: 'auto' }, select: { id: true, name: true, externalId: true } });
+    const cand = sets.filter((x) => !already.has(x.id) && untryableReason(x) === null);
+    if (cand.length === 0) return [];
+    const { last } = await this.lastAttempts(cand.map((x) => x.id));
+    const pending = cand.filter((x) => last.get(x.id)?.after.reason === 'b3_unverified');
+    if (pending.length === 0) return [];
+    const totals = await this.prisma.card.groupBy({ by: ['setId'], where: { setId: { in: pending.map((x) => x.id) } }, _count: { _all: true } });
+    const total = new Map(totals.map((t) => [t.setId, t._count._all]));
+    return pending.map((x) => ({ setId: x.id, name: x.name, externalId: x.externalId, unlinked: 0, total: total.get(x.id) ?? 0 }));
+  }
+
   /** `GET /admin/catalog/link-exceptions`. Orden: con piezas a la venta/en revisión primero, luego `unlinked` desc. */
   async list(now = new Date()): Promise<{ summary: LinkSummary; sets: LinkExceptionSet[] }> {
-    const [summary, rows, pieces] = await Promise.all([this.summary(now), unlinkedBySet(this.prisma), piecesBySet(this.prisma)]);
+    const [summary, unlinkedRows, pieces] = await Promise.all([this.summary(now), unlinkedBySet(this.prisma), piecesBySet(this.prisma)]);
+    // §10.1: un set con grupo B3 sin confirmar puede estar 100 % ligado (los enlaces sí se escriben) y aun así sin precio: entra por su motivo, no por cartas sin ligar.
+    const rows = [...unlinkedRows, ...(await this.b3PendingRows(new Set(unlinkedRows.map((r) => r.setId))))];
     const setMeta = await this.prisma.cardSet.findMany({
       where: { id: { in: rows.map((r) => r.setId) } },
       select: { id: true, series: true, releaseDate: true, cardGroupId: true, cardGroupVia: true },
@@ -142,21 +162,33 @@ export class LinkExceptionsService {
       let reason: LinkExceptionReason | null = fixed;
       let groupUsed: LinkExceptionSet['groupUsed'] = null;
       let candidates: GroupCandidate[] = [];
+      let sample: LinkExceptionSet['sample'];
       if (fixed === 'promo_route') {
         const p = promoGroupFor(r.externalId)!;
         groupUsed = { groupId: p.groupId, name: null, via: 'promo_table' };
       } else if (!fixed) {
         const a = la?.after ?? {};
-        const gu = a.groupUsed as { groupId?: number; name?: string | null; via?: 'auto' | 'confirmed' | 'promo_table' } | null | undefined;
+        const gu = a.groupUsed as { groupId?: number; name?: string | null; via?: 'auto' | 'b3' | 'confirmed' | 'promo_table' } | null | undefined;
+        // La fila del job (`auto_link`) guarda grupo y vía planos; la del botón (`link_repair`), anidados en `groupUsed`.
+        const flatVia = a.via as 'auto' | 'b3' | 'confirmed' | 'promo_table' | null | undefined;
         if (gu && typeof gu.groupId === 'number' && gu.via) groupUsed = { groupId: gu.groupId, name: gu.name ?? nameOfGroup(gu.groupId), via: gu.via };
+        else if (typeof a.groupId === 'number' && flatVia) groupUsed = { groupId: a.groupId, name: (typeof a.groupName === 'string' ? a.groupName : null) ?? nameOfGroup(a.groupId), via: flatVia };
         else if (m?.cardGroupId != null) groupUsed = { groupId: m.cardGroupId, name: nameOfGroup(m.cardGroupId), via: m.cardGroupVia === 'confirmed' ? 'confirmed' : 'auto' };
         const stored = a.candidates as GroupCandidate[] | undefined;
         if (la) {
           if (a.failed === true) reason = 'provider_failing';
           else if (typeof a.reason === 'string') reason = a.reason as LinkExceptionReason;
           else if ((Number(a.collisions) || 0) > 0) reason = 'collisions';
-          else reason = 'name_mismatch'; // intento limpio y siguen cartas sin ligar: la fuente no trae producto con ese nombre/número
-          if (reason === 'group_ambiguous' || reason === 'group_none') candidates = stored?.length ? stored : groups && m ? scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups) : [];
+          else reason = 'no_source_product'; // intento limpio (sin `name_mismatch` ni colisión guardados) y siguen cartas sin ligar: la fuente no trae producto con ese número/nombre (§10.4)
+          if (reason === 'b3_unverified') {
+            // Mejor candidato primero: `candidates[0]` = el grupo que eligió B3.
+            const chosen = groupUsed?.groupId ?? m?.cardGroupId ?? null;
+            const scored = groups && m ? scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups) : [];
+            const first = chosen != null ? (scored.find((c) => c.groupId === chosen) ?? { groupId: chosen, name: nameOfGroup(chosen) ?? groupUsed?.name ?? '', publishedOn: null, productCount: null, score: 0 }) : null;
+            candidates = [...(first ? [first] : []), ...scored.filter((c) => c.groupId !== chosen)].slice(0, 5);
+            const smp = a.b3Sample;
+            sample = Array.isArray(smp) ? (smp as NonNullable<LinkExceptionSet['sample']>).slice(0, 5) : [];
+          } else if (reason === 'group_ambiguous' || reason === 'group_none') candidates = stored?.length ? stored : groups && m ? scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups) : [];
         } else if (groups && m) {
           // Nunca intentado: solo es excepción si ya se sabe que no resolverá grupo (cálculo local sobre el `listGroups` cacheado).
           const c = scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups);
@@ -169,7 +201,10 @@ export class LinkExceptionsService {
       const nextAttempt = au && typeof au.after.nextAttemptAt === 'string' ? (au.after.nextAttemptAt as string) : null;
       out.push({
         setId: r.setId, name: r.name, unlinked: r.unlinked, total: r.total, reason, groupUsed, candidates,
-        canConfirm: reason === 'group_ambiguous' || reason === 'group_none',
+        ...(sample ? { sample } : {}),
+        reviewable: Number(la?.after.reviewable) || 0,
+        noSourceProduct: Number(la?.after.noSourceProduct) || 0,
+        canConfirm: reason === 'group_ambiguous' || reason === 'group_none' || reason === 'b3_unverified',
         lastAttemptAt: la?.createdAt.toISOString() ?? null,
         nextAttemptAt: fixed ? null : nextAttempt && Date.parse(nextAttempt) > now.getTime() ? nextAttempt : summary.autoLinkEnabled ? nextRun : null,
         tries: Number(au?.after.tries) || 0,
@@ -202,7 +237,9 @@ export class LinkExceptionsService {
     let claimId = '';
     const wait = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LINK_REPAIR_GATE_NAMESPACE}::int, hashtext(${'confirm:' + setId}))`;
-      const prev = await tx.auditLog.findFirst({ where: { action: CONFIRM_CLAIM, entityId: setId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+      // Un reclamo «liberado» (la confirmación falló y se revirtió) no cuenta para el cupo; la fila se conserva (la bitácora no se borra).
+      const claims = await tx.auditLog.findMany({ where: { action: CONFIRM_CLAIM, entityId: setId }, orderBy: { createdAt: 'desc' }, take: 5, select: { createdAt: true, after: true } });
+      const prev = claims.find((c) => (c.after as { released?: boolean } | null)?.released !== true);
       if (prev && now - prev.createdAt.getTime() < LINK_REPAIR_MANUAL_COOLDOWN_MS) return LINK_REPAIR_MANUAL_COOLDOWN_MS - (now - prev.createdAt.getTime());
       claimId = (await tx.auditLog.create({ data: { actorUserId: user.id, action: CONFIRM_CLAIM, entityType: 'CardSet', entityId: setId, after: { setId } }, select: { id: true } })).id;
       return 0;
@@ -225,16 +262,16 @@ export class LinkExceptionsService {
         ).id;
       });
     } catch (e) {
-      await this.prisma.auditLog.deleteMany({ where: { id: claimId } }).catch(() => undefined); // nada se confirmó: el cupo se devuelve
+      await this.releaseClaim(claimId, setId); // nada se confirmó: el cupo se devuelve (la fila se marca, no se borra)
       throw e;
     }
     const r = await this.repair.attemptSetConfirmed(setId, user.id, groups);
     if (r.error) {
       // «No persiste nada»: se devuelve la elección anterior (junto con su fila de bitácora) y el cupo.
-      await this.prisma.$transaction([
-        this.prisma.cardSet.update({ where: { id: setId }, data: { cardGroupId: before.groupId, cardGroupVia: before.via } }),
-        this.prisma.auditLog.deleteMany({ where: { id: { in: [auditId, claimId] } } }),
-      ]);
+      // La bitácora NO se borra: la fila `group_confirmed` queda y se añade la de reversa; el reclamo se marca liberado.
+      await this.prisma.cardSet.update({ where: { id: setId }, data: { cardGroupId: before.groupId, cardGroupVia: before.via } });
+      await this.audit.log({ actorUserId: user.id, actorRole: user.role, action: 'catalog.group_confirm_reverted', entityType: 'CardSet', entityId: setId, before: { groupId, via: 'confirmed' }, after: { ...before, reason: 'provider_failed', confirmAuditId: auditId } });
+      await this.releaseClaim(claimId, setId);
       throw this.upstream(setId, new Error(r.error));
     }
     // La confirmación reinicia la espera 1/3/7 del job para este set (progreso o no, hubo una decisión humana nueva).
@@ -244,6 +281,10 @@ export class LinkExceptionsService {
       groupUsed: { groupId, name: group.name, via: 'confirmed' },
       linked: r.linked, priced: r.priced, collisions: r.collisions, conflicts: r.conflicts, omitted: r.omitted, examples: r.examples.slice(0, 20),
     };
+  }
+
+  private async releaseClaim(claimId: string, setId: string): Promise<void> {
+    await this.prisma.auditLog.update({ where: { id: claimId }, data: { after: { setId, released: true } } }).catch(() => undefined);
   }
 
   /** AE-4: mensaje fijo al cliente; el detalle solo en la etiqueta del log del llamador (nunca el texto crudo del proveedor). */

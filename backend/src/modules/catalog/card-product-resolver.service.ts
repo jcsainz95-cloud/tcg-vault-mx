@@ -52,7 +52,7 @@ export const FINISH_ADD_RUN_CAP = 200;
 @Injectable()
 export class CardProductResolverService {
   private readonly logger = new Logger(CardProductResolverService.name);
-  private readonly groupIdCache = new Map<string, number>();
+  private readonly groupIdCache = new Map<string, { groupId: number; via: 'auto' | 'b3' }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -125,7 +125,7 @@ export class CardProductResolverService {
     pendingCards?: number;
     /** §AUTO-ENLACE F4: grupo TCGCSV usado (nombre del proveedor) y cómo se eligió; el nombre es `null` si `listGroups` no respondió. */
     groupName?: string | null;
-    groupVia?: 'auto' | 'confirmed' | 'promo_table';
+    groupVia?: 'auto' | 'b3' | 'confirmed' | 'promo_table';
     /** §9.6: variantes retenidas por el candado (no escritas); acabados añadidos (§9.5); freno por acabados; cordura del set. */
     held?: number;
     finishesAdded?: number;
@@ -133,6 +133,11 @@ export class CardProductResolverService {
     sanity?: { checked: number; held: number };
     /** `true` ⇒ el set entero NO se publicó (grupo equivocado): 0 enlaces, 0 precios. */
     sanityAborted?: boolean;
+    /** §10.1: variantes SIN referencia previa de un set con grupo B3 (`via:'b3'`) NO publicadas hasta que el dueño confirme el grupo; hasta 5 de muestra. */
+    reviewable?: number;
+    noSourceProduct?: number;
+    b3Retained?: number;
+    b3Sample?: { cardName: string; number: string; finish: Finish; newPriceCents: number }[];
     /** ≤ 5 precios publicados (para `auto-link-runs`). */
     samples?: { cardName: string; number: string; finish: Finish; newPriceCents: number; previousPriceCents: number | null }[];
   } | null> {
@@ -209,6 +214,16 @@ export class CardProductResolverService {
       normalizeCardNumber,
       { onlyUnlinked: opts.onlyUnlinked === true },
     );
+    // §10.4: de las cartas que esta pasada NO liga, cuántas tienen candidato (revisables por carta) y cuántas no tienen producto en la fuente.
+    const planned = new Set([...plan.links.values()].map((l) => l.cardId));
+    const freeNumbers = new Set(derived.filter((d) => (d.kind === 'set_base' || d.kind === 'other') && d.number != null && !ownerOf.has(d.productId) && !plan.links.has(d.productId)).map((d) => normalizeCardNumber(d.number!)));
+    let reviewable = 0;
+    let noSourceProduct = 0;
+    for (const c of localCards) {
+      if (c._count.cardProducts > 0 || planned.has(c.id)) continue;
+      if (freeNumbers.has(normalizeCardNumber(c.number))) reviewable += 1;
+      else noSourceProduct += 1;
+    }
     if (plan.collisions > 0 || plan.omitted > 0) {
       this.logger.warn(
         `card-product: set ${set.name} (grupo ${groupId}) — ${plan.collisions} producto(s) en colisión de número/nombre y ` +
@@ -325,6 +340,8 @@ export class CardProductResolverService {
     const verdictOf = (j: PriceJob): GateVerdict | undefined => verdicts.get(variantKey({ cardId: j.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: j.finish }));
     const sanity = AutoLinkPriceGate.sanity(verdicts.values());
     const unknown = unknownSubtypes.length;
+    // §10.1: grupo elegido por la regla B3 (sin segunda fuente que lo confirme) ⇒ lo SIN referencia previa no se publica hasta que el dueño confirme el grupo.
+    if (gating && resolved.via === 'b3') for (const v of verdicts.values()) if (!v.hasBase) v.b3Unverified = true;
     if (gating && sanity.tripped && resolved.via !== 'confirmed') {
       // (ii) grupo equivocado: ≥ 20 % de las variantes con referencia previa retenidas ⇒ el set entero NO se publica (0 enlaces, 0 precios, 0 casos).
       this.logger.warn(`card-product: set ${set.name} (grupo ${groupId}) frenado por cordura (${sanity.held}/${sanity.checked} variantes con salto); 0 escrituras.`);
@@ -350,8 +367,21 @@ export class CardProductResolverService {
         samples.push({ cardName: ci?.name ?? '', number: ci?.number ?? '', finish: j.finish, newPriceCents: mxnOf(j.usd), previousPriceCents: v?.hasBase ? v.baselineMxnCents : null });
       }
     };
+    let b3Retained = 0;
+    const b3Sample: { cardName: string; number: string; finish: Finish; newPriceCents: number }[] = [];
+    const retainB3 = (j: PriceJob): void => {
+      b3Retained += 1;
+      if (b3Sample.length < 5) {
+        const ci = cardInfo.get(j.cardId);
+        b3Sample.push({ cardName: ci?.name ?? '', number: ci?.number ?? '', finish: j.finish, newPriceCents: mxnOf(j.usd) });
+      }
+    };
     const publish = async (j: PriceJob, cpid: string): Promise<void> => {
       const v = verdictOf(j);
+      if (v?.b3Unverified) {
+        retainB3(j); // NO se escribe `PriceReference` (ni la lee el cliente por ninguna vía); el enlace sí queda
+        return;
+      }
       if (v?.held) {
         heldCount += 1; // variante retenida: NO se escribe `PriceReference` (ni la lee el cliente por ninguna vía)
         heldVerdicts.push(v);
@@ -401,7 +431,9 @@ export class CardProductResolverService {
       const ok: { j: PriceJob; v?: GateVerdict }[] = [];
       for (const j of list) {
         const v = verdictOf(j);
-        if (v?.held) {
+        if (v?.b3Unverified) {
+          retainB3(j);
+        } else if (v?.held) {
           heldCount += 1;
           heldVerdicts.push(v);
           notApplied('price_jump');
@@ -465,6 +497,10 @@ export class CardProductResolverService {
       groupName,
       groupVia: resolved.via,
       held: heldCount,
+      b3Retained,
+      b3Sample,
+      reviewable,
+      noSourceProduct,
       finishesAdded,
       finishSurge,
       sanity: gating ? { checked: sanity.checked, held: sanity.held } : undefined,
@@ -541,7 +577,7 @@ export class CardProductResolverService {
   async describeGroup(
     localSetId: string,
     groups?: readonly TcgcsvGroupRef[],
-  ): Promise<{ groupId: number | null; name: string | null; via: 'auto' | 'confirmed' | 'promo_table' | null; failure: 'ambiguous' | 'none' | null; candidates: GroupCandidate[] }> {
+  ): Promise<{ groupId: number | null; name: string | null; via: 'auto' | 'b3' | 'confirmed' | 'promo_table' | null; failure: 'ambiguous' | 'none' | null; candidates: GroupCandidate[] }> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
       select: { id: true, name: true, pptSetId: true, externalId: true, series: true, releaseDate: true, cardGroupId: true, cardGroupVia: true },
@@ -552,7 +588,7 @@ export class CardProductResolverService {
     const all = groups ?? (await this.tcgcsv.listGroups());
     const m = await resolveTcgcsvGroupForSet(set, async () => all);
     if (m.groupId != null) {
-      return { groupId: m.groupId, name: all.find((g) => g.groupId === m.groupId)?.name ?? null, via: m.via === 'confirmed' ? 'confirmed' : 'auto', failure: null, candidates: [] };
+      return { groupId: m.groupId, name: all.find((g) => g.groupId === m.groupId)?.name ?? null, via: m.via === 'confirmed' ? 'confirmed' : m.via === 'b3' ? 'b3' : 'auto', failure: null, candidates: [] };
     }
     return { groupId: null, name: null, via: null, failure: m.failure === 'ambiguous' ? 'ambiguous' : 'none', candidates: scoreGroupCandidates(set, all) };
   }
@@ -647,16 +683,18 @@ export class CardProductResolverService {
   private async resolveGroup(
     set: { id: string; name: string; pptSetId: string | null; externalId: string; series?: string | null; releaseDate?: string | null; printedTotal?: number | null; cardGroupId?: number | null; cardGroupVia?: string | null },
     groups?: readonly TcgcsvGroupRef[],
-  ): Promise<{ groupId: number; via: 'auto' | 'confirmed' | 'promo_table' } | null> {
+  ): Promise<{ groupId: number; via: 'auto' | 'b3' | 'confirmed' | 'promo_table' } | null> {
     // Un grupo CONFIRMADO nunca se cachea (el dueño puede cambiarlo; se relee de la columna en cada corrida).
     const cached = set.cardGroupVia === 'confirmed' ? undefined : this.groupIdCache.get(set.id);
-    if (cached != null) return { groupId: cached, via: 'auto' };
+    if (cached != null) return { groupId: cached.groupId, via: cached.via };
 
     // P-PROMOS-VIEJAS: tabla fija > pptSetId numérico > nombre, en la función compartida con la ruta de estructura.
     const match = await resolveTcgcsvGroupForSet(set, async () => groups ?? (await this.tcgcsv.listGroups()));
     if (match.groupId != null) {
-      if (match.via !== 'confirmed') this.groupIdCache.set(set.id, match.groupId);
-      return { groupId: match.groupId, via: match.via === 'promo_table' ? 'promo_table' : match.via === 'confirmed' ? 'confirmed' : 'auto' };
+      // §10.1 (B4): `b3` se CONSERVA (no se aplana a `auto`): de él depende la retención de variantes sin referencia previa y lo ve `auto-link-runs`.
+      const via = match.via === 'promo_table' ? 'promo_table' : match.via === 'confirmed' ? 'confirmed' : match.via === 'b3' ? 'b3' : 'auto';
+      if (via === 'auto' || via === 'b3') this.groupIdCache.set(set.id, { groupId: match.groupId, via });
+      return { groupId: match.groupId, via };
     }
 
     this.logger.warn(

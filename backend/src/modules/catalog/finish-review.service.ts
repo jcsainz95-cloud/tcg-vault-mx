@@ -6,7 +6,7 @@ import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import type { SaleItem } from '../pricing/sale-decision.service';
-import { SEALED_SALE_PRICE_INCLUDE, isPresentAmount } from '../../common/money';
+import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 
 /** Acabado destino por acabado actual (WotC: «Unlimited» → 1.ª edición). Solo estas dos transiciones existen. */
 const TARGET_OF: Partial<Record<Finish, Finish>> = { normal: 'first_edition', holofoil: 'first_edition_holofoil' };
@@ -25,7 +25,7 @@ export interface FinishReviewItem {
   targetFinish: 'first_edition' | 'first_edition_holofoil';
   currentPriceCents: number | null;
   targetPriceCents: number | null;
-  /** `InventoryItem.listPriceCents` explícito (> 0): el precio de ESTA pieza lo puso el dueño; se conserva siempre (§9.1). */
+  /** `InventoryItem.listPriceCents` explícito (`!= null`, también 0; contrato §10.8): el precio de ESTA pieza lo puso el dueño; se conserva siempre (§9.1). */
   hasManualPrice: boolean;
   /** §9.3: solo `null | 'no_target_price'` — las piezas con venta/reserva/custodia/de cliente no entran en la lista. */
   blockedReason: null | 'no_target_price';
@@ -113,7 +113,7 @@ export class FinishReviewService {
         currentFinish: r.finish as FinishReviewItem['currentFinish'],
         targetFinish: TARGET_OF[r.finish] as FinishReviewItem['targetFinish'],
         currentPriceCents: r.listingPrice?.unitPriceCents ?? null, targetPriceCents: target,
-        hasManualPrice: isPresentAmount(r.listPriceCents), blockedReason: blocked,
+        hasManualPrice: r.listPriceCents != null, blockedReason: blocked,
       };
     });
   }
@@ -153,7 +153,7 @@ export class FinishReviewService {
           return {
             inventoryItemId, decision: decision as 'keep' | 'first_edition', alreadyResolved: true,
             before: { finish: b.finish ?? item.finish, unitPriceCents: b.unitPriceCents ?? null },
-            after: { finish: a.finish ?? item.finish, unitPriceCents: a.unitPriceCents ?? null, manualPriceKept: a.manualPriceKept ?? isPresentAmount(item.listPriceCents) },
+            after: { finish: a.finish ?? item.finish, unitPriceCents: a.unitPriceCents ?? null, manualPriceKept: a.manualPriceKept ?? item.listPriceCents != null },
           };
         }
         throw BusinessException.conflict('ALREADY_RESOLVED', 'This piece already has a different decision', { inventoryItemId, decision: was.decision });
@@ -170,7 +170,7 @@ export class FinishReviewService {
       if (blocked) throw BusinessException.conflict('ITEM_LOCKED', 'This piece cannot be changed now', { inventoryItemId, blockedReason: blocked });
 
       const lp = await tx.listingPrice.findUnique({ where: { inventoryItemId }, select: { unitPriceCents: true } });
-      const manual = isPresentAmount(item.listPriceCents);
+      const manual = item.listPriceCents != null;
       const before: BeforeSide = { finish: item.finish, unitPriceCents: lp?.unitPriceCents ?? null };
       // §9.1: el precio manual de la pieza (`InventoryItem.listPriceCents`) se CONSERVA siempre; `updateMany` no lo toca (solo `finish`).
       let after: AfterSide = { ...before, manualPriceKept: manual };

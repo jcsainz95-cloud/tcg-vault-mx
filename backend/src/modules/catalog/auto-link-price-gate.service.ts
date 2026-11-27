@@ -31,6 +31,8 @@ export interface GateVerdict {
   baselineMxnCents: number | null;
   decision: LockDecision;
   result: RobustResult;
+  /** §10.1: set con grupo B3 y variante sin referencia previa ⇒ retenida hasta que el dueño confirme el grupo (la marca el resolver). */
+  b3Unverified?: boolean;
 }
 
 const KEY = (c: { cardId: string; finish: Finish }) => ({ cardId: c.cardId, productType: 'raw' as ProductType, gradeKey: 'raw:NM', finish: c.finish });

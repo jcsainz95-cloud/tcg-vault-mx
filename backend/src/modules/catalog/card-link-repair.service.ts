@@ -14,11 +14,11 @@ import type { TcgcsvGroupRef } from '../pricing/pricing.types';
 
 export type NotLinkableReason = 'no_group' | 'tcgcsv_source' | 'promo_route';
 /** §AUTO-ENLACE §2 (mismo enum del contrato; la FASE 1 emite el subconjunto que mide). */
-export type LinkExceptionReason = 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route' | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider' | 'price_sanity' | 'finish_surge' | 'reverted';
+export type LinkExceptionReason = 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route' | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider' | 'price_sanity' | 'finish_surge' | 'reverted' | 'b3_unverified' | 'no_source_product';
 export interface GroupUsed {
   groupId: number;
   name: string | null;
-  via: 'auto' | 'confirmed' | 'promo_table';
+  via: 'auto' | 'b3' | 'confirmed' | 'promo_table';
 }
 
 /**
@@ -131,6 +131,11 @@ export interface LinkRepairSetResult {
   /** §9.6: variantes retenidas por el candado (`omitted: price_jump`); §9.5: acabados añadidos; cordura del set. */
   held: number;
   finishesAdded: number;
+  /** §10.1: variantes retenidas por grupo B3 sin confirmar + muestra ≤ 5 (alimenta la lista de excepciones). */
+  reviewable?: number;
+  noSourceProduct?: number;
+  b3Retained?: number;
+  b3Sample?: { cardName: string; number: string; finish: string; newPriceCents: number }[];
   sanity?: { checked: number; held: number };
   /** ≤ 5 precios publicados (alimenta `auto-link-runs`). */
   samples: { cardName: string; number: string; finish: string; newPriceCents: number; previousPriceCents: number | null }[];
@@ -521,9 +526,13 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
         res.held = r.held ?? 0;
         res.finishesAdded = r.finishesAdded ?? 0;
         res.sanity = r.sanity;
+        res.reviewable = r.reviewable ?? 0;
+        res.noSourceProduct = r.noSourceProduct ?? 0;
+        res.b3Retained = r.b3Retained ?? 0;
+        res.b3Sample = (r.b3Sample ?? []).map((x) => ({ ...x }));
         res.samples = (r.samples ?? []).map((x) => ({ ...x }));
         res.linkedCardIds = (r.touchedCardIds ?? []).slice(0, 600);
-        res.reason = r.sanityAborted ? 'price_sanity' : res.collisions > 0 ? 'collisions' : res.omitted.some((o) => o.reason === 'name_mismatch') ? 'name_mismatch' : r.finishSurge ? 'finish_surge' : null;
+        res.reason = r.sanityAborted ? 'price_sanity' : (r.b3Retained ?? 0) > 0 ? 'b3_unverified' : res.collisions > 0 ? 'collisions' : res.omitted.some((o) => o.reason === 'name_mismatch') ? 'name_mismatch' : r.finishSurge ? 'finish_surge' : null;
         if (res.linked > 0) {
           const inv = await this.correctInventoryFinish(r.touchedCardIds ?? [], trigger);
           res.piecesCorrected = inv.corrected;
@@ -539,7 +548,7 @@ export class CardLinkRepairService implements OnApplicationBootstrap, OnModuleDe
           setId, linked: res.linked, collisions: res.collisions, conflicts: res.conflicts,
           omitted: res.omitted.reduce((n, o) => n + o.count, 0), omittedReasons: res.omitted, notLinkable: res.notLinkable,
           priced: res.priced, groupUsed: res.groupUsed, reason: res.reason, ...(res.candidates?.length ? { candidates: res.candidates } : {}),
-          piecesCorrected: res.piecesCorrected, held: res.held, finishesAdded: res.finishesAdded, ...(res.sanity ? { sanity: res.sanity } : {}), trigger,
+          piecesCorrected: res.piecesCorrected, held: res.held, finishesAdded: res.finishesAdded, ...(res.sanity ? { sanity: res.sanity } : {}), ...(res.b3Retained ? { b3Retained: res.b3Retained, b3Sample: res.b3Sample } : {}), reviewable: res.reviewable ?? 0, noSourceProduct: res.noSourceProduct ?? 0, trigger,
         },
       });
     } catch (e) {

@@ -127,7 +127,8 @@ describe('E2E — §AUTO-ENLACE §9.4 confirmación por carta + §9.6 candado', 
     expect((await confirm(A.setId, cid, pid, operator)).status).toBe(403);
     expect((await confirm(randomUUID(), cid, pid)).status).toBe(404);
     expect((await confirm(A.setId, randomUUID(), pid)).status).toBe(404);
-    expect((await confirm(A.setId, cid, 'x')).status).toBe(400);
+    expect((await confirm(A.setId, cid, 'x')).status).toBe(422); // §10 menor: 422 VALIDATION_ERROR coherente (no 400)
+    expect([(await confirm(A.setId, cid, 1.5)).status, (await confirm(A.setId, cid, undefined)).status]).toEqual([422, 422]);
     const no = await confirm(A.setId, cid, GA * 100 + 2); // producto de OTRO número
     expect([no.status, code(no)]).toEqual([422, 'PRODUCT_NOT_CANDIDATE']);
     expect(await h.prisma.cardProduct.count({ where: { cardId: cid } })).toBe(0);
@@ -160,7 +161,7 @@ describe('E2E — §AUTO-ENLACE §9.4 confirmación por carta + §9.6 candado', 
     const pid = GA * 100 + 50;
     expect((await confirm(A.setId, uno, pid)).status).toBe(200);
     const hermana = (await list(A.setId)).body.items.find((i: any) => i.cardId === dos);
-    expect(hermana).toBeUndefined();
+    expect(hermana).toMatchObject({ reason: 'no_source_product', candidates: [] }); // ya sin candidato: queda marcada, informativa
     const taken = await confirm(A.setId, dos, pid);
     expect([taken.status, code(taken)]).toEqual([409, 'PRODUCT_TAKEN']);
     expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: pid } })).toBe(1);
@@ -182,7 +183,7 @@ describe('E2E — §AUTO-ENLACE §9.4 confirmación por carta + §9.6 candado', 
     const job = h.app.get(CatalogAutoLinkService);
     const before = await h.prisma.cardProduct.findMany({ where: { cardId: { in: A.cardIds } }, select: { id: true, cardId: true, tcgplayerProductId: true, finishes: true }, orderBy: { tcgplayerProductId: 'asc' } });
     await clearClaims();
-    const first = await job.run({ trigger: 'manual', maxSets: 50 });
+    const first = await job.run({ trigger: 'manual', maxSets: 50, onlySetIds: setIds });
     expect(first.sets.some((x) => x.setId === B.setId && x.linked === 5)).toBe(true); // el set 100 % automático sí lo liga el job
     expect(await h.prisma.cardProduct.findMany({ where: { cardId: { in: A.cardIds } }, select: { id: true, cardId: true, tcgplayerProductId: true, finishes: true }, orderBy: { tcgplayerProductId: 'asc' } })).toEqual(before);
     expect(before.length).toBeGreaterThanOrEqual(2);
@@ -221,7 +222,7 @@ describe('E2E — §AUTO-ENLACE §9.4 confirmación por carta + §9.6 candado', 
     calls.push(confirm(twins.setId, twins.cardIds[1], GA * 100 + 90).then((r) => ({ ...r, tag: 'twin' })));
     const C = await mkSet('C', GB, ['Ditto', 'Lapras', 'Vaporeon', 'Jolteon', 'Flareon'].map((name, i) => ({ name, number: String(i + 11) })));
     productsOf.set(GB, [...productsOf.get(GB)!, ...['Ditto', 'Lapras', 'Vaporeon', 'Jolteon', 'Flareon'].map((name, i) => ({ productId: GB * 100 + i + 11, name, number: String(i + 11) }))]);
-    const jobRun = job.run({ trigger: 'manual', maxSets: 50 });
+    const jobRun = job.run({ trigger: 'manual', maxSets: 50, onlySetIds: setIds });
     const res = await Promise.all(calls);
     const jr = await jobRun;
     const N = res.length;

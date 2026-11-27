@@ -10,7 +10,7 @@ import { isSchedulerDisabled } from '../../config/test-env';
 import { CardLinkRepairService, LinkRepairSetResult, LINK_REPAIR_GATE_NAMESPACE } from './card-link-repair.service';
 import { AUTO_LINK_PRICE_LOCK_KEY } from './auto-link-lock';
 import { TcgcsvCallBudget } from './tcgcsv-call-budget';
-import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
+import { countsInUnlinkedCards, fullyLinkedSets, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
 import { SANITY_WAIT_DAYS } from './auto-link-price-gate.service';
 import { FINISH_ADD_RUN_CAP } from './card-product-resolver.service';
@@ -20,6 +20,8 @@ export const AUTO_LINK_MAX_SETS = 8;
 export const AUTO_LINK_MAX_CARDS = 600;
 export const AUTO_LINK_MAX_CALLS = 40;
 export const AUTO_LINK_MAX_MS = 30 * 60_000;
+/** §10.2: sets ya ligados que se reconcilian (acabados) por corrida, tras la tanda principal y con los mismos topes. */
+export const AUTO_LINK_SWEEP_SETS = 10;
 /** Espera tras un intento sin progreso: 1, 3, 7, 7… días. */
 export const AUTO_LINK_BACKOFF_DAYS = [1, 3, 7] as const;
 
@@ -41,7 +43,9 @@ export interface AutoLinkRunResult {
   /** §9.6 (iii): id de la corrida (liga la fila `auto_link_run` con las filas `auto_link` de sus sets). */
   runId?: string;
   held?: number;
-  sets: { setId: string; linked: number; priced: number; reason: string | null; held?: number; finishesAdded?: number; error?: string }[];
+  /** §10.2: sets ya ligados reconciliados en esta corrida (no cuentan en `setsTried`). */
+  swept?: number;
+  sets: { setId: string; linked: number; priced: number; reason: string | null; held?: number; finishesAdded?: number; sweep?: true; error?: string }[];
 }
 
 export interface AutoLinkRunOptions {
@@ -53,6 +57,8 @@ export interface AutoLinkRunOptions {
   maxMs?: number;
   retryDelayMs?: number;
   now?: () => number;
+  /** Pruebas: limita la tanda (y el barrido) a estos sets; la lista se lee en cada corrida. */
+  onlySetIds?: readonly string[];
 }
 
 /** Racha de intentos sin progreso → días de espera (1, 3, 7, 7…). `previousStreak` = intentos SIN progreso inmediatamente anteriores. */
@@ -132,7 +138,7 @@ export class CatalogAutoLinkService {
     const budget = new TcgcsvCallBudget({ max: opts.maxCalls ?? AUTO_LINK_MAX_CALLS, retryDelayMs: opts.retryDelayMs, deadlineAt: started + maxMs, now });
     const runId = randomUUID();
     const finishBudget = { remaining: FINISH_ADD_RUN_CAP };
-    const out: AutoLinkRunResult = { ran: true, runId, held: 0, setsTried: 0, linked: 0, priced: 0, remainingBefore: 0, remainingAfter: 0, tcgcsvCalls: 0, durationMs: 0, sets: [] };
+    const out: AutoLinkRunResult = { ran: true, runId, held: 0, swept: 0, setsTried: 0, linked: 0, priced: 0, remainingBefore: 0, remainingAfter: 0, tcgcsvCalls: 0, durationMs: 0, sets: [] };
     const finish = async (aborted?: string): Promise<AutoLinkRunResult> => {
       out.remainingAfter = await this.remainingUnlinked();
       out.tcgcsvCalls = budget.used;
@@ -140,15 +146,16 @@ export class CatalogAutoLinkService {
       if (aborted) out.aborted = aborted;
       await this.audit.log({
         actorUserId: null, action: RUN_ACTION, entityType: 'CardSet',
-        after: { setsTried: out.setsTried, linked: out.linked, priced: out.priced, remainingBefore: out.remainingBefore, remainingAfter: out.remainingAfter, tcgcsvCalls: out.tcgcsvCalls, durationMs: out.durationMs, trigger: opts.trigger ?? 'cron', runId, held: out.held ?? 0, ...(aborted ? { aborted } : {}) },
+        after: { setsTried: out.setsTried, linked: out.linked, priced: out.priced, remainingBefore: out.remainingBefore, remainingAfter: out.remainingAfter, tcgcsvCalls: out.tcgcsvCalls, durationMs: out.durationMs, trigger: opts.trigger ?? 'cron', runId, held: out.held ?? 0, swept: out.swept ?? 0, ...(aborted ? { aborted } : {}) },
       });
       this.logger.log(`catalog-auto-link: sets=${out.setsTried} ligadas=${out.linked} con precio=${out.priced} quedan ${out.remainingBefore}→${out.remainingAfter} llamadas=${out.tcgcsvCalls} ${out.durationMs}ms${aborted ? ` ABORTADA(${aborted})` : ''}.`);
       return out;
     };
 
     out.remainingBefore = await this.remainingUnlinked();
-    const order = await this.pickSets(opts.maxSets ?? AUTO_LINK_MAX_SETS);
-    if (order.length === 0) return finish();
+    const order = await this.pickSets(opts.maxSets ?? AUTO_LINK_MAX_SETS, new Date(), opts.onlySetIds);
+    const sweep = await this.pickSweepSets(AUTO_LINK_SWEEP_SETS, opts.onlySetIds);
+    if (order.length === 0 && sweep.length === 0) return finish();
 
     // `listGroups`: 1 por corrida (cuenta en el tope); sirve a todos los sets de la tanda y llena el caché de 24 h de la lista de excepciones.
     let groups: TcgcsvGroupRef[];
@@ -176,7 +183,60 @@ export class CatalogAutoLinkService {
       out.sets.push({ setId: s.setId, linked: r.linked, priced: r.priced, reason: r.reason, held: r.held, finishesAdded: r.finishesAdded, ...(r.error ? { error: r.error } : {}) });
       await this.recordSet(s.setId, r, s.previousNoProgress, now(), runId);
     }
+
+    // §10.2: tras la tanda principal (que tiene prioridad) y con los MISMOS topes, hasta 10 sets ya ligados rotan por su último barrido de acabados.
+    for (const s of sweep) {
+      if (budget.tripped) return finish('circuit_open');
+      if (now() - started >= maxMs) return finish('time');
+      if (budget.remaining < 2) return finish('call_cap');
+      if (finishBudget.remaining <= 0) break; // sin cupo de acabados no hay nada que reconciliar hoy
+      if (!(await this.claim(s.setId))) continue;
+      const r = await this.repair.attemptSetAuto(s.setId, { budget, groups, maxLinks: 0, finishBudget });
+      out.swept = (out.swept ?? 0) + 1;
+      out.priced += r.priced;
+      out.held = (out.held ?? 0) + r.held;
+      out.sets.push({ setId: s.setId, linked: 0, priced: r.priced, reason: r.reason, held: r.held, finishesAdded: r.finishesAdded, sweep: true, ...(r.error ? { error: r.error } : {}) });
+      if (!r.error) await this.recordSweep(s.setId, r, runId);
+    }
     return finish(budget.tripped ? 'circuit_open' : undefined);
+  }
+
+  /**
+   * §10.2 — sets 100 % ligados por la fecha más antigua de su último barrido (`catalog.auto_link`, con o sin `sweep`; un set sin barrido previo es el más
+   * antiguo). Los sets que el job ya reclamó hoy no vuelven a salir (el reclamo por set y día manda).
+   */
+  async pickSweepSets(limit: number, onlySetIds?: readonly string[]): Promise<{ setId: string }[]> {
+    const only = onlySetIds ? new Set(onlySetIds) : null;
+    const rows = (await fullyLinkedSets(this.prisma)).filter((r) => untryableReason(r) === null && (!only || only.has(r.setId)));
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.setId);
+    const [lastRows, claims] = await Promise.all([
+      this.prisma.auditLog.groupBy({ by: ['entityId'], where: { action: ACTION, entityId: { in: ids } }, _max: { createdAt: true } }),
+      this.prisma.auditLog.findMany({ where: { action: CLAIM, createdAt: { gte: utcDayStart() }, entityId: { in: ids } }, select: { entityId: true } }),
+    ]);
+    const last = new Map(lastRows.map((r) => [r.entityId, r._max.createdAt?.getTime() ?? -1]));
+    const claimed = new Set(claims.map((c) => c.entityId));
+    return rows
+      .filter((r) => !claimed.has(r.setId))
+      .sort((a, b) => (last.get(a.setId) ?? -1) - (last.get(b.setId) ?? -1) || (a.setId < b.setId ? -1 : 1))
+      .slice(0, limit)
+      .map((r) => ({ setId: r.setId }));
+  }
+
+  /** Auditoría del barrido (rota el set aunque no haya cambios): sin racha ni espera del job (`noProgress:false`). */
+  private async recordSweep(setId: string, r: LinkRepairSetResult, runId: string): Promise<void> {
+    await this.audit.log({
+      actorUserId: null,
+      action: ACTION,
+      entityType: 'CardSet',
+      entityId: setId,
+      after: {
+        setId, sweep: true, runId, groupId: r.groupUsed?.groupId ?? null, via: r.groupUsed?.via ?? null, groupName: r.groupUsed?.name ?? null,
+        linked: 0, priced: r.priced, held: r.held, finishesAdded: r.finishesAdded, omitted: r.omitted, reason: r.reason, noProgress: false, nextAttemptAt: null, tries: 0,
+        linkedCardIds: [], sample: r.samples,
+        ...(r.b3Retained ? { b3Retained: r.b3Retained, b3Sample: r.b3Sample } : {}),
+      },
+    });
   }
 
   /** Cartas sin ligar de sets que el job puede tocar (promos/`tcgcsv:`/«no está en el proveedor» salen aparte). */
@@ -188,8 +248,9 @@ export class CatalogAutoLinkService {
    * Prioridad (DECISIONES §AUTO-ENLACE 1): (1) sets con piezas a la venta o en revisión de precio sobre cartas sin ligar, por nº de piezas desc;
    * (2) más cartas sin ligar; (3) intento más antiguo. Excluye promos/`tcgcsv:`/no-proveedor, sets en espera y los ya reclamados hoy.
    */
-  async pickSets(limit: number, at = new Date()): Promise<{ setId: string; unlinked: number; pieces: number; previousNoProgress: number }[]> {
-    const rows = (await unlinkedBySet(this.prisma)).filter((s) => untryableReason(s) === null);
+  async pickSets(limit: number, at = new Date(), onlySetIds?: readonly string[]): Promise<{ setId: string; unlinked: number; pieces: number; previousNoProgress: number }[]> {
+    const only = onlySetIds ? new Set(onlySetIds) : null;
+    const rows = (await unlinkedBySet(this.prisma)).filter((s) => untryableReason(s) === null && (!only || only.has(s.setId)));
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.setId);
     const [pc, attempts, claims] = await Promise.all([
@@ -239,8 +300,10 @@ export class CatalogAutoLinkService {
     const progress = r.linked > 0 || r.priced > 0 || r.finishesAdded > 0;
     const noProgress = !r.error && !progress;
     // §9.6 (ii): un set frenado por cordura espera 7 días (grupo equivocado: reintentar mañana daría el mismo resultado).
-    const waitDays = r.reason === 'price_sanity' ? SANITY_WAIT_DAYS : backoffDays(previousNoProgress);
-    const nextAttemptAt = noProgress ? new Date(utcDayStart(new Date(nowMs)).getTime() + waitDays * 86_400_000).toISOString() : null;
+    // §10.1: `b3_unverified` tampoco se reintenta (el dato no cambia hasta que el dueño confirme): misma espera de 7 días, aunque el job SÍ ligó.
+    const waitsLong = r.reason === 'price_sanity' || r.reason === 'b3_unverified';
+    const waitDays = waitsLong ? SANITY_WAIT_DAYS : backoffDays(previousNoProgress);
+    const nextAttemptAt = noProgress || r.reason === 'b3_unverified' ? new Date(utcDayStart(new Date(nowMs)).getTime() + waitDays * 86_400_000).toISOString() : null;
     await this.audit.log({
       actorUserId: null,
       action: ACTION,
@@ -253,6 +316,8 @@ export class CatalogAutoLinkService {
         ...(runId ? { runId } : {}), held: r.held, finishesAdded: r.finishesAdded, ...(r.sanity ? { sanity: r.sanity } : {}),
         linkedCardIds: r.linkedCardIds, sample: r.samples,
         ...(r.candidates?.length ? { candidates: r.candidates } : {}),
+        ...(r.b3Retained ? { b3Retained: r.b3Retained, b3Sample: r.b3Sample } : {}),
+        reviewable: r.reviewable ?? 0, noSourceProduct: r.noSourceProduct ?? 0,
         ...(r.error ? { error: r.error } : {}),
       },
     });

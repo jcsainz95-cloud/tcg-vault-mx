@@ -58,7 +58,8 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
     const prs = await h.prisma.priceReference.findMany({ where: { cardId: { in: ids } }, orderBy: { id: 'asc' } });
     return JSON.stringify({ cards, cps, prs });
   }
-  const opts = { retryDelayMs: 0 };
+  // Hermético: el job solo toca MIS sets (otras suites dejan sets/cartas sin ligar que, si no, se elegirían primero y agotarían los topes).
+  const opts = { retryDelayMs: 0, onlySetIds: setIds };
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -129,7 +130,7 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
     const item = await h.prisma.inventoryItem.create({
       data: { folio: `AL-${run}-001`, cardId: c.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', ownerType: 'platform', status: 'listed', acquisitionType: 'compra', acquisitionCostCents: 5000, firstListedAt: new Date(), locationId: shelf },
     });
-    const order = await job.pickSets(50);
+    const order = await job.pickSets(50, new Date(), setIds);
     const ids = order.map((o) => o.setId);
     expect(ids.indexOf(setNoGroup)).toBeLessThan(ids.indexOf(setA)); // A tiene 29 sin ligar, N solo 4 (con pieza)
     expect(order.find((o) => o.setId === setNoGroup)!.pieces).toBe(1);
@@ -178,13 +179,13 @@ describe('E2E — §AUTO-ENLACE fase 2 catalog-auto-link', () => {
     await mkAttempt(true, 1, 1, t0);
     const day = (n: number) => new Date(Date.UTC(2026, 0, 10 + n, 5));
     // En t0 + 12 h todavía espera; en t0 + 1 día (05:00) ya es elegible.
-    expect((await job.pickSets(50, new Date(t0.getTime() + 12 * 3_600_000))).some((o) => o.setId === setNoGroup)).toBe(false);
-    const again = (await job.pickSets(50, day(1))).find((o) => o.setId === setNoGroup);
+    expect((await job.pickSets(50, new Date(t0.getTime() + 12 * 3_600_000), setIds)).some((o) => o.setId === setNoGroup)).toBe(false);
+    const again = (await job.pickSets(50, day(1), setIds)).find((o) => o.setId === setNoGroup);
     expect(again?.previousNoProgress).toBe(1); // la siguiente espera será de 3 días
     const { backoffDays } = await import('../../src/modules/catalog/catalog-auto-link.service');
     expect([0, 1, 2, 3, 9].map(backoffDays)).toEqual([1, 3, 7, 7, 7]);
     await mkAttempt(false, 0, 0, day(1)); // progreso ⇒ racha 0
-    expect((await job.pickSets(50, day(2))).find((o) => o.setId === setNoGroup)?.previousNoProgress).toBe(0);
+    expect((await job.pickSets(50, day(2), setIds)).find((o) => o.setId === setNoGroup)?.previousNoProgress).toBe(0);
   });
 
   it('AE-6: tope de llamadas (listGroups cuenta; un set = 2) y tope de sets', async () => {

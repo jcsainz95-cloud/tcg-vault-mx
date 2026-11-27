@@ -16,12 +16,19 @@ import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
 /** §AUTO-ENLACE fase 3 — body de `POST /admin/catalog/link-exceptions/:setId/confirm`: el `groupId` entero de TCGCSV. */
 class ConfirmGroupDto {
-  @IsInt() @Min(1) groupId!: number;
+  /** Se valida en el servicio de abajo ⇒ 422 `VALIDATION_ERROR` (coherente con el resto del contrato §AUTO-ENLACE), no el 400 del pipe. */
+  @IsOptional() groupId?: unknown;
+}
+
+/** Entero positivo o 422 `VALIDATION_ERROR` (un `"x"`, 1.5, 0 o ausente nunca llega al servicio). */
+function positiveInt(v: unknown, field: string): number {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) throw BusinessException.validation('VALIDATION_ERROR', `${field} must be a positive integer`);
+  return v;
 }
 
 /** §AUTO-ENLACE §9.4 — body de `POST …/link-exceptions/:setId/cards/:cardId/confirm`: el `productId` entero de TCGCSV. */
 class ConfirmCardDto {
-  @IsInt() @Min(1) productId!: number;
+  @IsOptional() productId?: unknown;
 }
 
 /** §AUTO-ENLACE fase 4 — body de `POST /admin/catalog/finish-review/:inventoryItemId` (los valores se validan en el servicio ⇒ 422, contrato §8b). */
@@ -170,11 +177,16 @@ export class AdminCatalogController {
   @HttpCode(200)
   async doLinkRepair(@Body() dto: LinkRepairDto, @CurrentUser() user: { id: string; role: Role }) {
     // `linkedCardIds`/`samples` son de la bitácora del job (≤ 600 ids): no viajan por HTTP.
-    const { name: _name, error: _error, linkedCardIds: _ids, samples: _samples, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
+    // §10: `b3*`, `reviewable` y `noSourceProduct` también son de bitácora/lista (forma de esta respuesta fijada, §7.4).
+    const { name: _name, error: _error, linkedCardIds: _ids, samples: _samples, b3Retained: _b3r, b3Sample: _b3s, reviewable: _rv, noSourceProduct: _ns, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
     void _name;
     void _error;
     void _ids;
     void _samples;
+    void _b3r;
+    void _b3s;
+    void _rv;
+    void _ns;
     return res;
   }
 
@@ -192,7 +204,7 @@ export class AdminCatalogController {
     @Body() dto: ConfirmGroupDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    return this.linkExceptions.confirm(setId, dto.groupId, user);
+    return this.linkExceptions.confirm(setId, positiveInt(dto.groupId, 'groupId'), user);
   }
 
   /** GET /admin/catalog/link-exceptions/:setId/cards — cartas del set con `name_mismatch|collision` y sus candidatos (super_admin; contrato §9.4). */
@@ -210,7 +222,7 @@ export class AdminCatalogController {
     @Body() dto: ConfirmCardDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    return this.cardConfirm.confirm(setId, cardId, dto.productId, user);
+    return this.cardConfirm.confirm(setId, cardId, positiveInt(dto.productId, 'productId'), user);
   }
 
   /** POST /admin/catalog/link-exceptions/:setId/unlink — revierte lo que el job creó en ese set (super_admin; contrato §9.6 iv). */

@@ -22,7 +22,8 @@ export interface AutoLinkRunView {
   linked: number;
   priced: number;
   held: number;
-  aborted?: string;
+  /** Código del motivo (`lock_taken`, `call_cap`…) o `null` si no abortó (contrato §10.8). */
+  aborted: string | null;
   sets: {
     setId: string;
     name: string;
@@ -80,7 +81,7 @@ export class AutoLinkAdminService {
         const runId = typeof a.runId === 'string' ? a.runId : r.id; // corridas anteriores a la versión con `runId`: sin detalle por set
         return {
           runId, at: r.createdAt.toISOString(), setsTried: num(a.setsTried), linked: num(a.linked), priced: num(a.priced), held: num(a.held),
-          ...(typeof a.aborted === 'string' ? { aborted: a.aborted } : {}),
+          aborted: typeof a.aborted === 'string' ? a.aborted : null,
           sets: byRun.get(runId) ?? [],
         };
       }),
@@ -100,6 +101,23 @@ export class AutoLinkAdminService {
     const jobRows = rows.map((r) => (r.after ?? {}) as Json).filter((a) => typeof a.runId === 'string');
     if (jobRows.length === 0) throw BusinessException.conflict('NOTHING_TO_UNLINK', 'The automatic job has not run on this set in the last 7 days', { setId });
 
+    // Solo lo del job con grupo automático: una fila `confirmed` (decisión del dueño) jamás se revierte aquí.
+    const fromJob = new Set<string>();
+    for (const a of jobRows) {
+      if (a.via === 'confirmed') continue;
+      for (const id of Array.isArray(a.linkedCardIds) ? (a.linkedCardIds as unknown[]) : []) if (typeof id === 'string') fromJob.add(id);
+    }
+    const confirmedByHand = new Set(
+      (await this.prisma.auditLog.findMany({ where: { action: 'catalog.card_link_confirmed', entityId: { in: [...fromJob] } }, select: { entityId: true } })).map((r) => r.entityId as string),
+    );
+    // Solo cartas que SIGUEN ligadas (un segundo «Revertir» sobre lo ya revertido no es nada que hacer).
+    const stillLinked = new Set(
+      (await this.prisma.cardProduct.findMany({ where: { cardId: { in: [...fromJob].filter((id) => !confirmedByHand.has(id)) }, card: { setId } }, select: { cardId: true } })).map((r) => r.cardId),
+    );
+    const cardIds = [...fromJob].filter((id) => !confirmedByHand.has(id) && stillLinked.has(id)).slice(0, UNLINK_MAX_CARDS);
+    // §10.3: nada que revertir (el job no ligó nada en este set, o todo es del dueño) ⇒ 409 sin cuarentena, sin reclamo y sin auditoría de reversa.
+    if (cardIds.length === 0) throw BusinessException.conflict('NOTHING_TO_UNLINK', 'The automatic job linked nothing in this set that can be reverted', { setId, confirmedByOwner: confirmedByHand.size });
+
     // 1 por set cada 10 min (reclamo bajo candado consultivo; el 429 no escribe nada más).
     const now = Date.now();
     const wait = await this.prisma.$transaction(async (tx) => {
@@ -111,16 +129,6 @@ export class AutoLinkAdminService {
     });
     if (wait > 0) throw new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, 'This set was reverted a moment ago', { retryAfterSeconds: Math.max(1, Math.ceil(wait / 1000)) });
 
-    // Solo lo del job con grupo automático: una fila `confirmed` (decisión del dueño) jamás se revierte aquí.
-    const fromJob = new Set<string>();
-    for (const a of jobRows) {
-      if (a.via === 'confirmed') continue;
-      for (const id of Array.isArray(a.linkedCardIds) ? (a.linkedCardIds as unknown[]) : []) if (typeof id === 'string') fromJob.add(id);
-    }
-    const confirmedByHand = new Set(
-      (await this.prisma.auditLog.findMany({ where: { action: 'catalog.card_link_confirmed', entityId: { in: [...fromJob] } }, select: { entityId: true } })).map((r) => r.entityId as string),
-    );
-    const cardIds = [...fromJob].filter((id) => !confirmedByHand.has(id)).slice(0, UNLINK_MAX_CARDS);
     const skipped = new Map<string, number>();
     const skip = (reason: string, n = 1): void => void skipped.set(reason, (skipped.get(reason) ?? 0) + n);
     if (confirmedByHand.size > 0) skip('confirmed_by_owner', confirmedByHand.size);

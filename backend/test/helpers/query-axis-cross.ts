@@ -135,6 +135,11 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // no un conjunto de tokens. Los `supplierId` del token JAMÁS se leen de aquí: son filtros del PANEL del dueño (staff).
   // §FICHA-CLIENTE (contrato §1b, `GET /admin/users/:id/notes`; ⚠️ PENDIENTE de ratificar por el arquitecto): paginación — `cursor` = id (uuid) opaco de la
   // última nota (otro formato ⇒ 400) y `limit` = entero 1..50 (otro ⇒ 400). Ni uno ni otro es un conjunto de tokens.
+  // §AUTO-ENLACE §10 (orquestador, encargo 2026-11-27; backend mide): paginación/ventana numérica, no tokens de un enum. `days` entero 1..60 (422 fuera de rango,
+  // `AutoLinkAdminService.runs`), `cursor` opaco que emite el servidor (id de pieza) y `limit` entero acotado (`FinishReviewService.list`, tope 50).
+  'GET /admin/catalog/auto-link-runs::days',
+  'GET /admin/catalog/finish-review::cursor',
+  'GET /admin/catalog/finish-review::limit',
   'GET /admin/users/:id/notes::cursor',
   'GET /admin/users/:id/notes::limit',
   'GET /admin/supply-offers::requestId',
