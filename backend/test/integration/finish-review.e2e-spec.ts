@@ -95,7 +95,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     const d = await piece(holo, { finish: 'holofoil' });
     const e = await piece(withFe, { productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: '10', certNumber: `FR-${run}` });
     expect((await h.api('GET', '/admin/catalog/finish-review', { token: operator })).status).toBe(403);
-    const r = await list('?limit=200');
+    const r = await list('?limit=50');
     expect(r.status).toBe(200);
     const items = mine(r.body);
     expect(items.map((i) => i.inventoryItemId).sort()).toEqual([a, b, d].sort());
@@ -141,7 +141,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
       data: { orderNumber: `FR-${run}`, status: 'settled', priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', guestEmail: `fr-${run}@example.test`, fulfillmentMode: 'direct_ship', shippingAddressSnapshot: { street: 'Calle 1', city: 'CDMX', postalCode: '01000' }, subtotalCents: 100, processingFeeCents: 0, ivaCents: 0, totalCents: 100 },
     });
     await h.prisma.orderItem.create({ data: { orderId: order.id, inventoryItemId: sale, cardSnapshot: { name: 'x' }, unitPriceCents: 100 } });
-    const r = await list('?limit=200');
+    const r = await list('?limit=50');
     const here = [sale, reserved, custody, customer, np, ok];
     const items = mine(r.body).filter((i) => here.includes(i.inventoryItemId));
     expect(items.map((i) => i.inventoryItemId).sort()).toEqual([np, ok].sort());
@@ -152,7 +152,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     expect(sync.body.autoLink.pendingConfirm).toBe(p0 + 2);
     // Se deriva del estado: liberar la reserva la hace reaparecer sin que nadie «limpie» nada.
     await h.prisma.inventoryItem.update({ where: { id: reserved }, data: { status: 'in_stock' } });
-    expect(mine((await list('?limit=200')).body).map((i) => i.inventoryItemId)).toContain(reserved);
+    expect(mine((await list('?limit=50')).body).map((i) => i.inventoryItemId)).toContain(reserved);
     void here;
     expect((await list()).body.pending).toBe(p0 + 3);
     await h.prisma.orderItem.deleteMany({ where: { orderId: order.id } });
@@ -160,18 +160,32 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     void custody; void customer;
   });
 
-  it('§10.8 hasManualPrice = listPriceCents != null: un 0 explícito cuenta como manual (se conserva, manualPriceKept) y no es lo mismo que NULL', async () => {
+  it('§12.5 hasManualPrice/manualPriceKept = listPriceCents != null && > 0: 0 ⇒ false (sin precio manual), 500 ⇒ true, null ⇒ false', async () => {
     const cid = await card(['normal', 'first_edition']);
     const zero = await piece(cid, { listPriceCents: 0 });
+    const five = await piece(cid, { listPriceCents: 500 });
     const none = await piece(cid);
-    const items = mine((await list('?limit=200')).body);
-    expect(items.find((i) => i.inventoryItemId === zero)).toMatchObject({ hasManualPrice: true });
+    const items = mine((await list('?limit=50')).body);
+    expect(items.find((i) => i.inventoryItemId === zero)).toMatchObject({ hasManualPrice: false });
+    expect(items.find((i) => i.inventoryItemId === five)).toMatchObject({ hasManualPrice: true });
     expect(items.find((i) => i.inventoryItemId === none)).toMatchObject({ hasManualPrice: false });
     const r = await decide(zero, { decision: 'first_edition', expectedFinish: 'normal' });
     expect(r.status).toBe(200);
-    expect(r.body.after.manualPriceKept).toBe(true);
-    expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: zero } })).listPriceCents).toBe(0);
-    expect((await decide(zero, { decision: 'first_edition', expectedFinish: 'normal' })).body.after.manualPriceKept).toBe(true);
+    expect(r.body.after.manualPriceKept).toBe(false);
+    expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: zero } })).listPriceCents).toBe(0); // la columna no se toca
+    expect((await decide(zero, { decision: 'first_edition', expectedFinish: 'normal' })).body.after.manualPriceKept).toBe(false); // repetición: misma definición
+    expect((await decide(five, { decision: 'first_edition', expectedFinish: 'normal' })).body.after.manualPriceKept).toBe(true);
+    expect((await decide(none, { decision: 'first_edition', expectedFinish: 'normal' })).body.after.manualPriceKept).toBe(false);
+  });
+
+  it('§12.5 GET finish-review `limit`: ausente = 50; entero 1..50 vale; no entero o fuera de 1..50 ⇒ 422 VALIDATION_ERROR (no se recorta)', async () => {
+    expect((await list('')).status).toBe(200);
+    expect((await list('?limit=1')).status).toBe(200);
+    expect((await list('?limit=50')).status).toBe(200);
+    for (const bad of ['0', '-1', '51', '200', '1.5', 'abc', '', '1e1', ' 5', '+5']) {
+      const r = await list(`?limit=${encodeURIComponent(bad)}`);
+      expect({ bad, status: r.status, code: r.body?.error?.code ?? r.body?.code }).toEqual({ bad, status: 422, code: 'VALIDATION_ERROR' });
+    }
   });
 
   it('§9.1 precio manual: la pieza con listPriceCents=500 se queda en 500 (y su precio no cambia) tras first_edition (manualPriceKept); sin manual toma el precio del acabado destino; hasManualPrice en la lista', async () => {
@@ -180,7 +194,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     const plain = await piece(cid);
     await h.app.get(ListingPriceService).run('manual_price', [manual]);
     const priceBefore = (await h.prisma.listingPrice.findUniqueOrThrow({ where: { inventoryItemId: manual } })).unitPriceCents!;
-    const items = mine((await list('?limit=200')).body);
+    const items = mine((await list('?limit=50')).body);
     // El manual es L=500 (la columna); el servidor cobra su P (con IVA): el MISMO antes y después, el acabado no lo mueve.
     expect(items.find((i) => i.inventoryItemId === manual)).toMatchObject({ hasManualPrice: true, currentPriceCents: priceBefore, targetPriceCents: priceBefore });
     expect(items.find((i) => i.inventoryItemId === plain)).toMatchObject({ hasManualPrice: false });
@@ -220,7 +234,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
   it('POST first_edition: cambia el acabado y el precio, audita; repetir = 200 alreadyResolved sin escribir; la contraria = 409 ALREADY_RESOLVED; sale de la lista', async () => {
     const cid = await card(['normal', 'first_edition']);
     const id = await piece(cid);
-    const before = (await list('?limit=200')).body;
+    const before = (await list('?limit=50')).body;
     const target = mine(before).find((i) => i.inventoryItemId === id).targetPriceCents;
     expect((await decide(id, { decision: 'first_edition', expectedFinish: 'normal' }, operator)).status).toBe(403);
     const r = await decide(id, { decision: 'first_edition', expectedFinish: 'normal' });
@@ -244,7 +258,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     const c2 = await decide(id, { decision: 'keep', expectedFinish: 'normal' });
     expect(c2.status).toBe(409);
     expect(c2.body.error?.code ?? c2.body.code).toBe('ALREADY_RESOLVED');
-    expect(mine((await list('?limit=200')).body).some((i) => i.inventoryItemId === id)).toBe(false);
+    expect(mine((await list('?limit=50')).body).some((i) => i.inventoryItemId === id)).toBe(false);
   });
 
   it('POST keep: solo registra (0 cambios de acabado ni de precio); queda fuera de la lista', async () => {
@@ -255,7 +269,7 @@ describe('E2E — §AUTO-ENLACE fase 4 finish-review', () => {
     expect(r.body).toMatchObject({ decision: 'keep', alreadyResolved: false });
     expect(r.body.after.finish).toBe('normal');
     expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id } })).finish).toBe('normal');
-    expect(mine((await list('?limit=200')).body).some((i) => i.inventoryItemId === id)).toBe(false);
+    expect(mine((await list('?limit=50')).body).some((i) => i.inventoryItemId === id)).toBe(false);
     const flip = await decide(id, { decision: 'first_edition', expectedFinish: 'normal' });
     expect(flip.status).toBe(409);
     expect(flip.body.error?.code ?? flip.body.code).toBe('ALREADY_RESOLVED');

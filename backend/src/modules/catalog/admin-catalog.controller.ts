@@ -243,8 +243,9 @@ export class AdminCatalogController {
   /** GET /admin/catalog/finish-review — piezas antiguas que podrían ser 1.ª edición, por confirmar (solo lectura local; contrato §8b). */
   @Get('finish-review')
   async listFinishReview(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
-    const n = limit == null || limit === '' ? undefined : Number(limit);
-    if (n != null && !Number.isFinite(n)) throw BusinessException.validation('VALIDATION_ERROR', 'limit must be a number');
+    // §12.5: `limit` ausente = 50; presente pero no entero o fuera de 1..50 ⇒ 422 (no se recorta).
+    const n = limit === undefined ? undefined : /^\d{1,6}$/.test(limit) ? Number(limit) : NaN;
+    if (n !== undefined && !(Number.isInteger(n) && n >= 1 && n <= 50)) throw BusinessException.validation('VALIDATION_ERROR', 'limit must be an integer between 1 and 50');
     return this.finishReview.list(cursor, n);
   }
 

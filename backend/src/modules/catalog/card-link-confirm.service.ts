@@ -10,6 +10,8 @@ import { TcgcsvCatalogClient, deriveCardProductsFromTcgcsv, type DerivedCardProd
 import { usdToMxnCents } from '../../common/money';
 import { variantKey } from '../../common/variant-key';
 import { safeErrorTag } from '../shipments/guest-mail-link';
+import { shouldRetainTcgcsvPrice } from '../pricing/providers/tcgcsv-group-match';
+import { priorRefKey, priorTcgcsvRefKeys } from '../pricing/providers/tcgcsv-prior-refs';
 import { CardProductResolverService, normalizeCardNumber } from './card-product-resolver.service';
 import { CardLinkRepairService, LINK_REPAIR_GATE_NAMESPACE } from './card-link-repair.service';
 import { planCardLinks } from './card-link-plan';
@@ -81,16 +83,19 @@ export class CardLinkConfirmService {
   }
 
   /** Candidatos por carta SIN enlace que el plan NO liga solo (nombre/número en conflicto). Solo lectura local + payload del grupo. */
-  private async compute(setId: string): Promise<{ items: CardToConfirm[]; derived: DerivedCardProduct[]; groupId: number | null; set: { id: string; externalId: string } }> {
+  private async compute(setId: string): Promise<{ items: CardToConfirm[]; derived: DerivedCardProduct[]; groupId: number | null; via: string | null; set: { id: string; externalId: string } }> {
     const set = await this.prisma.cardSet.findUnique({ where: { id: setId }, select: { id: true, externalId: true } });
     if (!set) throw BusinessException.notFound();
-    const empty = { items: [], derived: [], groupId: null, set };
+    const empty = { items: [], derived: [], groupId: null, via: null, set };
     if (isTcgcsvOrigin(set.externalId)) return empty;
     let groupId: number | null;
+    let via: string | null = null;
     let derived: DerivedCardProduct[];
     try {
       const groups = await this.groupsCache.get();
-      groupId = (await this.resolver.describeGroup(setId, groups)).groupId;
+      const dg = await this.resolver.describeGroup(setId, groups);
+      groupId = dg.groupId;
+      via = dg.via;
       if (groupId == null) return empty;
       derived = await this.groupProducts(groupId);
     } catch (e) {
@@ -140,7 +145,7 @@ export class CardLinkConfirmService {
       });
     }
     items.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }) || a.name.localeCompare(b.name));
-    return { items, derived, groupId, set };
+    return { items, derived, groupId, via, set };
   }
 
   /** `GET /admin/catalog/link-exceptions/:setId/cards` (super_admin; ≤ 50). */
@@ -158,7 +163,7 @@ export class CardLinkConfirmService {
     if (already?.cardId === cardId) return { cardId, productId, priced: 0, alreadyConfirmed: true };
     if (already) throw BusinessException.conflict('PRODUCT_TAKEN', 'That product is already linked to another card', { cardId, productId });
 
-    const { items, derived } = await this.compute(setId); // RE-CALCULA los candidatos de esa carta
+    const { items, derived, groupId, via } = await this.compute(setId); // RE-CALCULA los candidatos de esa carta
     const mine = items.find((i) => i.cardId === cardId);
     const dp = derived.find((d) => d.productId === productId);
     if (!mine || !dp || !mine.candidates.some((c) => c.productId === productId)) {
@@ -177,6 +182,10 @@ export class CardLinkConfirmService {
     const heldVerdicts = [...verdicts.values()].filter((v) => v.held);
     const held = new Set<Finish>(heldVerdicts.map((v) => v.finish));
     void variantKey;
+    // §12: grupo B3 sin confirmar ⇒ el enlace se escribe, pero las variantes sin referencia TCGCSV previa NO se publican (misma función que price-ingest).
+    const prior = via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, [cardId]) : new Set<string>();
+    const writeHeld = new Set<Finish>(held);
+    for (const p of priceable) if (shouldRetainTcgcsvPrice({ groupId, via }, prior.has(priorRefKey(cardId, p.finish)))) writeHeld.add(p.finish);
 
     let result: { cardProductId: string; priced: Finish[] } | null = null;
     let notWritten: 'taken' | 'cooldown' | 'already' | null = null;
@@ -199,7 +208,7 @@ export class CardLinkConfirmService {
             notWritten = 'cooldown';
             return null;
           }
-          const w = await this.resolver.writeConfirmedLink(tx, { cardId, dp, held, fx });
+          const w = await this.resolver.writeConfirmedLink(tx, { cardId, dp, held: writeHeld, fx });
           if (!w) {
             notWritten = 'taken';
             return null;

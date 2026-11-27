@@ -59,6 +59,9 @@ describe('E2E — §AUTO-ENLACE §10 grupo B3 retenido, rotación de acabados, n
   }
   const prior = (cardId: string, mxn: number) =>
     h.prisma.priceReference.create({ data: { cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgdex', priceUsdCents: null, priceMxnCents: mxn, capturedDate: day(3), refKind: 'market' } as never });
+  /** §12.3: «referencia previa» = SOLO fuente TCGCSV (sin `cardProductId`, como una fila legada). */
+  const priorTcgcsv = (cardId: string, mxn: number) =>
+    h.prisma.priceReference.create({ data: { cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgcsv_singles', priceUsdCents: null, priceMxnCents: mxn, capturedDate: day(3), refKind: 'market' } as never });
   const list = () => h.api<any>('GET', '/admin/catalog/link-exceptions', { token: admin });
   const confirm = (setId: string, groupId: number) => h.api<any>('POST', `/admin/catalog/link-exceptions/${setId}/confirm`, { token: admin, json: { groupId } });
   const tcgcsvRefs = (ids: string[]) => h.prisma.priceReference.count({ where: { cardId: { in: ids }, source: 'tcgcsv_singles' } });
@@ -139,16 +142,18 @@ describe('E2E — §AUTO-ENLACE §10 grupo B3 retenido, rotación de acabados, n
     expect((await list()).body.sets.some((x: any) => x.setId === S1.setId)).toBe(false);
   });
 
-  it('§10.1 variantes CON referencia previa no se retienen por B3: la sana se publica (previo 3000 → 3600), la sin referencia queda retenida; set con motivo `b3_unverified`', async () => {
+  it('§10.1/§12.3 variantes CON referencia TCGCSV previa no se retienen por B3 (previo 3000 → 3600); una referencia tcgdex NO libera; la sin referencia queda retenida; set `b3_unverified` con b3Published=1 y b3Held=2', async () => {
     S2 = await mkSet('S2', { name: `Dratini${W}`, series: 'EX', cards: names.slice(0, 3) });
     productsOf.set(GB2, names.slice(0, 3).map((name, i) => ({ productId: GB2 * 100 + i + 1, name, number: String(i + 1) })));
-    await prior(S2.cardIds[0], 3000);
+    await priorTcgcsv(S2.cardIds[0], 3000);
+    await prior(S2.cardIds[1], 3000); // tcgdex: NO cuenta como referencia previa (§12.3)
     const r = await job.run(opts());
     expect(r.sets.find((x) => x.setId === S2.setId)).toMatchObject({ linked: 3, priced: 1, reason: 'b3_unverified' });
-    expect(await tcgcsvRefs([S2.cardIds[0]])).toBe(1);
+    expect(await h.prisma.priceReference.count({ where: { cardId: S2.cardIds[0], source: 'tcgcsv_singles', priceMxnCents: 3600 } })).toBe(1);
     expect(await tcgcsvRefs([S2.cardIds[1], S2.cardIds[2]])).toBe(0);
     const row = (await list()).body.sets.find((x: any) => x.setId === S2.setId);
     expect(row.sample.map((x: any) => x.cardName).sort()).toEqual(['Eevee', 'Snorlax']);
+    expect(row).toMatchObject({ reason: 'b3_unverified', b3Published: 1, b3Held: 2 });
   });
 
   it('§10.4 `no_source_product`: cartas cuyo número no existe en el grupo de la fuente salen con motivo propio (no `name_mismatch`)', async () => {

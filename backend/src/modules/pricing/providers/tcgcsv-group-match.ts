@@ -349,28 +349,52 @@ export interface GroupCandidate {
   score: number;
 }
 
+function scoreOne(set: B3SetInfo, g: TcgcsvGroupRef, lw: Set<string>, lkey: string[], words: (raw: string) => Set<string>): number {
+  const gw = words(g.name);
+  const inter = [...lw].filter((w) => gw.has(w)).length;
+  const union = new Set([...lw, ...gw]).size || 1;
+  let score = Math.round((inter / union) * 60);
+  const gk = b3NameKeys(g.name);
+  if (gk.some((k) => lkey.some((l) => l !== '' && k !== '' && (k.includes(l) || l.includes(k))))) score += 15;
+  const a = parseDay(set.releaseDate);
+  const b = parseDay(g.publishedOn);
+  if (a != null && b != null) {
+    const d = Math.abs(a - b) / DAY_MS;
+    score += d <= B3_DATE_WINDOW_DAYS ? 25 : d <= 365 ? 10 : 0;
+  }
+  return Math.min(100, score);
+}
+
+const candidateWords = (raw: string): Set<string> => new Set(raw.replace(/&/g, ' and ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean));
+const toCandidate = (g: TcgcsvGroupRef, score: number): GroupCandidate => ({ groupId: g.groupId, name: g.name, publishedOn: g.publishedOn ? g.publishedOn.slice(0, 10) : null, productCount: null, score });
+
 /** Candidatos (máx. 5, mejor primero) para la lista de excepciones. Puntaje 0..100 = parecido de palabras (60) + contención (15) + cercanía de fecha (25). Sin red. */
 export function scoreGroupCandidates(set: B3SetInfo, groups: readonly TcgcsvGroupRef[], limit = 5): GroupCandidate[] {
-  const words = (raw: string): Set<string> => new Set(raw.replace(/&/g, ' and ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean));
-  const lw = words(set.name);
+  const lw = candidateWords(set.name);
   const lkey = b3NameKeys(set.name);
   const out: GroupCandidate[] = [];
   for (const g of groups) {
-    const gw = words(g.name);
-    const inter = [...lw].filter((w) => gw.has(w)).length;
-    const union = new Set([...lw, ...gw]).size || 1;
-    let score = Math.round((inter / union) * 60);
-    const gk = b3NameKeys(g.name);
-    if (gk.some((k) => lkey.some((l) => l !== '' && k !== '' && (k.includes(l) || l.includes(k))))) score += 15;
-    const a = parseDay(set.releaseDate);
-    const b = parseDay(g.publishedOn);
-    if (a != null && b != null) {
-      const d = Math.abs(a - b) / DAY_MS;
-      score += d <= B3_DATE_WINDOW_DAYS ? 25 : d <= 365 ? 10 : 0;
-    }
-    if (score >= 30) out.push({ groupId: g.groupId, name: g.name, publishedOn: g.publishedOn ? g.publishedOn.slice(0, 10) : null, productCount: null, score: Math.min(100, score) });
+    const score = scoreOne(set, g, lw, lkey, candidateWords);
+    if (score >= 30) out.push(toCandidate(g, score));
   }
   return out.sort((x, y) => y.score - x.score || x.groupId - y.groupId).slice(0, limit);
+}
+
+/** El candidato de UN grupo concreto (el que eligió B3) con su puntaje y fecha reales, aunque quede bajo el umbral de la lista. Sin red; `productCount` null (no hay `getProducts` aquí). */
+export function candidateForGroup(set: B3SetInfo, group: TcgcsvGroupRef): GroupCandidate {
+  return toCandidate(group, scoreOne(set, group, candidateWords(set.name), b3NameKeys(set.name), candidateWords));
+}
+
+/** Cómo se resolvió el grupo TCGCSV de un set (§12.2). Solo `b3` está sin confirmar. */
+export type TcgcsvGroupVia = 'promo_table' | 'confirmed' | 'ppt_set_id' | 'name' | 'b3' | 'auto';
+
+/**
+ * §AUTO-ENLACE §12.2 — ÚNICA regla de retención B3 para TODO escritor de `PriceReference` de fuente TCGCSV: un grupo elegido por la regla B3
+ * (`via:'b3'`, sin segunda fuente que lo confirme) NO publica el precio de una variante que no tenga ya una referencia TCGCSV previa.
+ * «Referencia previa» = SOLO fuente `tcgcsv_singles` (tcgdex no libera).
+ */
+export function shouldRetainTcgcsvPrice(resolution: { groupId: number | null; via: TcgcsvGroupVia | string | null }, hasPriorTcgcsvRef: boolean): boolean {
+  return resolution.via === 'b3' && !hasPriorTcgcsvRef;
 }
 
 /**

@@ -19,7 +19,8 @@ import {
 // FUENTE ÚNICA del match set local ↔ grupo TCGCSV (S-D3 / §4.27d). Ver `resolveGroupId`: esta
 // escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
 // de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
-import { resolveTcgcsvGroupForSet, scoreGroupCandidates, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
+import { resolveTcgcsvGroupForSet, scoreGroupCandidates, shouldRetainTcgcsvPrice, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
+import { priorRefKey, priorTcgcsvRefKeys } from '../pricing/providers/tcgcsv-prior-refs';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
 import { planCardLinks } from './card-link-plan';
 import { promoGroupFor } from './promo-set-groups';
@@ -341,7 +342,11 @@ export class CardProductResolverService {
     const sanity = AutoLinkPriceGate.sanity(verdicts.values());
     const unknown = unknownSubtypes.length;
     // §10.1: grupo elegido por la regla B3 (sin segunda fuente que lo confirme) ⇒ lo SIN referencia previa no se publica hasta que el dueño confirme el grupo.
-    if (gating && resolved.via === 'b3') for (const v of verdicts.values()) if (!v.hasBase) v.b3Unverified = true;
+    // §12: la MISMA función que usa el provider de price-ingest; «previa» = solo referencia TCGCSV (la base del candado puede venir de tcgdex y NO libera).
+    if (gating && resolved.via === 'b3') {
+      const prior = await priorTcgcsvRefKeys(this.prisma, [...verdicts.values()].map((v) => v.cardId));
+      for (const v of verdicts.values()) if (shouldRetainTcgcsvPrice({ groupId: resolved.groupId, via: resolved.via }, prior.has(priorRefKey(v.cardId, v.finish)))) v.b3Unverified = true;
+    }
     if (gating && sanity.tripped && resolved.via !== 'confirmed') {
       // (ii) grupo equivocado: ≥ 20 % de las variantes con referencia previa retenidas ⇒ el set entero NO se publica (0 enlaces, 0 precios, 0 casos).
       this.logger.warn(`card-product: set ${set.name} (grupo ${groupId}) frenado por cordura (${sanity.held}/${sanity.checked} variantes con salto); 0 escrituras.`);

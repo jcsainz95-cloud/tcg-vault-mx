@@ -9,7 +9,8 @@ import { autoLinkEnabled } from './catalog-auto-link.service';
 import { CardLinkRepairService, LINK_REPAIR_GATE_NAMESPACE, LINK_REPAIR_MANUAL_COOLDOWN_MS, LinkExceptionReason } from './card-link-repair.service';
 import { countsInUnlinkedCards, nextAutoLinkRun, piecesBySet, unlinkedBySet, untryableReason, utcDayStart, type UnlinkedSetRow } from './auto-link-stats';
 import { TcgcsvGroupsCache } from './tcgcsv-groups-cache';
-import { scoreGroupCandidates, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
+import { candidateForGroup, resolveTcgcsvGroupForSet, scoreGroupCandidates, type GroupCandidate } from '../pricing/providers/tcgcsv-group-match';
+import { isTcgcsvOrigin } from './tcgcsv-card-name';
 import { FinishReviewService } from './finish-review.service';
 import { safeErrorTag } from '../shipments/guest-mail-link';
 
@@ -41,6 +42,10 @@ export interface LinkExceptionSet {
   /** §10.4: cartas con candidato (botón «Revisar N cartas») y cartas sin producto en la fuente (informativo); de la última pasada, 0 si aún no se mide. */
   reviewable: number;
   noSourceProduct: number;
+  /** §12.4: variantes con referencia TCGCSV ya publicada en un set `via:'b3'` sin confirmar (se respetan; solo informa). */
+  b3Published: number;
+  /** §12.4: variantes retenidas por §12.1 (enlazadas, sin referencia TCGCSV). Derivado del estado en cada lectura. */
+  b3Held: number;
   canConfirm: boolean;
   lastAttemptAt: string | null;
   nextAttemptAt: string | null;
@@ -126,24 +131,70 @@ export class LinkExceptionsService {
     return { last, auto };
   }
 
-  /** Sets con grupo B3 aún sin confirmar cuyo último intento retuvo variantes (`b3_unverified`) y que NO están ya en la lista por cartas sin ligar. */
-  private async b3PendingRows(already: ReadonlySet<string>): Promise<UnlinkedSetRow[]> {
-    const sets = await this.prisma.cardSet.findMany({ where: { cardGroupVia: 'auto' }, select: { id: true, name: true, externalId: true } });
-    const cand = sets.filter((x) => !already.has(x.id) && untryableReason(x) === null);
-    if (cand.length === 0) return [];
-    const { last } = await this.lastAttempts(cand.map((x) => x.id));
-    const pending = cand.filter((x) => last.get(x.id)?.after.reason === 'b3_unverified');
-    if (pending.length === 0) return [];
-    const totals = await this.prisma.card.groupBy({ by: ['setId'], where: { setId: { in: pending.map((x) => x.id) } }, _count: { _all: true } });
-    const total = new Map(totals.map((t) => [t.setId, t._count._all]));
-    return pending.map((x) => ({ setId: x.id, name: x.name, externalId: x.externalId, unlinked: 0, total: total.get(x.id) ?? 0 }));
+  /**
+   * §12.4 — estado B3 DERIVADO en cada lectura (nadie lo persiste): sets cuyo grupo resuelve `via:'b3'` (sin confirmar), con
+   * `b3Published` (variantes ya con referencia TCGCSV) y `b3Held` (variantes enlazadas aún sin referencia TCGCSV = retenidas por §12.1).
+   * La vía sale de la MISMA función del resolver sobre el `listGroups` cacheado (0 llamadas); sin caché, de la vía del último intento.
+   */
+  private async b3States(): Promise<Map<string, { published: number; held: number; groupId: number | null; set: { id: string; name: string; externalId: string } }>> {
+    const out = new Map<string, { published: number; held: number; groupId: number | null; set: { id: string; name: string; externalId: string } }>();
+    const sets = await this.prisma.cardSet.findMany({
+      where: { OR: [{ cardGroupVia: null }, { cardGroupVia: { not: 'confirmed' } }] },
+      select: { id: true, name: true, externalId: true, pptSetId: true, series: true, releaseDate: true, cardGroupId: true, cardGroupVia: true },
+    });
+    const cand = sets.filter((x) => !isTcgcsvOrigin(x.externalId) && untryableReason(x) === null);
+    if (cand.length === 0) return out;
+    const groups = this.groupsCache.peek();
+    const b3 = new Set<string>();
+    const b3Group = new Map<string, number>();
+    if (groups) {
+      for (const x of cand) {
+        const r = await resolveTcgcsvGroupForSet(x, async () => groups);
+        if (r.groupId != null && r.via === 'b3') {
+          b3.add(x.id);
+          b3Group.set(x.id, r.groupId);
+        }
+      }
+    } else {
+      const { last } = await this.lastAttempts(cand.map((x) => x.id));
+      for (const x of cand) {
+        const a = last.get(x.id)?.after ?? {};
+        const gu = a.groupUsed as { via?: string; groupId?: number } | null | undefined;
+        if ((gu?.via ?? a.via) === 'b3') {
+          b3.add(x.id);
+          const gid = gu?.groupId ?? a.groupId;
+          if (typeof gid === 'number') b3Group.set(x.id, gid);
+        }
+      }
+    }
+    if (b3.size === 0) return out;
+    const ids = [...b3];
+    // MONEY-REF-EXEMPT: solo cuenta variantes con referencia TCGCSV (informa al dueño en la lista de excepciones); no devuelve ningún monto que se cobre, ofrezca o valúe.
+    const refs = await this.prisma.priceReference.findMany({ where: { source: 'tcgcsv_singles', card: { setId: { in: ids } } }, distinct: ['cardId', 'finish'], select: { cardId: true, finish: true, card: { select: { setId: true } } } });
+    const priced = new Set(refs.map((r) => `${r.cardId}|${r.finish}`));
+    const products = await this.prisma.cardProduct.findMany({ where: { card: { setId: { in: ids } } }, select: { cardId: true, finishes: true, card: { select: { setId: true } } } });
+    const held = new Map<string, Set<string>>();
+    for (const p of products) for (const f of p.finishes) if (!priced.has(`${p.cardId}|${f}`)) held.set(p.card.setId, (held.get(p.card.setId) ?? new Set()).add(`${p.cardId}|${f}`));
+    const published = new Map<string, number>();
+    for (const r of refs) published.set(r.card.setId, (published.get(r.card.setId) ?? 0) + 1);
+    for (const x of cand) {
+      if (!b3.has(x.id)) continue;
+      const st = { published: published.get(x.id) ?? 0, groupId: b3Group.get(x.id) ?? null, held: held.get(x.id)?.size ?? 0, set: { id: x.id, name: x.name, externalId: x.externalId } };
+      if (st.published > 0 || st.held > 0) out.set(x.id, st);
+    }
+    return out;
   }
 
   /** `GET /admin/catalog/link-exceptions`. Orden: con piezas a la venta/en revisión primero, luego `unlinked` desc. */
   async list(now = new Date()): Promise<{ summary: LinkSummary; sets: LinkExceptionSet[] }> {
     const [summary, unlinkedRows, pieces] = await Promise.all([this.summary(now), unlinkedBySet(this.prisma), piecesBySet(this.prisma)]);
     // §10.1: un set con grupo B3 sin confirmar puede estar 100 % ligado (los enlaces sí se escriben) y aun así sin precio: entra por su motivo, no por cartas sin ligar.
-    const rows = [...unlinkedRows, ...(await this.b3PendingRows(new Set(unlinkedRows.map((r) => r.setId))))];
+    const b3 = await this.b3States();
+    const have = new Set(unlinkedRows.map((r) => r.setId));
+    const b3Only = [...b3.values()].filter((x) => !have.has(x.set.id));
+    const b3Totals = b3Only.length ? await this.prisma.card.groupBy({ by: ['setId'], where: { setId: { in: b3Only.map((x) => x.set.id) } }, _count: { _all: true } }) : [];
+    const totalOf = new Map(b3Totals.map((t) => [t.setId, t._count._all]));
+    const rows: UnlinkedSetRow[] = [...unlinkedRows, ...b3Only.map((x) => ({ setId: x.set.id, name: x.set.name, externalId: x.set.externalId, unlinked: 0, total: totalOf.get(x.set.id) ?? 0 }))];
     const setMeta = await this.prisma.cardSet.findMany({
       where: { id: { in: rows.map((r) => r.setId) } },
       select: { id: true, series: true, releaseDate: true, cardGroupId: true, cardGroupVia: true },
@@ -181,29 +232,42 @@ export class LinkExceptionsService {
           else if ((Number(a.collisions) || 0) > 0) reason = 'collisions';
           else reason = 'no_source_product'; // intento limpio (sin `name_mismatch` ni colisión guardados) y siguen cartas sin ligar: la fuente no trae producto con ese número/nombre (§10.4)
           if (reason === 'b3_unverified') {
-            // Mejor candidato primero: `candidates[0]` = el grupo que eligió B3.
-            const chosen = groupUsed?.groupId ?? m?.cardGroupId ?? null;
-            const scored = groups && m ? scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups) : [];
-            const first = chosen != null ? (scored.find((c) => c.groupId === chosen) ?? { groupId: chosen, name: nameOfGroup(chosen) ?? groupUsed?.name ?? '', publishedOn: null, productCount: null, score: 0 }) : null;
-            candidates = [...(first ? [first] : []), ...scored.filter((c) => c.groupId !== chosen)].slice(0, 5);
-            const smp = a.b3Sample;
-            sample = Array.isArray(smp) ? (smp as NonNullable<LinkExceptionSet['sample']>).slice(0, 5) : [];
+            // (candidatos y muestra se arman abajo, comunes al motivo derivado de §12.4)
           } else if (reason === 'group_ambiguous' || reason === 'group_none') candidates = stored?.length ? stored : groups && m ? scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups) : [];
         } else if (groups && m) {
           // Nunca intentado: solo es excepción si ya se sabe que no resolverá grupo (cálculo local sobre el `listGroups` cacheado).
           const c = scoreGroupCandidates({ name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId }, groups);
           if (m.cardGroupId == null && c.length === 0) {
             reason = 'group_none';
-          } else continue; // pendiente de su primer intento: lo trata el job (cuenta en `unlinkedCards`, no es excepción)
-        } else continue;
+          } else if (!b3.has(r.setId)) continue; // pendiente de su primer intento: lo trata el job (cuenta en `unlinkedCards`, no es excepción)
+        } else if (!b3.has(r.setId)) continue;
+      }
+      // §12.4: el set sale `b3_unverified` si b3Published > 0 || b3Held > 0 (derivado del estado en cada lectura). Un fallo del proveedor se conserva (es otro problema).
+      const b3s = b3.get(r.setId);
+      if (b3s && !fixed && reason !== 'provider_failing') {
+        reason = 'b3_unverified';
+        if (b3s.groupId != null) groupUsed = { groupId: b3s.groupId, name: groupUsed?.groupId === b3s.groupId ? groupUsed.name : nameOfGroup(b3s.groupId), via: 'b3' };
       }
       if (!reason) continue;
+      if (reason === 'b3_unverified' && !fixed) {
+        // Mejor candidato primero: `candidates[0]` = el grupo que eligió B3 (con su puntaje y fecha reales; `productCount` null: no hay `getProducts` en una lectura).
+        const chosen = groupUsed?.groupId ?? m?.cardGroupId ?? null;
+        const meta3 = m ? { name: r.name, series: m.series, releaseDate: m.releaseDate, externalId: r.externalId } : null;
+        const scored = groups && meta3 ? scoreGroupCandidates(meta3, groups) : [];
+        const chosenGroup = chosen != null ? groups?.find((g) => g.groupId === chosen) : undefined;
+        const first = chosen != null ? (scored.find((c) => c.groupId === chosen) ?? (chosenGroup && meta3 ? candidateForGroup(meta3, chosenGroup) : { groupId: chosen, name: nameOfGroup(chosen) ?? groupUsed?.name ?? '', publishedOn: null, productCount: null, score: 0 })) : null;
+        candidates = [...(first ? [first] : []), ...scored.filter((c) => c.groupId !== chosen)].slice(0, 5);
+        const smp = la?.after.b3Sample;
+        sample = Array.isArray(smp) ? (smp as NonNullable<LinkExceptionSet['sample']>).slice(0, 5) : [];
+      }
       const nextAttempt = au && typeof au.after.nextAttemptAt === 'string' ? (au.after.nextAttemptAt as string) : null;
       out.push({
         setId: r.setId, name: r.name, unlinked: r.unlinked, total: r.total, reason, groupUsed, candidates,
         ...(sample ? { sample } : {}),
         reviewable: Number(la?.after.reviewable) || 0,
         noSourceProduct: Number(la?.after.noSourceProduct) || 0,
+        b3Published: b3s?.published ?? 0,
+        b3Held: b3s?.held ?? 0,
         canConfirm: reason === 'group_ambiguous' || reason === 'group_none' || reason === 'b3_unverified',
         lastAttemptAt: la?.createdAt.toISOString() ?? null,
         nextAttemptAt: fixed ? null : nextAttempt && Date.parse(nextAttempt) > now.getTime() ? nextAttempt : summary.autoLinkEnabled ? nextRun : null,

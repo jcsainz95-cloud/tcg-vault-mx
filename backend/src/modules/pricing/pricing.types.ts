@@ -292,6 +292,8 @@ export interface BulkPriceResult {
   fetchedRaw: number;
   /** Entradas OMITIDAS por el mapeo defensivo del adapter (money-safe). */
   skipped: number;
+  /** §12: variantes no emitidas por una regla (hoy solo `b3_unverified`: grupo B3 sin confirmar y 0 referencias TCGCSV previas). Ya contadas en `skipped`. */
+  omitted?: { reason: 'b3_unverified'; count: number }[];
   /**
    * v1.22-1 (§4.22g) — ¿la CORRIDA fue EXITOSA (al menos una página del proveedor respondió OK)?
    * Gobierna el REEMPLAZO money-safe de `pricedFinishesSnapshot`: solo se tocan snapshots si

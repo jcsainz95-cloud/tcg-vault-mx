@@ -8,6 +8,9 @@ import { ListingPriceService } from '../pricing/listing-price.service';
 import type { SaleItem } from '../pricing/sale-decision.service';
 import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 
+/** §12.5: `listPriceCents = 0` = «sin precio manual» (así lo trata el motor de precios); solo `> 0` es un precio manual. */
+export const isManualList = (cents: number | null | undefined): boolean => cents != null && cents > 0;
+
 /** Acabado destino por acabado actual (WotC: «Unlimited» → 1.ª edición). Solo estas dos transiciones existen. */
 const TARGET_OF: Partial<Record<Finish, Finish>> = { normal: 'first_edition', holofoil: 'first_edition_holofoil' };
 const ACTION = 'catalog.finish_review';
@@ -25,7 +28,7 @@ export interface FinishReviewItem {
   targetFinish: 'first_edition' | 'first_edition_holofoil';
   currentPriceCents: number | null;
   targetPriceCents: number | null;
-  /** `InventoryItem.listPriceCents` explícito (`!= null`, también 0; contrato §10.8): el precio de ESTA pieza lo puso el dueño; se conserva siempre (§9.1). */
+  /** `InventoryItem.listPriceCents` explícito y `> 0` (0 = «sin precio manual», contrato §12.5): el precio de ESTA pieza lo puso el dueño; se conserva siempre (§9.1). */
   hasManualPrice: boolean;
   /** §9.3: solo `null | 'no_target_price'` — las piezas con venta/reserva/custodia/de cliente no entran en la lista. */
   blockedReason: null | 'no_target_price';
@@ -69,7 +72,7 @@ export class FinishReviewService {
 
   /** `GET /admin/catalog/finish-review`. Orden: `listed` primero, luego `folio`. Cursor = `<rango>|<folio>` (paginación por llave, no por desplazamiento). */
   async list(cursor: string | undefined, limitRaw: number | undefined): Promise<{ pending: number; items: FinishReviewItem[]; nextCursor: string | null }> {
-    const limit = Math.min(200, Math.max(1, Math.trunc(limitRaw ?? 50)));
+    const limit = Math.min(50, Math.max(1, Math.trunc(limitRaw ?? 50)));
     let after: { rank: number; folio: string } | null = null;
     if (cursor) {
       const m = /^([01])\|(.+)$/.exec(cursor);
@@ -113,7 +116,7 @@ export class FinishReviewService {
         currentFinish: r.finish as FinishReviewItem['currentFinish'],
         targetFinish: TARGET_OF[r.finish] as FinishReviewItem['targetFinish'],
         currentPriceCents: r.listingPrice?.unitPriceCents ?? null, targetPriceCents: target,
-        hasManualPrice: r.listPriceCents != null, blockedReason: blocked,
+        hasManualPrice: isManualList(r.listPriceCents), blockedReason: blocked,
       };
     });
   }
@@ -153,7 +156,7 @@ export class FinishReviewService {
           return {
             inventoryItemId, decision: decision as 'keep' | 'first_edition', alreadyResolved: true,
             before: { finish: b.finish ?? item.finish, unitPriceCents: b.unitPriceCents ?? null },
-            after: { finish: a.finish ?? item.finish, unitPriceCents: a.unitPriceCents ?? null, manualPriceKept: a.manualPriceKept ?? item.listPriceCents != null },
+            after: { finish: a.finish ?? item.finish, unitPriceCents: a.unitPriceCents ?? null, manualPriceKept: a.manualPriceKept ?? isManualList(item.listPriceCents) },
           };
         }
         throw BusinessException.conflict('ALREADY_RESOLVED', 'This piece already has a different decision', { inventoryItemId, decision: was.decision });
@@ -170,7 +173,7 @@ export class FinishReviewService {
       if (blocked) throw BusinessException.conflict('ITEM_LOCKED', 'This piece cannot be changed now', { inventoryItemId, blockedReason: blocked });
 
       const lp = await tx.listingPrice.findUnique({ where: { inventoryItemId }, select: { unitPriceCents: true } });
-      const manual = item.listPriceCents != null;
+      const manual = isManualList(item.listPriceCents);
       const before: BeforeSide = { finish: item.finish, unitPriceCents: lp?.unitPriceCents ?? null };
       // §9.1: el precio manual de la pieza (`InventoryItem.listPriceCents`) se CONSERVA siempre; `updateMany` no lo toca (solo `finish`).
       let after: AfterSide = { ...before, manualPriceKept: manual };
