@@ -369,7 +369,7 @@
 - POST `/admin/spend-alerts/seen` · staff
 
 ### uploads
-- POST `/uploads/presign` · cuenta
+- POST `/uploads/kyc-ine` · cuenta · multipart `file` ⇒ `API_CONTRACT_SUBIDA_INE.md` (vigente ahí; sustituye `/uploads/presign`, que se retira en su §6)
 
 ### users
 - PATCH `/users/me/email` · customer
