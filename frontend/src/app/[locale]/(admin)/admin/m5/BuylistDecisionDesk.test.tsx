@@ -614,6 +614,66 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(screen.getByTestId('line-market-drift')).toHaveTextContent('Cambió desde la cotización (era MX$850.00)');
   });
 
+  it('§3.3 B1-bis: el chip y la nota «Cambió desde la cotización» van juntos bajo Ofertamos', async () => {
+    const es = line({
+      itemId: 'es3',
+      language: 'es',
+      derivedPriceCents: 18001,
+      marketDriftCents: 15000,
+      standardOfferCents: 11188,
+      standardKind: 'curve',
+      standardPctBp: 3729,
+      languagePenaltyPct: 15,
+      adjustment: { deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'El mercado subió desde la cotización.' },
+      sinceQuote: null,
+      breakdown: {
+        marketMxnCents: 30000,
+        languagePenalty: { pct: 15, cents: -4500 },
+        adjustedMarketCents: 25500,
+        curveBp: 3729,
+        curveOfferCents: 11188,
+        cap: null,
+        source: 'curve',
+        finalOfferCents: 11188,
+      },
+    });
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    const chip = screen.getByTestId('line-chip');
+    const note = screen.getByTestId('line-market-drift');
+    expect(chip).toHaveTextContent('Subida');
+    expect(note).toHaveTextContent('Cambió desde la cotización (era MX$300.00)');
+    expect(chip.parentElement).toBe(note.parentElement);
+    expect(screen.getByTestId('line-reason')).toHaveTextContent('El mercado subió desde la cotización.');
+  });
+
+  it('§3.3 I2: ES pendiente no pinta «Estándar» junto a «—»; sí el chip «−P % idioma»', async () => {
+    const es = line({
+      itemId: 'es4',
+      language: 'es',
+      derivedPriceCents: 9000,
+      standardOfferCents: null,
+      standardKind: 'pending',
+      standardPctBp: null,
+      languagePenaltyPct: 15,
+      adjustment: null,
+      breakdown: {
+        marketMxnCents: null,
+        languagePenalty: { pct: 15, cents: null },
+        adjustedMarketCents: null,
+        curveBp: null,
+        curveOfferCents: null,
+        cap: null,
+        source: 'pending',
+        finalOfferCents: null,
+      },
+    } as never);
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.queryByTestId('line-chip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('line-language-penalty')).toBeInTheDocument();
+  });
+
   it('«Solo las que cambian» oculta las Estándar', async () => {
     render(table({ lines }));
     await screen.findAllByTestId('desk-line');

@@ -215,6 +215,9 @@ function SuggestionLine({ line }: { line: BuylistDecisionLineDTO }) {
   );
 }
 
+// Códigos con texto i18n propio; los de B1-bis ES (MARKET_UP/DOWN, CURVE_CHANGED) llegan con `reasonText` del servidor.
+const KNOWN_REASONS = new Set<string>(['STOCK_CAP', 'MANUAL_OVERRIDE', 'BOUNTY', 'FLOOR', 'NO_MARKET']);
+
 type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
 
 /**
@@ -223,6 +226,9 @@ type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
  */
 function mesaChip(line: BuylistDecisionLineDTO): MesaChip | null {
   if (line.derivedPriceCents == null || line.priceBasis === 'pending') return 'noPrice';
+  // §3.3 I2: línea ES con la inglesa pendiente (sin Estándar): solo el chip «−P % idioma» (en la celda de la carta);
+  // nunca «Estándar» junto a «—».
+  if (line.language === 'es' && (line.standardKind === 'pending' || line.breakdown?.source === 'pending')) return null;
   if (line.adjustment === undefined) return null;
   if (line.adjustment === null) return 'standard';
   return line.adjustment.deltaCents > 0 ? 'up' : 'down';
@@ -709,12 +715,6 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                             ? formatMoneyCents((line.marketTodayCents ?? line.marketMxnCents) as number, locale)
                             : '—'}
                         </span>
-                        {/* §3.3 B1: marca informativa; no toca chip, Estándar ni Ofertamos (lo congelado no se reevalúa). */}
-                        {line.marketDriftCents != null && line.breakdown?.marketMxnCents != null && (
-                          <span data-testid="line-market-drift" className="text-xs text-muted">
-                            {t('marketDrift', { amount: formatMoneyCents(line.breakdown.marketMxnCents, locale) })}
-                          </span>
-                        )}
                         <span className="text-xs text-muted">
                           {t('quoted')}{' '}
                           <span className="tabular font-mono">
@@ -793,6 +793,12 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                             })()}
                           </span>
                         )}
+                        {/* §3.3 B1-bis: explica el chip (el mercado vivo mueve Ofertamos); se pinta junto a él, no lo sustituye. Estándar y desglose siguen congelados. */}
+                        {line.marketDriftCents != null && line.breakdown?.marketMxnCents != null && (
+                          <span data-testid="line-market-drift" className="text-xs text-muted">
+                            {t('marketDrift', { amount: formatMoneyCents(line.breakdown.marketMxnCents, locale) })}
+                          </span>
+                        )}
                         {changed && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason-edited">
                             {t('mesa.editedByYou')}
@@ -800,7 +806,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         )}
                         {!changed && adj && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason">
-                            {locale === 'es' && adj.reasonText
+                            {(locale === 'es' && adj.reasonText) || !KNOWN_REASONS.has(adj.reasonCode)
                               ? adj.reasonText
                               : t(`mesa.reason.${adj.reasonCode}`)}
                           </span>

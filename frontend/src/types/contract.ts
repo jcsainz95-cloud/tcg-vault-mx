@@ -5043,7 +5043,7 @@ export interface BuylistDecisionLineDTO {
   /** `null` ⇔ oferta == estándar. `deltaCents = derived - standard`. */
   adjustment?: {
     deltaCents: number;
-    reasonCode: 'STOCK_CAP' | 'MANUAL_OVERRIDE' | 'BOUNTY' | 'FLOOR' | 'NO_MARKET';
+    reasonCode: 'STOCK_CAP' | 'MANUAL_OVERRIDE' | 'BOUNTY' | 'FLOOR' | 'NO_MARKET' | 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
     reasonText: string;
   } | null;
   /** Solo si cotizado y derivado existen y difieren. `deltaCents = derived - quoted`. */
