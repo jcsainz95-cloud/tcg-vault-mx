@@ -19,6 +19,8 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
   let addressId: string;
   let spy: jest.SpyInstance;
   const prev: Record<string, unknown> = {};
+  /** Piezas que `convertToInventory` crea (misma carta que el seed): se retiran al terminar, o otra suite (C2 de guest-checkout) las ve como copia equivalente libre. */
+  const converted: string[] = [];
 
   const setDial = (key: string, value: unknown) =>
     h.prisma.configSetting.upsert({ where: { key }, update: { valueJson: value as never }, create: { key, valueJson: value as never } });
@@ -43,6 +45,7 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
   afterAll(async () => {
     spy?.mockRestore();
     if (h) {
+      if (converted.length) await h.prisma.inventoryItem.updateMany({ where: { id: { in: converted } }, data: { status: 'withdrawn' } });
       for (const k of [...KEYS, CAP_KEY]) {
         if (prev[k] === undefined) await h.prisma.configSetting.deleteMany({ where: { key: k } });
         else await setDial(k, prev[k]);
@@ -158,6 +161,7 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
       await h.prisma.sellRequestItem.update({ where: { id: it.id }, data: { itemStatus: 'aprobada', approvedPriceCents: it.quotedPriceCents, offerDecision: 'buy', offeredPriceCents: it.quotedPriceCents } });
       const c = await h.api('POST', `/admin/buylist/items/${it.id}/convert-to-inventory`, { token: operator, json: {} });
       expect(c.status).toBe(200);
+      converted.push(c.body.inventoryItemId);
       langs.push((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: c.body.inventoryItemId } })).language);
     }
     expect(langs).toEqual(['en', 'es', 'en']);
