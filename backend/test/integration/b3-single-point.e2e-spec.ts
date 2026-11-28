@@ -105,18 +105,38 @@ describe('E2E — §12 retención B3 en TODO escritor de PriceReference TCGCSV',
     await h.prisma.auditLog.deleteMany({ where: { action: { in: ['catalog.auto_link_claim', 'catalog.auto_link_run', 'catalog.auto_link', 'catalog.link_repair', 'catalog.group_confirm_claim', 'catalog.group_confirmed', 'catalog.card_confirm_claim'] } } });
   });
 
+  /**
+   * I1: el teardown borraba en serie mientras un job de fondo (auto-link / price-ingest) aún tocaba las mismas filas ⇒ deadlock 40P01
+   * intermitente (1 de 2 corridas completas). Reintenta SOLO ese código (cada borrado es idempotente); cualquier otro error sube y las
+   * aserciones de las pruebas no se tocan.
+   */
+  const noDeadlock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        const code = (e as { code?: string; meta?: { code?: string } }).meta?.code ?? (e as { code?: string }).code;
+        const msg = String((e as Error)?.message ?? '');
+        if (!(code === '40P01' || /40P01|deadlock detected/i.test(msg)) || attempt >= 6) throw e;
+        await new Promise((r) => setTimeout(r, 100 * attempt));
+      }
+    }
+  };
+
   afterAll(async () => {
     if (h) {
-      const cps = await h.prisma.cardProduct.findMany({ where: { cardId: { in: cardIds } }, select: { id: true } });
-      await h.prisma.listingPrice.deleteMany({ where: { inventoryItemId: { in: itemIds } } });
-      await h.prisma.inventoryItem.deleteMany({ where: { id: { in: itemIds } } });
-      await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: cardIds } } });
-      await h.prisma.priceReviewCase.deleteMany({ where: { cardId: { in: cardIds } } });
-      await h.prisma.priceReference.deleteMany({ where: { OR: [{ cardId: { in: cardIds } }, { cardProductId: { in: cps.map((c) => c.id) } }] } });
-      await h.prisma.cardProduct.deleteMany({ where: { cardId: { in: cardIds } } });
-      await h.prisma.card.deleteMany({ where: { id: { in: cardIds } } });
-      await h.prisma.cardSet.deleteMany({ where: { id: { in: setIds } } });
-      await h.prisma.auditLog.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...setIds] } }, { action: { in: ['catalog.auto_link_run', 'catalog.auto_link_claim', 'catalog.auto_link', 'catalog.link_repair', 'catalog.group_confirm_claim', 'catalog.group_confirmed', 'catalog.card_confirm_claim'] } }] } });
+      await noDeadlock(async () => {
+        const cps = await h.prisma.cardProduct.findMany({ where: { cardId: { in: cardIds } }, select: { id: true } });
+        await h.prisma.listingPrice.deleteMany({ where: { inventoryItemId: { in: itemIds } } });
+        await h.prisma.inventoryItem.deleteMany({ where: { id: { in: itemIds } } });
+        await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: cardIds } } });
+        await h.prisma.priceReviewCase.deleteMany({ where: { cardId: { in: cardIds } } });
+        await h.prisma.priceReference.deleteMany({ where: { OR: [{ cardId: { in: cardIds } }, { cardProductId: { in: cps.map((c) => c.id) } }] } });
+        await h.prisma.cardProduct.deleteMany({ where: { cardId: { in: cardIds } } });
+        await h.prisma.card.deleteMany({ where: { id: { in: cardIds } } });
+        await h.prisma.cardSet.deleteMany({ where: { id: { in: setIds } } });
+        await h.prisma.auditLog.deleteMany({ where: { OR: [{ entityId: { in: [...cardIds, ...setIds] } }, { action: { in: ['catalog.auto_link_run', 'catalog.auto_link_claim', 'catalog.auto_link', 'catalog.link_repair', 'catalog.group_confirm_claim', 'catalog.group_confirmed', 'catalog.card_confirm_claim'] } }] } });
+      });
       await h.close();
     }
   });
