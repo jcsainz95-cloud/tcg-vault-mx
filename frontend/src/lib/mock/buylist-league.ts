@@ -55,3 +55,6 @@ export function mockApplyLeague(
   };
 }
 
+
+// Centinela de bundle (ver sentinel.ts): el literal viaja con el módulo para que el candado lo vea si llega al build.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';
