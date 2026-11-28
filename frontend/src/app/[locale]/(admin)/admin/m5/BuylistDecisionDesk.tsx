@@ -15,6 +15,8 @@ import { Modal } from '@/components/ui/Modal';
 import { CardPhotoLightbox } from './CardPhotoLightbox';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PriceBasisTag } from '@/components/domain/PriceBasisTag';
+import { BuylistBreakdown } from '@/components/domain/BuylistBreakdown';
+import { LanguageChip } from '@/components/domain/VersionChip';
 import {
   defaultSelection,
   emitBlocker,
@@ -673,6 +675,11 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
                           {line.card.setName} · {line.card.number} · {line.finish}
                         </span>
+                        {line.language === 'es' && (
+                          <span className="mt-1">
+                            <LanguageChip language="es" size="tile" />
+                          </span>
+                        )}
                       </span>
 
                       <div className="flex flex-col gap-0.5">
@@ -688,6 +695,8 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                               : '—'}
                           </span>
                         </span>
+                        {/* §BUYLIST-ES: mercado → −idioma → ajustado → % de la curva → oferta, en ese orden. */}
+                        <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" />
                       </div>
 
                       <div className="flex flex-col gap-0.5">

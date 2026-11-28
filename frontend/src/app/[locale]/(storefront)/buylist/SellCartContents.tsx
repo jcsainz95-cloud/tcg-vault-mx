@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
-import type { BuylistQuoteResponse } from '@/types/contract';
+import type { BuylistQuoteResponse, CardLanguage } from '@/types/contract';
 import type { SellRequirements } from '@/hooks/useSellRequirements';
 import { formatMoneyCents } from '@/lib/format';
 import { visibleMarketCents } from '@/lib/sell-market';
@@ -18,8 +18,10 @@ import {
   BuylistPendingLineLabel,
   BuylistPendingLinesNote,
 } from '@/components/domain/BuylistPendingLinesNote';
-import type { CartLine } from './useSellCart';
-import { MAX_LINE_QUANTITY } from './useSellCart';
+import type { CartLine, SpanishBulkResult } from './useSellCart';
+import { MAX_LINE_QUANTITY, lineLanguage, lineOffersSpanish } from './useSellCart';
+import { LanguageSegment } from '@/components/domain/LanguageSegment';
+import { LanguageChip } from '@/components/domain/VersionChip';
 import { minimumShortfallCents } from './useQuotePolicy';
 import { CartTotalFigure } from './CartTotalFigure';
 import { CardCode } from '@/components/domain/CardCode';
@@ -63,6 +65,15 @@ export interface SellCartContentsProps {
    * porque la puerta real es el `422` del servidor (fail-open, contrato §6).
    */
   minimumRequestCents?: number;
+  /**
+   * §BUYLIST-ES: dial `spanishEnabled` de `quote-policy`. `false`/`undefined` ⇒ NO se pinta nada de idioma
+   * (ni segmento, ni «Todas en español», ni chip de líneas nuevas): el carrito queda exactamente como hoy.
+   */
+  spanishEnabled?: boolean;
+  /** Solo para el texto de ayuda; el monto ya viene calculado por el servidor. */
+  spanishPenaltyPct?: number;
+  onSetLanguage?: (lineId: string, language: CardLanguage) => void;
+  onAllSpanish?: () => SpanishBulkResult;
   onSetQuantity: (lineId: string, quantity: number) => void;
   onRemoveLine: (lineId: string) => void;
   onToggleLineDetail: (lineId: string) => void;
@@ -105,6 +116,10 @@ export function SellCartContents({
   pendingCardCount,
   cartCount,
   minimumRequestCents,
+  spanishEnabled = false,
+  spanishPenaltyPct,
+  onSetLanguage,
+  onAllSpanish,
   onSetQuantity,
   onRemoveLine,
   onToggleLineDetail,
@@ -132,6 +147,13 @@ export function SellCartContents({
   const shortfallCents =
     cart.length > 0 ? minimumShortfallCents(minimumRequestCents, totalEstimatedCents) : null;
   const belowMinimum = shortfallCents != null;
+
+  // §BUYLIST-ES · «Todas en español»: visible solo con el dial encendido y si queda alguna carta por pasar.
+  const [bulkMsg, setBulkMsg] = useState('');
+  const canBulkSpanish =
+    spanishEnabled &&
+    !!onAllSpanish &&
+    cart.some((l) => lineLanguage(l) === 'en' && lineOffersSpanish(l, spanishEnabled));
 
   // §23.10 · el CRUCE del mínimo se anuncia una vez con `aria-live="polite"`, y el anuncio ya no
   // menciona envío ni neto. Solo la TRANSICIÓN debajo→arriba habla: un carrito que nace por
@@ -176,6 +198,40 @@ export function SellCartContents({
               huecos de precio de cada línea pintan «—» (`text-muted`, `tabular`, mismo tamaño: no se
               mueve la geometría). Una línea `precio_pendiente` conserva su versalita. Un solo anuncio
               a11y: el `aria-label` vive en el total; aquí solo `aria-busy` mientras dura la recotización. */}
+          {canBulkSpanish && (
+            <div className="mt-4" data-testid="sell-cart-bulk-spanish">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={noFreshPrice}
+                onClick={() => {
+                  const r = onAllSpanish!();
+                  setBulkMsg(
+                    r.switched === 0
+                      ? t('lang.allSpanishNone')
+                      : [
+                          t('lang.allSpanishDone', { switched: r.switched }),
+                          r.skipped > 0 ? t('lang.allSpanishSkipped', { skipped: r.skipped }) : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' '),
+                  );
+                }}
+              >
+                {t('lang.allSpanish')}
+              </Button>
+              {spanishPenaltyPct != null && (
+                <p className="mt-2 text-[12px] leading-[1.6] text-muted">
+                  {t('lang.penaltyHint', { pct: spanishPenaltyPct })}
+                </p>
+              )}
+            </div>
+          )}
+          {(canBulkSpanish || bulkMsg) && (
+            <p role="status" className="mt-2 text-[12px] leading-[1.6] text-text" data-testid="sell-cart-bulk-status">
+              {bulkMsg}
+            </p>
+          )}
           <ul className="mt-4" aria-busy={requoting || undefined} data-testid="sell-cart-lines">
             {cart.map((l, idx) => {
               const pending = l.quote.quote.status === 'precio_pendiente';
@@ -184,7 +240,9 @@ export function SellCartContents({
               // §BMK.3: la MISMA regla que la teja. Sobre la cotización guardada decide si la fila
               // EXISTE; si no hay cotización fresca (§33.11.2), la fila se queda pero pinta «—»
               // (DESIGN_SYSTEM §BMK.5) — ⛔ nunca la cifra vieja.
-              const marketCents = visibleMarketCents(l.quote);
+              // §IDS.2: el español no exhibe «valor de mercado» (la oferta ya lleva el ajuste de idioma).
+              const isSpanish = lineLanguage(l) === 'es';
+              const marketCents = isSpanish ? null : visibleMarketCents(l.quote);
               return (
                 <li key={l.id} className="border-b border-border py-3">
                   {/* FE-IMG: miniatura de la carta. El dato YA viajaba en la línea del carrito
@@ -236,6 +294,7 @@ export function SellCartContents({
                         {/* P-14 (§18.5): FinishMark compartido (banda 3px + etiqueta mono)
                             en vez del texto plano del acabado — mismo lenguaje que la teja. */}
                         <FinishMark finish={l.finish} className="translate-y-[1px]" />
+                        {isSpanish && <LanguageChip language="es" size="tile" />}
                         <span aria-hidden>·</span>
                         <span>
                           ×<span className="tabular">{l.quantity}</span>
@@ -283,6 +342,16 @@ export function SellCartContents({
                           </dd>
                         </div>
                       </dl>
+                      {/* §BUYLIST-ES: segmento Inglés | Español con el monto de cada opción (sin red). */}
+                      {onSetLanguage && lineOffersSpanish(l, spanishEnabled) && (
+                        <LanguageSegment
+                          name={l.card.name}
+                          language={lineLanguage(l)}
+                          offers={l.quote.offers}
+                          disabled={noFreshPrice}
+                          onChange={(lang) => onSetLanguage(l.id, lang)}
+                        />
+                      )}
                       <div className="mt-2 flex items-center gap-4">
                         <div className="flex items-center gap-2">
                           <button

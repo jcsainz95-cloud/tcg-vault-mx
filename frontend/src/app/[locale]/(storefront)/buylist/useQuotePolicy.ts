@@ -22,7 +22,11 @@ import { getBuylistQuotePolicy } from '@/lib/api';
  * `422 BUYLIST_MINIMUM_NOT_MET` de `POST /buylist/requests`— ya protege el invariante y responde
  * con el número exacto. *La pantalla informa; la puerta decide.*
  */
-export function useQuotePolicy(): { minimumRequestCents?: number } {
+export function useQuotePolicy(): {
+  minimumRequestCents?: number;
+  spanishEnabled?: boolean;
+  spanishPenaltyPct?: number;
+} {
   const query = useQuery({
     queryKey: ['buylist-quote-policy'],
     queryFn: getBuylistQuotePolicy,
@@ -35,7 +39,12 @@ export function useQuotePolicy(): { minimumRequestCents?: number } {
   });
   // `query.data` es undefined mientras carga y también si falló: los dos casos se tratan igual
   // (no hay mínimo conocido ⇒ no hay faltante ⇒ no hay gate de cliente).
-  return { minimumRequestCents: query.data?.minimumRequestCents };
+  // §BUYLIST-ES: el dial de español degrada APAGADO (fail-closed de UI): sin dato o `false` ⇒ nada nuevo en pantalla.
+  return {
+    minimumRequestCents: query.data?.minimumRequestCents,
+    spanishEnabled: query.data?.spanishEnabled === true,
+    spanishPenaltyPct: query.data?.spanishPenaltyPct,
+  };
 }
 
 /**

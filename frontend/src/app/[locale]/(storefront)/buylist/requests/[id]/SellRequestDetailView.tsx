@@ -1,5 +1,7 @@
 'use client';
 
+import { BuylistBreakdown } from '@/components/domain/BuylistBreakdown';
+import { LanguageChip } from '@/components/domain/VersionChip';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -475,11 +477,23 @@ function Detail({
                   {line.card.name}
                 </span>
                 <LineSpec line={line} />
+                {/* §BUYLIST-ES: chip «Español» solo en líneas declaradas en español (inglés = sin chip, como hoy). */}
+                {line.language === 'es' && (
+                  <span className="mt-1">
+                    <LanguageChip language="es" size="tile" />
+                  </span>
+                )}
               </span>
               {!hideMoney && line.quotedPriceCents != null && (
                 <span className="tabular font-mono text-sm text-muted">
                   {formatMoneyCents(line.quotedPriceCents, locale)}
                 </span>
+              )}
+              {/* §BUYLIST-ES: desglose congelado (mercado → −idioma → % de la curva → te pagamos). */}
+              {!hideMoney && line.language === 'es' && (
+                <div className="basis-full">
+                  <BuylistBreakdown breakdown={line.breakdown} />
+                </div>
               )}
             </li>
           ))}

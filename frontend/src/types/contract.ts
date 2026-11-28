@@ -3265,6 +3265,12 @@ export interface BuylistQuoteResponse {
   };
   referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
   paymentNotice: 'PAY_AFTER_RECEIPT';
+  // §BUYLIST-ES §2 (ADITIVOS; ausentes con el dial apagado): idioma cotizado, oferta de cada idioma (cambiar el
+  // segmento NO pide red), si la carta admite español y el desglose del idioma elegido.
+  language?: CardLanguage;
+  offers?: BuylistLanguageOffersDTO;
+  spanishEligible?: boolean;
+  breakdown?: BuylistBreakdownDTO | null;
 }
 
 // ---- Cotización en LOTE (contrato §6 · POST /buylist/quote/batch, v1.15) ----
@@ -3289,6 +3295,8 @@ export interface BuylistQuoteItemDTO {
   // (deck_exclusive/promo). Presente ⇒ la línea es ESE producto (acabado ∈ `CardProduct.finishes`,
   // referencia por ese `cardProductId`, precio PROPIO). Ausente ⇒ set_base por (cardId, finish).
   productId?: number;
+  /** §BUYLIST-ES: idioma declarado de la carta; omitido ⇒ `en` (comportamiento de siempre). */
+  language?: CardLanguage;
 }
 
 // Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta.
@@ -3307,6 +3315,12 @@ export interface BuylistQuotePayload {
   };
   referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
   paymentNotice: 'PAY_AFTER_RECEIPT';
+  // §BUYLIST-ES §2 (ADITIVOS; ausentes con el dial apagado): idioma cotizado, oferta de cada idioma (cambiar el
+  // segmento NO pide red), si la carta admite español y el desglose del idioma elegido.
+  language?: CardLanguage;
+  offers?: BuylistLanguageOffersDTO;
+  spanishEligible?: boolean;
+  breakdown?: BuylistBreakdownDTO | null;
 }
 
 // Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el
@@ -3333,7 +3347,9 @@ export type BuylistBatchQuoteResultDTO =
           | 'FINISH_NOT_AVAILABLE'
           | 'PRODUCT_NOT_FOUND'
           | 'PRODUCT_CARD_MISMATCH'
-          | 'BUYLIST_RAW_ONLY';
+          | 'BUYLIST_RAW_ONLY'
+          | 'LANGUAGE_NOT_ELIGIBLE'
+          | 'LANGUAGE_NOT_AVAILABLE';
         message: string;
       };
     };
@@ -3357,6 +3373,34 @@ export interface BuylistBatchQuoteResponse {
 // ⛔ Resta PROHIBIDA: `neto ≈ total − tarifa` (además de imposible: la tarifa no viaja).
 export interface BuylistQuotePolicyDTO {
   minimumRequestCents: number;
+  /**
+   * §BUYLIST-ES (F1/F2, docs/API_CONTRACT_BUYLIST_ES.md §1): ADITIVOS. Ausentes o `false` ⇒ la UI NO pinta nada
+   * de idioma (sin regresión). `spanishPenaltyPct` es solo para el texto del segmento; el monto lo manda el servidor.
+   */
+  spanishEnabled?: boolean;
+  leagueEnabled?: boolean;
+  spanishPenaltyPct?: number;
+}
+
+/**
+ * §BUYLIST-ES §3 · desglose por línea, en ESTE orden: mercado → castigo de idioma → mercado ajustado → % de la
+ * curva → oferta. Lo calcula el servidor en centavos enteros (`base + castigo = final`); el front NO calcula dinero.
+ * `languagePenalty:null` ⇒ línea en inglés (sin renglón de idioma). `cents` del castigo es NEGATIVO.
+ */
+export interface BuylistBreakdownDTO {
+  marketMxnCents: number;
+  languagePenalty: { pct: number; cents: number } | null;
+  adjustedMarketCents: number;
+  /** % de la curva vigente (puntos porcentuales, p. ej. 50). */
+  basePct: number;
+  baseOfferCents: number;
+  finalOfferCents: number;
+}
+
+/** §BUYLIST-ES §2 · ofertas por idioma de la versión elegida (centavos | null = sin oferta). */
+export interface BuylistLanguageOffersDTO {
+  en: number | null;
+  es: number | null;
 }
 
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity`; v2.0 (P-48) retira `appliedRule`
@@ -3374,6 +3418,9 @@ export interface SellItemDTO {
   // (deck_exclusive/promo). Se propaga al InventoryItem al convertir (M5, ligado a ESE producto,
   // no al set_base). Ausente/null ⇒ línea de set_base (comportamiento actual, retrocompatible).
   productId?: number;
+  // §BUYLIST-ES (ADITIVOS): idioma declarado y desglose congelado; ausentes ⇒ servidor anterior ⇒ inglés, sin chip.
+  language?: CardLanguage;
+  breakdown?: BuylistBreakdownDTO | null;
   // v2.0 (P-48): snapshot INFORMATIVO del catálogo — el monto no depende de la rareza (criterio 84).
   rarity?: string;
   // v2.0 (P-48, §N.8 instrumentación): `appliedRule` SE RETIRA. La línea persiste la decisión de
@@ -3929,6 +3976,9 @@ export interface MasterSetVariantDTO {
     rarity: string | null;
     priceBasis: PriceBasis;
     referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
+    // §BUYLIST-ES (ADITIVOS, solo con el dial encendido): pasan tal cual del batch para que el carrito ofrezca el segmento.
+    offers?: BuylistLanguageOffersDTO;
+    spanishEligible?: boolean;
   } | null;
   // v1.22-2-finish-display (N-16): espejo de conveniencia = (finish ∈ displayFinishes de la celda).
   // Es la variante que el render PLANO pinta (una tarjeta por variante `displayed===true`). Opcional
@@ -4968,6 +5018,9 @@ export interface BuylistDecisionLineDTO {
    * BUYLIST-MESA (docs/API_CONTRACT_BUYLIST_MESA.md) — campos ADITIVOS, todos calculados por el servidor en
    * centavos enteros. `undefined` = servidor anterior al anexo (la UI no pinta chip); `null` = sin dato (nunca 0).
    */
+  /** §BUYLIST-ES (ADITIVOS): idioma declarado y desglose (mercado → −idioma → % curva → oferta). Ausente ⇒ sin chip. */
+  language?: CardLanguage;
+  breakdown?: BuylistBreakdownDTO | null;
   /** Mercado de HOY en MXN centavos. */
   marketMxnCents?: number | null;
   /** Curva pura sobre ese mercado (sin override, tope ni bounty). */

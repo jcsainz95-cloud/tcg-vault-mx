@@ -695,3 +695,43 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(list).toHaveAttribute('aria-activedescendant');
   });
 });
+
+describe('Mesa de decisión — §BUYLIST-ES (idioma)', () => {
+  it('línea en español: chip «Español» y desglose en el orden del dueño (mercado → −15 % → % curva → oferta)', async () => {
+    render(
+      table({
+        lines: [
+          line({
+            language: 'es',
+            marketMxnCents: 100000,
+            breakdown: {
+              marketMxnCents: 100000,
+              languagePenalty: { pct: 15, cents: -15000 },
+              adjustedMarketCents: 85000,
+              basePct: 50,
+              baseOfferCents: 42500,
+              finalOfferCents: 42500,
+            },
+          }),
+        ],
+      }),
+    );
+    const bd = await screen.findByTestId('buylist-breakdown');
+    expect(Array.from(bd.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'))).toEqual([
+      'market',
+      'language',
+      'adjusted',
+      'base',
+      'offer',
+    ]);
+    expect(within(bd).getByText('Oferta')).toBeInTheDocument();
+    expect(document.querySelector('[data-version-chip="language"]')?.textContent).toBe('Español');
+  });
+
+  it('línea en inglés (o servidor anterior): sin chip ni desglose — la mesa queda como hoy', async () => {
+    render(table());
+    await screen.findByTestId('line-market');
+    expect(screen.queryByTestId('buylist-breakdown')).toBeNull();
+    expect(document.querySelector('[data-version-chip="language"]')).toBeNull();
+  });
+});

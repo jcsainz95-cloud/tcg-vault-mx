@@ -217,6 +217,8 @@ async function fetchQuoterBinder(
             rarity: r.rarity,
             priceBasis: r.priceBasis,
             referencePrice: r.referencePrice,
+            ...(r.offers ? { offers: r.offers } : {}),
+            ...(r.spanishEligible != null ? { spanishEligible: r.spanishEligible } : {}),
           }
         : null;
       return { finish: f, count: 0, covered: quote != null, buyable: undefined, quote, displayed: display.includes(f) };

@@ -2184,7 +2184,13 @@ export const mockSellRequests: MockSellRequestRow[] = [
  * falso — NO es un default de la ruta real: la ruta real NUNCA inventa el mínimo (si el endpoint
  * falla, el front no pinta faltante y deja el botón vivo; el 422 del servidor trae el número).
  */
-export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = { minimumRequestCents: 50000 };
+export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = {
+  minimumRequestCents: 50000,
+  // §BUYLIST-ES (F2): el dial de español está ENCENDIDO en el mock para poder ver la UI; liga queda para F4.
+  spanishEnabled: true,
+  leagueEnabled: false,
+  spanishPenaltyPct: 15,
+};
 
 /**
  * KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo.

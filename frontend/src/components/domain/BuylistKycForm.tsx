@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { RawCondition, Finish, KycStatus } from '@/types/contract';
+import type { CardLanguage, RawCondition, Finish, KycStatus } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useSession } from '@/lib/session';
@@ -40,6 +40,8 @@ export interface BuylistRequestItem {
   finish?: Finish;
   // v1.30 (§4.29): productId de un PRODUCTO SEPARADO (deck_exclusive/promo). Ausente = set_base.
   productId?: number;
+  /** §BUYLIST-ES: solo `'es'`; en inglés se omite (= comportamiento de hoy). */
+  language?: CardLanguage;
 }
 
 export interface BuylistKycFormProps {

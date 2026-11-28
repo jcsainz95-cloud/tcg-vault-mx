@@ -701,10 +701,10 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
 describe('api · buylist quote-policy (D43) y las puertas de POST /buylist/requests (D36/D37)', () => {
   const ITEMS = [{ cardId: 'c-charizard', productType: 'raw' as const, rawCondition: 'NM' as const }];
 
-  it('getBuylistQuotePolicy devuelve UN SOLO campo: el mínimo (⛔ sin `shippingFeeCents`)', async () => {
+  it('getBuylistQuotePolicy devuelve el mínimo y solo los diales de idioma de §BUYLIST-ES (⛔ sin `shippingFeeCents`)', async () => {
     const policy = await getBuylistQuotePolicy();
     // La lista de lo que NO lleva es CERRADA: cualquier dial extra en ruta pública es un defecto.
-    expect(Object.keys(policy)).toEqual(['minimumRequestCents']);
+    expect(Object.keys(policy)).toEqual(['minimumRequestCents', 'spanishEnabled', 'leagueEnabled', 'spanishPenaltyPct']);
     expect(typeof policy.minimumRequestCents).toBe('number');
     expect('shippingFeeCents' in policy).toBe(false);
   });

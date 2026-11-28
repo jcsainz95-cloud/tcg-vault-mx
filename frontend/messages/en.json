@@ -1074,6 +1074,26 @@
       "marketEach": "Market value per card",
       "wePayEach": "We pay you per card"
     },
+    "lang": {
+      "groupLabel": "Language of {name}",
+      "en": "English",
+      "es": "Spanish",
+      "noOffer": "No offer",
+      "allSpanish": "All in Spanish",
+      "allSpanishDone": "{switched, plural, one {# card switched to Spanish.} other {# cards switched to Spanish.}}",
+      "allSpanishSkipped": "{skipped, plural, one {We skipped # with no Spanish offer.} other {We skipped # with no Spanish offer.}}",
+      "allSpanishNone": "None of the cards on your list has a Spanish offer.",
+      "penaltyHint": "For Spanish cards we pay {pct}% less on the market price; the amount already includes that adjustment."
+    },
+    "breakdown": {
+      "title": "How it is calculated",
+      "market": "Market",
+      "language": "Spanish language −{pct}%",
+      "adjusted": "Adjusted market",
+      "base": "Buy curve {pct}%",
+      "offer": "We pay you",
+      "offerAdmin": "Offer"
+    },
     "payAfterReceipt": "Payment is made after we receive and verify your cards.",
     "shippingGuideLink": "How to pack your cards",
     "pricePendingNotice": "This card has no reference price; it will enter the pending-price queue and we'll quote it manually.",
@@ -9588,6 +9608,8 @@
     "ITEM_IN_ANOTHER_SHIPMENT": "This card is already in another shipment.",
     "BUYLIST_LIMIT_EXCEEDED": "This quote goes over the most we can buy from you in one month. Remove a few cards and try again; the limit resets every month.",
     "BUYLIST_RAW_ONLY": "We only buy raw cards in Near Mint; graded slabs and sealed product are not quoted here.",
+    "LANGUAGE_NOT_ELIGIBLE": "This card has no Spanish offer; keep it as English.",
+    "LANGUAGE_NOT_AVAILABLE": "We are not quoting Spanish cards right now.",
     "INE_REQUIRED": "This sale is over our limit: upload your ID (INE) to continue.",
     "CLABE_NOT_OWN_NAME": "The CLABE must be in your name.",
     "CLABE_INVALID": "The CLABE is not valid.",

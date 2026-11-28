@@ -61,6 +61,9 @@ function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>
     quote: r.quote,
     referencePrice: r.referencePrice,
     paymentNotice: r.paymentNotice,
+    ...(r.offers ? { offers: r.offers } : {}),
+    ...(r.spanishEligible != null ? { spanishEligible: r.spanishEligible } : {}),
+    ...(r.language ? { language: r.language } : {}),
   };
 }
 
@@ -111,6 +114,8 @@ export function BuylistView() {
     expandedLines,
     addLine,
     setQuantity,
+    setLineLanguage,
+    setAllSpanish,
     removeLine,
     clearCart,
     toggleLineDetail,
@@ -222,6 +227,8 @@ export function BuylistView() {
         quote: { status: variant.quote.status, quotedPriceCents: variant.quote.quotedPriceCents, currency: 'MXN' },
         referencePrice: variant.quote.referencePrice,
         paymentNotice: 'PAY_AFTER_RECEIPT',
+        ...(variant.quote.offers ? { offers: variant.quote.offers } : {}),
+        ...(variant.quote.spanishEligible != null ? { spanishEligible: variant.quote.spanishEligible } : {}),
       };
       addLine({
         card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl, setPtcgoCode },
@@ -305,7 +312,7 @@ export function BuylistView() {
   const sellReq = useSellRequirements(totalEstimatedCents);
   // `minimumRequestCents` queda undefined mientras carga Y si la llamada falla: la degradación es
   // fail-OPEN (sin faltante y con el CTA vivo), porque la puerta real es el 422 del servidor.
-  const { minimumRequestCents } = useQuotePolicy();
+  const { minimumRequestCents, spanishEnabled, spanishPenaltyPct } = useQuotePolicy();
 
   return (
     <div className="grid lg:grid-cols-[40px_1fr]">
@@ -440,6 +447,10 @@ export function BuylistView() {
             pendingCardCount={pendingCardCount}
             cartCount={cartCount}
             minimumRequestCents={minimumRequestCents}
+            spanishEnabled={spanishEnabled}
+            spanishPenaltyPct={spanishPenaltyPct}
+            onSetLanguage={setLineLanguage}
+            onAllSpanish={setAllSpanish}
             onSetQuantity={setQuantity}
             onRemoveLine={removeLine}
             onToggleLineDetail={toggleLineDetail}

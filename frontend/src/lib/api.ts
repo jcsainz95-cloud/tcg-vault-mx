@@ -2928,6 +2928,50 @@ export interface BuylistQuoteInput {
    * referencia/precio PROPIOS por ese productId). Ausente ⇒ set_base por (cardId, finish).
    */
   productId?: number;
+  /** §BUYLIST-ES (ADITIVO): idioma de la carta; omitido ⇒ `en`. */
+  language?: CardLanguage;
+}
+
+/**
+ * MOCK §BUYLIST-ES (F2): el mock hace de SERVIDOR con el dial `spanishEnabled` de `mockBuylistQuotePolicy`.
+ * Con el dial apagado NO añade campo alguno (forma de siempre). Encendido: `offers.{en,es}` +
+ * `spanishEligible` + `breakdown` (mercado → −idioma → ajustado → % → oferta). Es una aproximación de demo
+ * sobre `mockDemoBuyQuote`; el cálculo real vive en `decideBuyLine` (backend). Jamás sube la oferta ES por
+ * encima de la EN (anti-inflado, contrato §3.4).
+ */
+function mockApplyLanguage(base: BuylistQuoteResponse, language: CardLanguage | undefined): BuylistQuoteResponse {
+  const policy = fx.mockBuylistQuotePolicy;
+  if (!policy.spanishEnabled) return base;
+  const ref = base.referencePrice.status === 'priced' ? (base.referencePrice.priceMxnCents ?? null) : null;
+  const en = base.quote.quotedPriceCents;
+  if (ref == null || en == null) return { ...base, language: 'en', spanishEligible: false, offers: { en, es: null } };
+  const pct = policy.spanishPenaltyPct ?? 15;
+  const adjusted = Math.round((ref * (100 - pct)) / 100);
+  const esRaw = fx.mockDemoBuyQuote(adjusted).cents;
+  const es = esRaw == null ? null : Math.min(esRaw, en);
+  const chosen = language === 'es' ? es : en;
+  const offers = { en, es };
+  if (language !== 'es' || es == null) {
+    return { ...base, language: 'en', spanishEligible: true, offers, breakdown: {
+      marketMxnCents: ref, languagePenalty: null, adjustedMarketCents: ref,
+      basePct: Math.round((en * 100) / ref), baseOfferCents: en, finalOfferCents: en,
+    } };
+  }
+  return {
+    ...base,
+    language: 'es',
+    spanishEligible: true,
+    offers,
+    quote: { ...base.quote, quotedPriceCents: chosen },
+    breakdown: {
+      marketMxnCents: ref,
+      languagePenalty: { pct, cents: adjusted - ref },
+      adjustedMarketCents: adjusted,
+      basePct: Math.round((es * 100) / adjusted),
+      baseOfferCents: es,
+      finalOfferCents: es,
+    },
+  };
 }
 
 /**
@@ -2975,7 +3019,9 @@ type MockQuoteItemError =
   | 'FINISH_NOT_AVAILABLE'
   | 'PRODUCT_NOT_FOUND'
   | 'PRODUCT_CARD_MISMATCH'
-  | 'BUYLIST_RAW_ONLY';
+  | 'BUYLIST_RAW_ONLY'
+  | 'LANGUAGE_NOT_ELIGIBLE'
+  | 'LANGUAGE_NOT_AVAILABLE';
 
 /**
  * MOCK v1.30 (§4.29): resuelve UN ítem de cotización (carta BASE o PRODUCTO SEPARADO por
@@ -2990,7 +3036,7 @@ function mockResolveQuoteItem(
   // el mock hace de SERVIDOR y la guarda de v1.53 es server-side (§4.40.3.2) — tiene que poder
   // rechazar un payload que llegue fuera de tipo (JS crudo, bundle viejo en caché), igual que el
   // backend rechaza un `curl`.
-  item: { cardId: string; productType?: string; finish?: Finish; productId?: number },
+  item: { cardId: string; productType?: string; finish?: Finish; productId?: number; language?: CardLanguage },
   // El batch valida el acabado base ∈ availableFinishes (SEC-A1, por-ítem); el quote por-carta NO lo
   // hacía (retrocompat de mock) — se preserva ese matiz con este flag. La whitelist del PRODUCTO
   // separado (CardProduct.finishes) SIEMPRE se valida (contrato §4.29, ambos endpoints).
@@ -3016,6 +3062,8 @@ function mockResolveQuoteItem(
     const finish: Finish = item.finish ?? (product.finishes.length === 1 ? product.finishes[0] : 'normal');
     if (!product.finishes.includes(finish)) return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
     const refCents = product.prices.find((p) => p.finish === finish)?.marketReferenceMxnCents ?? null;
+    // §BUYLIST-ES F2: el producto separado (promo/deck_exclusive) NO es elegible para español.
+    if (item.language === 'es') return { ok: false, code: 'LANGUAGE_NOT_ELIGIBLE' };
     return { ok: true, payload: mockRuleQuote(rarity, finish, refCents, item.productId) };
   }
 
@@ -3024,7 +3072,10 @@ function mockResolveQuoteItem(
     return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
   }
   const refCents = fx.mockMarketReferenceForVariant(item.cardId, finish) ?? null;
-  return { ok: true, payload: mockRuleQuote(rarity, finish, refCents) };
+  if (item.language === 'es' && !fx.mockBuylistQuotePolicy.spanishEnabled) {
+    return { ok: false, code: 'LANGUAGE_NOT_AVAILABLE' };
+  }
+  return { ok: true, payload: mockApplyLanguage(mockRuleQuote(rarity, finish, refCents), item.language) };
 }
 
 export async function getBuylistQuote(input: BuylistQuoteInput): Promise<BuylistQuoteResponse> {
@@ -3072,6 +3123,8 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
     PRODUCT_NOT_FOUND: 'Product not found',
     PRODUCT_CARD_MISMATCH: 'Product does not belong to this card',
     BUYLIST_RAW_ONLY: 'The buylist only accepts raw cards',
+    LANGUAGE_NOT_ELIGIBLE: 'This card is not eligible in Spanish',
+    LANGUAGE_NOT_AVAILABLE: 'Spanish offers are not available',
   };
   const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
     // v1.30 (§4.29): resuelve base O producto separado por-ítem; errores por-ítem NO tumban el lote.
@@ -3228,6 +3281,8 @@ export interface CreateSellRequestInput {
     // v1.30 (§4.29): TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
     // (deck_exclusive/promo). Se snapshotea en SellRequestItem.cardProductId server-side.
     productId?: number;
+    /** §BUYLIST-ES (ADITIVO): `'es'` solo cuando la carta es en español; en inglés se OMITE (= comportamiento de hoy). */
+    language?: CardLanguage;
   }[];
   /**
    * ⚠️ v1.51.3 (D36/D37) — **OBLIGATORIO**. Id de una dirección de la libreta del PROPIO vendedor
@@ -3314,6 +3369,7 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
       finish,
       // v1.30 (§4.29): snapshot del productId cuando la línea es un producto separado.
       ...(it.productId != null ? { productId: it.productId } : {}),
+      ...(payload?.language ? { language: payload.language, breakdown: payload.breakdown ?? null } : {}),
       rarity: card.rarity,
       // v2.0 (§N.8): instrumentación de la decisión de precio en lugar de `appliedRule`.
       priceBasis: payload?.priceBasis ?? 'pending',

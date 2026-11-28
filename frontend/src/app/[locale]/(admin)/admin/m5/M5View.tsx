@@ -1,5 +1,6 @@
 'use client';
 
+import { LanguageChip } from '@/components/domain/VersionChip';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
@@ -1095,6 +1096,7 @@ export function M5View() {
                                 {it.card.name}
                               </span>
                               <FinishBadge finish={it.finish} productType={it.productType} />
+                              {it.language === 'es' && <LanguageChip language="es" size="tile" />}
                               <StatusBadge domain="sellItem" value={it.itemStatus} />
                               <span
                                 className={cn(
@@ -1869,6 +1871,7 @@ export function M5View() {
                 {it.card.setName} · #{it.card.number}
               </span>
               <FinishBadge finish={it.finish} productType={it.productType} />
+              {it.language === 'es' && <LanguageChip language="es" size="tile" />}
               <span className="tabular font-mono text-[11px] text-muted">{it.id}</span>
               {it.revision?.state === 'pending' && (
                 <span className="border border-accent px-2 py-0.5 text-xs text-accent" data-testid={`m5-bulk-cancels-${it.id}`}>
