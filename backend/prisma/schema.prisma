@@ -360,6 +360,8 @@ enum SellItemRejectionCode {
   other
   revision_declined
   revision_expired
+  // §BUYLIST-ES (F1 solo el valor; F3 lo usa): la versión recibida (idioma/liga) difiere de la declarada.
+  version_mismatch
 }
 
 // §BUYLIST-FLUJO F2c (DECISIONES.9): estado de la propuesta de baja de precio de UNA linea (el vendedor decide; 7 dias).
@@ -2717,6 +2719,16 @@ model SellRequestItem {
   // `null` = línea de set_base (retrocompatible; filas < M-32 quedan en null). Análogo a como M-19 añadió
   // `finish`. Es el productId TCGplayer (Int), NO el UUID interno CardProduct.id.
   cardProductId      Int?
+  // §BUYLIST-ES F1 (API_CONTRACT_BUYLIST_ES §1): idioma DECLARADO (default `en` ⇒ filas previas intactas). Entra a la clave lógica de la línea.
+  language           CardLanguage     @default(en)
+  // Mapa congelado `versionKey → ofertaCents|null` de todas las versiones elegibles de la carta+acabado (base de §4, F3). Snapshot.
+  versionOffers      Json?
+  // Lo que el operador confirma al recibir (F3). `receivedVersionSet` distingue «no revisado» de «llegó normal».
+  receivedLanguage       CardLanguage?
+  receivedCardProductId  Int?
+  receivedVersionSet     Boolean      @default(false)
+  // §BUYLIST-ES F1: desglose congelado del cálculo (castigo de idioma → curva), para mesa/solicitud/correos. Solo líneas ES (o liga).
+  offerBreakdown     Json?
   // v1.3.1 (M-14): la cotización ya NO usa `category` (BuylistCategory). Se snapshotea la
   // REGLA POR RAREZA aplicada (auditoría). `category` queda NULLABLE/legacy (retención de
   // filas históricas); nada nuevo lo escribe. Ver ARCHITECTURE §3.2/§4.2.

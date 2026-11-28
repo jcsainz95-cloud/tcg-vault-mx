@@ -53,6 +53,7 @@ export class BuylistController {
       dto.rawCondition,
       dto.finish,
       dto.productId,
+      dto.language,
     );
     // d4 (§MKT.D): tras calcular, suma 1 al contador anónimo (día × cardId). SIN usuario, SIN IP.
     // Best-effort: `increment` nunca lanza ⇒ un fallo del contador no afecta a la cotización.

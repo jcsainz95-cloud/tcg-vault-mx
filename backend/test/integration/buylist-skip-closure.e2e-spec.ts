@@ -52,7 +52,8 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
     expect(created.status).toBe(201);
     const srId = created.body.sellRequestId as string;
     const first = await h.prisma.sellRequestItem.findFirstOrThrow({ where: { sellRequestId: srId } });
-    const { id: _id, ...clon } = first;
+    // §BUYLIST-ES: las columnas Json nulas no se reenvían a `create` (Prisma exige DbNull) ⇒ se omiten.
+    const { id: _id, versionOffers: _vo, offerBreakdown: _ob, ...clon } = first;
     const extra = [];
     for (let i = 0; i < 2; i++) extra.push((await h.prisma.sellRequestItem.create({ data: { ...clon } })).id);
     return { srId, items: [first.id, ...extra] };

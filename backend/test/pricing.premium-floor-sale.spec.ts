@@ -478,7 +478,8 @@ describe('PF-11 — candado de fuente: quién pasa QUÉ política', () => {
 
   it('lista CERRADA de llamadores y su política: compra ⇒ solo `BUY_PREMIUM_FLOOR_POLICY`; venta ⇒ la del loader', () => {
     expect(policyArgsCensus()).toEqual({
-      'modules/buylist/buylist.service.ts': ['BUY_PREMIUM_FLOOR_POLICY', 'BUY_PREMIUM_FLOOR_POLICY'],
+      // §BUYLIST-ES F1: +1 llamador (la capa de idioma de la compra, `withLanguage`) con la MISMA política de compra.
+      'modules/buylist/buylist.service.ts': ['BUY_PREMIUM_FLOOR_POLICY', 'BUY_PREMIUM_FLOOR_POLICY', 'BUY_PREMIUM_FLOOR_POLICY'],
       'modules/pricing/variant-pricing.ts': ['BUY_PREMIUM_FLOOR_POLICY', 'salePremiumFloorPolicy'],
       'modules/pricing/pricing.service.ts': ['input.premiumFloorPolicy'],
     });

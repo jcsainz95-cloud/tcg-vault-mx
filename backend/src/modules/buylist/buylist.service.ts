@@ -5,6 +5,7 @@ import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   BuyDecision,
   Card,
+  CardLanguage,
   CardProductKind,
   Finish,
   MovementReason,
@@ -41,10 +42,14 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 // `money.ts` (censo cerrado en `test/money.bounty-cap.spec.ts`).
 import { mesaFields } from './decision-table-mesa';
 import { AcquisitionQuoteResult, PriceBasis, quoteAcquisitionWithGuard } from '../../common/money';
+// §BUYLIST-ES F1: castigo de idioma (entero half-up, la misma `scaleByPct` del español de venta) y la traza de la curva de compra (% mostrado).
+import { scaleByPct, versionKeyOf } from '../../common/card-version';
 import {
   MarketBracket as MarketBracketType,
   PendingReason,
   PricingCurve,
+  displayBpValue,
+  explainBuyFromCurve,
   isBountyEffective,
   marketBracketOf,
   premiumFloorGuard,
@@ -536,7 +541,7 @@ const REJECTION_CODE_DEFAULT_REASON = {
   revision_expired: 'El vendedor no respondió a la propuesta de precio en 7 días',
 } as const;
 
-const redactedItemMoney = { quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null } as const;
+const redactedItemMoney = { quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null, breakdown: null } as const;
 
 function isMoneyRedactedClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
   return r.status === 'expirada' && r.expiredReason != null && MONEY_REDACTED_EXPIRY.includes(r.expiredReason);
@@ -646,6 +651,9 @@ function toAdminSellItemRow(i: {
   rejectedAt: Date | null;
   rejectionReason: string | null;
   rejectionCode?: SellItemRejectionCode | null;
+  language?: CardLanguage | null;
+  receivedLanguage?: CardLanguage | null;
+  offerBreakdown?: Prisma.JsonValue | null;
 }) {
   return {
     id: i.id,
@@ -666,6 +674,12 @@ function toAdminSellItemRow(i: {
     rejectedAt: i.rejectedAt,
     rejectionReason: i.rejectionReason,
     rejectionCode: i.rejectionCode ?? null,
+    // §BUYLIST-ES F1: idioma, recibido y desglose (aditivo).
+    language: i.language ?? 'en',
+    stamp: null,
+    receivedLanguage: i.receivedLanguage ?? null,
+    receivedStamp: null,
+    breakdown: (i.offerBreakdown as unknown as BuyBreakdown | null | undefined) ?? null,
     // `category`/`ruleMode`/`ruleValue`/`ruleSource` son columnas LEGACY (v2.0 P-48: nada nuevo las
     // escribe). Se dejan FUERA a propósito: proyectar es también dejar de publicar lo muerto.
   };
@@ -681,6 +695,8 @@ interface QuoteItemInput {
   // `separateProducts`). Presente ⇒ la línea es ESE producto separado (deck_exclusive/promo): whitelist
   // de acabado = CardProduct.finishes, referencia por su cardProductId. Ausente ⇒ set_base (v1.29).
   productId?: number;
+  // §BUYLIST-ES F1: idioma declarado (default `en`).
+  language?: CardLanguage;
   // v1.3.1: el cliente ya NO envía `category`. La regla se deriva server-side de Card.rarity.
 }
 
@@ -701,6 +717,14 @@ export interface BuylistQuotePayload {
   quote: { status: 'cotizada' | 'precio_pendiente'; quotedPriceCents: number | null; currency: 'MXN' };
   referencePrice: { status: 'priced'; priceMxnCents: number } | { status: 'pending' };
   paymentNotice: 'PAY_AFTER_RECEIPT';
+  // §BUYLIST-ES F1 (API_CONTRACT_BUYLIST_ES §2): todo aditivo.
+  language: CardLanguage;
+  offers: { en: number | null; es: number | null };
+  versions: BuyVersionOffer[];
+  breakdown: BuyBreakdown | null;
+  spanishEligible: boolean;
+  /** Fichas de liga (vacío hasta F4). */
+  stampOptions: { productId: number; type: string; label: string }[];
 }
 
 /**
@@ -725,7 +749,9 @@ export type BuylistBatchQuoteResult =
           | 'FINISH_NOT_AVAILABLE'
           | 'PRODUCT_NOT_FOUND'
           | 'PRODUCT_CARD_MISMATCH'
-          | 'BUYLIST_RAW_ONLY';
+          | 'BUYLIST_RAW_ONLY'
+          | 'LANGUAGE_NOT_ELIGIBLE'
+          | 'LANGUAGE_NOT_AVAILABLE';
         message: string;
       };
     };
@@ -737,7 +763,43 @@ export type BuylistBatchQuoteResult =
  * congela y lo escala). Mismo invariante que el eje de venta: `pendingReason != null` ⇒
  * `quotedPriceCents === null` y `priceBasis === 'pending'`.
  */
+/** §BUYLIST-ES §3 — desglose por línea, EN ESE ORDEN: mercado → castigo de idioma → mercado ajustado → % base → oferta. Enteros de centavos. */
+export interface BuyBreakdown {
+  marketMxnCents: number;
+  /** `null` en línea inglesa. `cents` es NEGATIVO: `marketMxnCents + cents = adjustedMarketCents` exacto. */
+  languagePenalty: { pct: number; cents: number } | null;
+  adjustedMarketCents: number;
+  /** % de la curva de compra evaluada sobre el mercado ajustado; `null` si el monto no salió de la curva (override/bounty). */
+  curvePct: number | null;
+  finalOfferCents: number;
+}
+
+/** §BUYLIST-ES §1 — interruptor y castigo leídos UNA vez por request. `penaltyPct: null` = dial inválido ⇒ falla cerrado (sin oferta ES). */
+export interface SpanishConfig {
+  enabled: boolean;
+  penaltyPct: number | null;
+}
+
+/** §BUYLIST-ES §2 — una versión elegible de la carta+acabado; `reason: 'no_reference'` = sin oferta para ESA versión. */
+export interface BuyVersionOffer {
+  key: string;
+  language: CardLanguage;
+  stamp: { type: string; label: string; productId: number } | null;
+  offerCents: number | null;
+  reason: 'no_reference' | null;
+}
+
 interface BuyLineDecision {
+  /** Idioma de la versión decidida (`en` si no se pidió otro). */
+  language: CardLanguage;
+  /** Ofertas de las dos versiones de idioma de ESTA línea (`null` = sin oferta). El español solo existe con el interruptor encendido. */
+  offers: { en: number | null; es: number | null };
+  /** Todas las versiones elegibles (hoy en/es; la liga llega en F4). */
+  versions: BuyVersionOffer[];
+  /** El español es una opción válida para esta línea (interruptor encendido, castigo válido, línea normal raw). */
+  spanishEligible: boolean;
+  /** Desglose de la versión decidida; `null` ⇔ sin monto. */
+  breakdown: BuyBreakdown | null;
   /** Acabado VALIDADO server-side (SEC-A1), ya sea contra `Card.availableFinishes` o `CardProduct.finishes`. */
   finish: Finish;
   gradeKey: string;
@@ -790,6 +852,9 @@ interface DecisionLine {
     quotedPriceCents: number | null;
     /** BUYLIST-MESA: mercado del snapshot de cotización (ausente en fixtures viejos ⇒ null). */
     marketMxnCents?: number | null;
+    // §BUYLIST-ES F1: idioma declarado y desglose congelado de la línea (ausente en fixtures viejos ⇒ `en`/`null`).
+    language?: CardLanguage | null;
+    offerBreakdown?: Prisma.JsonValue | null;
   };
   /**
    * La llave canónica de la variante, ya resuelta (`variantKey` la consume tal cual).
@@ -1106,6 +1171,13 @@ export class BuylistService implements OnModuleInit {
     return input;
   }
 
+  /** §BUYLIST-ES §2: español solo para cartas `raw` normales; una graduada/sellada que lo pide recibe 400 `LANGUAGE_NOT_ELIGIBLE`. */
+  private assertLanguageEligibleType(language: CardLanguage | undefined, productType: ProductType): void {
+    if (language === 'es' && productType !== 'raw') {
+      throw BusinessException.badRequest('LANGUAGE_NOT_ELIGIBLE', 'Spanish is only available for raw cards');
+    }
+  }
+
   /** Cotizador público (stateless). API_CONTRACT §6 (v1.6-finish: por RAREZA + ACABADO). */
   async publicQuote(
     cardId: string,
@@ -1114,7 +1186,11 @@ export class BuylistService implements OnModuleInit {
     finish?: Finish,
     // v1.30 (§4.29): productId TCGplayer OPCIONAL. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
+    // §BUYLIST-ES F1: idioma declarado (default `en`).
+    language?: CardLanguage,
   ): Promise<BuylistQuotePayload> {
+    // §BUYLIST-ES §2: «graduada» no es elegible para español y se dice con SU código (antes que la guarda raw-only genérica).
+    this.assertLanguageEligibleType(language, productType);
     // v1.53 (§4.40.3, MONEY) — RAW-ONLY, y ANTES de tocar nada: `overrideKeyOf` ya construye la clave
     // de precio, y con `graded` esa clave era `graded:PSA:10` (el grado MÁS CARO). 422 de request
     // completo: en el quote por-carta no hay nada que degradar por-ítem.
@@ -1132,7 +1208,8 @@ export class BuylistService implements OnModuleInit {
       key.finish,
     );
     const underReview = await this.underReviewSet([key]);
-    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, curve, override, productId, underReview);
+    const spanish = await this.loadSpanishConfig();
+    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, curve, override, productId, underReview, language, spanish);
   }
 
   /**
@@ -1178,12 +1255,14 @@ export class BuylistService implements OnModuleInit {
     // v1.91⟨precios⟩ (M-75, §PRE.C/5): variantes RAW con caso de revisión ABIERTO ⇒ el candado detuvo su
     // precio ⇒ NO se oferta por ellas (precio pendiente, §BMK.3). Una query para todo el lote (sin N+1).
     const underReview = await this.underReviewSet(acceptedKeys);
+    const spanish = await this.loadSpanishConfig();
     const results: BuylistBatchQuoteResult[] = [];
     for (let index = 0; index < items.length; index++) {
       const it = items[index];
       try {
         // v1.53 (§4.40.3.3, MONEY): DENTRO del try ⇒ degrada a `ok:false` POR-ÍTEM. Las otras 49
         // líneas raw del grid se cotizan normalmente y el HTTP global sigue siendo 200.
+        this.assertLanguageEligibleType(it.language, it.productType);
         this.assertBuylistProductType(it.productType, index);
         const k = this.overrideKeyOf(it);
         const payload = await this.quoteCardForFinish(
@@ -1196,6 +1275,8 @@ export class BuylistService implements OnModuleInit {
           overrides.get(variantKey(k)) ?? null,
           it.productId,
           underReview,
+          it.language,
+          spanish,
         );
         results.push({ index, cardId: it.cardId, ok: true, ...payload });
       } catch (e) {
@@ -1210,7 +1291,10 @@ export class BuylistService implements OnModuleInit {
             e.code === 'PRODUCT_CARD_MISMATCH' ||
             // v1.53 (§4.40.3.3, MONEY): la guarda raw-only entra al allowlist POR-ÍTEM. Es la razón
             // por la que es un 422 de negocio y no el 400 de un `@IsIn`.
-            e.code === 'BUYLIST_RAW_ONLY')
+            e.code === 'BUYLIST_RAW_ONLY' ||
+            // §BUYLIST-ES F1: errores de idioma POR-ÍTEM (no tumban el lote).
+            e.code === 'LANGUAGE_NOT_ELIGIBLE' ||
+            e.code === 'LANGUAGE_NOT_AVAILABLE')
         ) {
           const body = e.getResponse() as { message?: string };
           results.push({
@@ -1223,7 +1307,9 @@ export class BuylistService implements OnModuleInit {
                 | 'FINISH_NOT_AVAILABLE'
                 | 'PRODUCT_NOT_FOUND'
                 | 'PRODUCT_CARD_MISMATCH'
-                | 'BUYLIST_RAW_ONLY',
+                | 'BUYLIST_RAW_ONLY'
+                | 'LANGUAGE_NOT_ELIGIBLE'
+                | 'LANGUAGE_NOT_AVAILABLE',
               message: typeof body?.message === 'string' ? body.message : e.code,
             },
           });
@@ -1261,11 +1347,14 @@ export class BuylistService implements OnModuleInit {
     productId?: number,
     // v1.91⟨precios⟩ (M-75, §PRE.C/5): claves RAW set_base con caso de revisión abierto (pre-cargadas).
     underReview?: Set<string>,
+    // §BUYLIST-ES F1: idioma pedido y config del español (hoisted por el caller; ausente ⇒ apagado).
+    language?: CardLanguage,
+    spanish?: SpanishConfig | null,
   ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
     // TODO el dinero de esta respuesta sale del cuerpo compartido; aquí solo se arma el DTO.
-    const line = await this.decideBuyLine({ card, productType, rawCondition, finish, curve, override, productId });
+    const line = await this.decideBuyLine({ card, productType, rawCondition, finish, curve, override, productId, language, spanish });
     // v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875): el candado detuvo el precio de esta variante ⇒
     // «precio pendiente» (misma forma que §BMK.3). Solo set_base (sin productId): el candado abre casos
     // con `cardProductId=null`. 💰 Nunca se paga sobre un valor que el candado marcó para revisión.
@@ -1311,8 +1400,17 @@ export class BuylistService implements OnModuleInit {
      * Ausente (`undefined`) ⇒ este cuerpo resuelve por sí mismo, comportamiento previo INTACTO.
      */
     prefetched?: BuyLinePrefetch;
+    /**
+     * §BUYLIST-ES F1 — idioma de la versión a decidir (default `en`) y la config del español (interruptor + castigo), leída UNA vez por el
+     * caller. Ausente ⇒ el español está apagado (comportamiento previo INTACTO). Una línea ya creada (mesa/oferta) pasa
+     * `{enabled:true, penaltyPct: <el congelado>}`: el interruptor gobierna solicitudes NUEVAS, no las ya firmadas.
+     */
+    language?: CardLanguage;
+    spanish?: SpanishConfig | null;
   }): Promise<BuyLineDecision> {
     const { card, productType, rawCondition, finish, curve, productId, prefetched } = input;
+    const language: CardLanguage = input.language ?? 'en';
+    const spanishCfg: SpanishConfig = input.spanish ?? { enabled: false, penaltyPct: null };
     // v1.53 (§4.40.3/§4.40.4, MONEY): cuerpo COMPARTIDO por las tres superficies ⇒ la guarda raw-only
     // se re-aplica aquí dentro. Antes, con `graded`, esta línea producía `graded:PSA:10` — el grado
     // más caro — para una carta cuyo grado nunca se preguntó.
@@ -1332,6 +1430,10 @@ export class BuylistService implements OnModuleInit {
       const cp = prefetched
         ? this.assertPrefetchedCardProduct(card.id, productId, prefetched.cardProduct)
         : await this.resolveCardProductForCard(card.id, productId);
+      // §BUYLIST-ES §2: un producto separado (promo/deck_exclusive; variant ya no llega aquí) NO tiene versión en español. La liga entra en F4.
+      if (language === 'es') {
+        throw BusinessException.badRequest('LANGUAGE_NOT_ELIGIBLE', 'Spanish is not available for this product', { productId });
+      }
       f = this.assertFinishForProduct(cp.finishes, finish);
       const ref = prefetched
         ? prefetched.reference
@@ -1370,7 +1472,7 @@ export class BuylistService implements OnModuleInit {
       BUY_PREMIUM_FLOOR_POLICY,
     );
     const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
-    return {
+    const en = {
       finish: f,
       gradeKey,
       referenceMxnCents,
@@ -1378,8 +1480,158 @@ export class BuylistService implements OnModuleInit {
       pendingReason,
       quotedPriceCents,
       // MISMO invariante que el eje de venta: monto en `null` ⇔ basis `pending`.
-      priceBasis: pendingReason == null ? quote.basis : 'pending',
+      priceBasis: pendingReason == null ? quote.basis : ('pending' as PriceBasis),
     };
+    return this.withLanguage({ card, curve, language, spanishCfg, structural: productId == null && productType === 'raw', en });
+  }
+
+  /**
+   * §BUYLIST-ES §3 — LA CAPA DE IDIOMA de `decideBuyLine` (un solo cuerpo; el front no calcula dinero). Recibe la decisión INGLESA ya resuelta
+   * (bounty > override > curva > pendiente + guardarraíl) y le suma:
+   *   1. mercado ajustado = mercadoRef × (100 − P)/100 (entero half-up);
+   *   2. oferta ES = curva de compra evaluada sobre el mercado YA castigado (sin bounty ni override: «no aplica a ES»);
+   *   3. anti-inflado: oferta ES ≤ oferta EN de la misma versión y ≤ la referencia; si la inglesa está detenida (sin mercado/premium en el
+   *      piso/candado §PRE aguas arriba) la española NO se cotiza; si la propia española cae al piso siendo premium ⇒ pendiente.
+   * Interruptor apagado o castigo inválido ⇒ `offers.es = null` (falla cerrado) y pedir `es` ⇒ 400 `LANGUAGE_NOT_AVAILABLE`.
+   */
+  private withLanguage(a: {
+    card: Card;
+    curve: PricingCurve;
+    language: CardLanguage;
+    spanishCfg: SpanishConfig;
+    structural: boolean;
+    en: Omit<BuyLineDecision, 'language' | 'offers' | 'versions' | 'spanishEligible' | 'breakdown'>;
+  }): BuyLineDecision {
+    const { en, language, spanishCfg, structural } = a;
+    const penaltyPct = spanishCfg.penaltyPct;
+    const penaltyValid = penaltyPct != null && Number.isInteger(penaltyPct) && penaltyPct >= 0 && penaltyPct <= 90;
+    const spanishEligible = spanishCfg.enabled === true && penaltyValid && structural;
+    if (language === 'es') {
+      if (!structural) {
+        throw BusinessException.badRequest('LANGUAGE_NOT_ELIGIBLE', 'Spanish is not available for this line');
+      }
+      if (!spanishEligible) {
+        throw BusinessException.badRequest('LANGUAGE_NOT_AVAILABLE', 'Spanish is not currently accepted');
+      }
+    }
+    const enOffer = en.quotedPriceCents;
+    const enBreakdown = this.breakdownOf(en.referenceMxnCents, en.quote, a.curve, en.quotedPriceCents);
+
+    // ---- la versión española (solo si es elegible; si no, `null`) ----
+    let es: {
+      offerCents: number | null;
+      quote: AcquisitionQuoteResult | null;
+      pendingReason: PendingReason | null;
+      breakdown: BuyBreakdown | null;
+    } | null = null;
+    if (spanishEligible) {
+      const ref = en.referenceMxnCents;
+      if (enOffer == null || ref == null || ref <= 0) {
+        // La inglesa está detenida (o no hay mercado): la española hereda la causa y nunca se cotiza sola.
+        es = { offerCents: null, quote: null, pendingReason: en.pendingReason ?? 'no_market', breakdown: null };
+      } else {
+        // Castigo = round_half_up(mercado × P/100) (contrato 3bd37eee); ajustado = mercado − castigo (mercado + castigo = ajustado, exacto).
+        const penaltyCents = scaleByPct(ref, penaltyPct as number);
+        const adjusted = ref - penaltyCents;
+        const q = quoteAcquisitionWithGuard(adjusted, a.curve, null);
+        const reason = resolvePendingReason(q.guardBasis, a.card.rarityCanonical ?? a.card.rarity, BUY_PREMIUM_FLOOR_POLICY);
+        if (reason != null || q.priceCents == null) {
+          es = { offerCents: null, quote: null, pendingReason: reason ?? 'no_market', breakdown: null };
+        } else {
+          // Anti-inflado (§3.4): jamás por encima de la inglesa ni de la referencia.
+          const finalCents = Math.min(q.priceCents, enOffer, ref);
+          const trace = explainBuyFromCurve(adjusted, a.curve);
+          es = {
+            offerCents: finalCents,
+            // `marketMxnCents` instrumentado = mercadoRef (§3); `basis` = el de la curva evaluada sobre el ajustado.
+            quote: { ...q, priceCents: finalCents, marketMxnCents: ref },
+            pendingReason: null,
+            breakdown: {
+              marketMxnCents: ref,
+              languagePenalty: { pct: penaltyPct as number, cents: -penaltyCents },
+              adjustedMarketCents: adjusted,
+              curvePct: trace.basis === 'pending' || trace.appliedBp == null ? null : displayBpValue(trace.appliedBp) / 100,
+              finalOfferCents: finalCents,
+            },
+          };
+        }
+      }
+    }
+
+    const offers = { en: enOffer, es: es?.offerCents ?? null };
+    const versions: BuyVersionOffer[] = [
+      { key: versionKeyOf('en', null), language: 'en', stamp: null, offerCents: enOffer, reason: enOffer == null ? 'no_reference' : null },
+    ];
+    if (es != null) {
+      versions.push({
+        key: versionKeyOf('es', null),
+        language: 'es',
+        stamp: null,
+        offerCents: es.offerCents,
+        reason: es.offerCents == null ? 'no_reference' : null,
+      });
+    }
+    const common = { offers, versions, spanishEligible };
+    if (language !== 'es' || es == null) {
+      return { ...en, ...common, language: 'en', breakdown: enBreakdown };
+    }
+    if (es.offerCents == null || es.quote == null) {
+      // Español pedido y sin oferta: «precio pendiente» con la misma forma que la inglesa (monto `null` ⇔ basis `pending`).
+      return {
+        ...en,
+        ...common,
+        language: 'es',
+        pendingReason: es.pendingReason ?? en.pendingReason ?? 'no_market',
+        quotedPriceCents: null,
+        priceBasis: 'pending',
+        breakdown: null,
+      };
+    }
+    return {
+      ...en,
+      ...common,
+      language: 'es',
+      quote: es.quote,
+      pendingReason: null,
+      quotedPriceCents: es.offerCents,
+      priceBasis: es.quote.basis,
+      breakdown: es.breakdown,
+    };
+  }
+
+  /** Desglose de una línea inglesa cotizada (castigo `null`); `basePct` solo si el monto salió de la curva. */
+  private breakdownOf(
+    ref: number | null,
+    quote: AcquisitionQuoteResult,
+    curve: PricingCurve,
+    finalCents: number | null,
+  ): BuyBreakdown | null {
+    if (finalCents == null || ref == null) return null;
+    const fromCurve = quote.basis === 'market' || quote.basis === 'floor';
+    const trace = fromCurve ? explainBuyFromCurve(ref, curve) : null;
+    return {
+      marketMxnCents: ref,
+      languagePenalty: null,
+      adjustedMarketCents: ref,
+      curvePct: trace && trace.appliedBp != null ? displayBpValue(trace.appliedBp) / 100 : null,
+      finalOfferCents: finalCents,
+    };
+  }
+
+  /** §BUYLIST-ES: el castigo CONGELADO al cotizar (`offerBreakdown.languagePenalty.pct`); `null` si la línea no lo trae. */
+  private static frozenPenaltyPct(breakdown: Prisma.JsonValue | null | undefined): number | null {
+    const pct = (breakdown as { languagePenalty?: { pct?: unknown } | null } | null | undefined)?.languagePenalty?.pct;
+    return typeof pct === 'number' && Number.isInteger(pct) && pct >= 0 && pct <= 90 ? pct : null;
+  }
+
+  /** §BUYLIST-ES §1 — interruptor y castigo del español, leídos UNA vez por request. Fila ausente ⇒ default; valor mal tipado ⇒ cerrado. */
+  async loadSpanishConfig(): Promise<SpanishConfig> {
+    const [enabledRaw, penaltyRaw] = await Promise.all([
+      this.settings.getRaw(SettingKey.BUYLIST_SPANISH_ENABLED),
+      this.settings.getRaw(SettingKey.BUYLIST_SPANISH_PENALTY_PCT),
+    ]);
+    const penaltyOk = typeof penaltyRaw === 'number' && Number.isInteger(penaltyRaw) && penaltyRaw >= 0 && penaltyRaw <= 90;
+    return { enabled: enabledRaw === true, penaltyPct: penaltyOk ? penaltyRaw : null };
   }
 
   /**
@@ -1399,6 +1651,13 @@ export class BuylistService implements OnModuleInit {
         quote: { status: 'precio_pendiente' as const, quotedPriceCents: null, currency: 'MXN' as const },
         referencePrice: { status: 'pending' as const },
         paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        // §BUYLIST-ES: el candado §PRE detiene TODAS las versiones de la variante (nunca se paga otra en su lugar).
+        language: line.language,
+        offers: { en: null, es: null },
+        versions: line.versions.map((v) => ({ ...v, offerCents: null, reason: 'no_reference' as const })),
+        breakdown: null,
+        spanishEligible: line.spanishEligible,
+        stampOptions: [],
       };
     }
     return {
@@ -1423,6 +1682,13 @@ export class BuylistService implements OnModuleInit {
           ? { status: 'priced' as const, priceMxnCents: line.referenceMxnCents }
           : { status: 'pending' as const },
       paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+      // §BUYLIST-ES F1 (todo aditivo; sin `language` el cuerpo viejo no cambia).
+      language: line.language,
+      offers: line.offers,
+      versions: line.versions,
+      breakdown: line.breakdown,
+      spanishEligible: line.spanishEligible,
+      stampOptions: [],
     };
   }
 
@@ -1489,9 +1755,20 @@ export class BuylistService implements OnModuleInit {
    * **132(b)** es **AUTORITATIVO** (el `422`, con `details.shortfallCents`: decide). Si difieren
    * —caché, o dial movido entre medias— **manda el `422`**. *La pantalla informa; la puerta decide.*
    */
-  async quotePolicy(): Promise<{ minimumRequestCents: number }> {
+  async quotePolicy(): Promise<{
+    minimumRequestCents: number;
+    spanishEnabled: boolean;
+    leagueEnabled: boolean;
+    spanishPenaltyPct: number;
+  }> {
+    // §BUYLIST-ES §1: suma tres campos de LECTURA (interruptores y castigo; sin cifras de dinero de la tienda). Dial inválido ⇒ falla cerrado.
+    const spanish = await this.loadSpanishConfig();
+    const leagueRaw = await this.settings.getRaw(SettingKey.BUYLIST_LEAGUE_ENABLED);
     return {
       minimumRequestCents: await this.settings.getNumber(SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS),
+      spanishEnabled: spanish.enabled && spanish.penaltyPct != null,
+      leagueEnabled: leagueRaw === true,
+      spanishPenaltyPct: spanish.penaltyPct ?? 15,
     };
   }
 
@@ -1669,6 +1946,7 @@ export class BuylistService implements OnModuleInit {
     // Sin esta guarda, `SellRequestItem` congelaba un `quotedPriceCents` derivado de `graded:PSA:10`
     // sobre una carta cuyo grado nunca se preguntó — y con la oferta vinculante desde el correo eso
     // deja de ser un error corregible y pasa a ser un compromiso firmado.
+    items.forEach((it) => this.assertLanguageEligibleType(it.language, it.productType));
     items.forEach((it, index) => this.assertBuylistProductType(it.productType, index));
 
     // SEC/PII: la KYC se lee SIEMPRE por el `userId` autenticado (nunca la de otro usuario).
@@ -1752,6 +2030,8 @@ export class BuylistService implements OnModuleInit {
     // transacción que congela `quotedPriceCents`. Los `ruleMode`/`ruleValue`/`ruleSource` quedan LEGACY:
     // nada nuevo los escribe (no hay reglas que snapshotear).
     const curve = await this.pricing.loadPricingCurve();
+    // §BUYLIST-ES F1: interruptor y castigo leídos UNA vez; el castigo queda congelado en cada línea (`offerBreakdown`).
+    const spanish = await this.loadSpanishConfig();
     // v1.28 (P-18/P-22, §4.26b): overrides por variante EN LOTE (una query por request). El snapshot
     // `priceBasis="bounty"` es el que habilita el conteo de bounty al pagar (P-22).
     const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
@@ -1772,6 +2052,10 @@ export class BuylistService implements OnModuleInit {
       marketBracket: MarketBracketType | null;
       quotedPriceCents: number | null;
       itemStatus: 'cotizada' | 'precio_pendiente';
+      // §BUYLIST-ES F1: idioma declarado y SNAPSHOT del cálculo (mapa de ofertas por versión + desglose), congelados con `quotedPriceCents`.
+      language: CardLanguage;
+      versionOffers: Prisma.InputJsonValue;
+      offerBreakdown?: Prisma.InputJsonValue;
     }[] = [];
     let quotedTotalCents = 0;
     /**
@@ -1823,19 +2107,26 @@ export class BuylistService implements OnModuleInit {
             }),
           ) ?? null,
         productId: it.productId,
+        language: it.language,
+        spanish,
       });
       // v2.1.6 (fase de seguridad) — la escritura en la cola se DIFIERE hasta después de que la
       // solicitud exista de verdad (ver abajo). Aquí solo se ACUMULA la intención.
-      pendingSettlements.push({
-        reason: line.pendingReason,
-        key: {
-          cardId: it.cardId,
-          productType: it.productType,
-          gradeKey: line.gradeKey,
-          finish: line.finish,
-          cardProductId: it.productId ?? null,
-        },
-      });
+      // §BUYLIST-ES: la cola del dueño es POR VARIANTE (sin idioma). Una línea ES solo la toca si la causa es de la variante (la inglesa
+      // también está detenida); un «sin oferta» exclusivo del español no abre ni CIERRA entradas de la inglesa.
+      const esOnlyPending = line.language === 'es' && line.offers.en != null && line.pendingReason != null;
+      if (!esOnlyPending) {
+        pendingSettlements.push({
+          reason: line.pendingReason,
+          key: {
+            cardId: it.cardId,
+            productType: it.productType,
+            gradeKey: line.gradeKey,
+            finish: line.finish,
+            cardProductId: it.productId ?? null,
+          },
+        });
+      }
       quotedTotalCents += line.quotedPriceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
@@ -1852,6 +2143,9 @@ export class BuylistService implements OnModuleInit {
         marketBracket: marketBracketOf(line.quote.marketMxnCents),
         quotedPriceCents: line.quotedPriceCents,
         itemStatus: line.quotedPriceCents != null ? 'cotizada' : 'precio_pendiente',
+        language: line.language,
+        versionOffers: Object.fromEntries(line.versions.map((v) => [v.key, v.offerCents])),
+        ...(line.breakdown != null ? { offerBreakdown: line.breakdown as unknown as Prisma.InputJsonValue } : {}),
       });
     }
 
@@ -2202,6 +2496,10 @@ export class BuylistService implements OnModuleInit {
     // congelado). Los cinco campos ADMIN-ONLY de `AdminSellItemDTO` NO entran aquí a propósito.
     offerDecision?: BuyDecision | null;
     offeredPriceCents?: number | null;
+    // §BUYLIST-ES F1: idioma declarado, lo recibido (F3) y el desglose congelado al cotizar.
+    language?: CardLanguage | null;
+    receivedLanguage?: CardLanguage | null;
+    offerBreakdown?: Prisma.JsonValue | null;
   }, opts?: { conditionLabel?: string; redactQuotedPrice?: boolean; audience?: 'admin' | 'client'; locale?: string | null }) {
     // v1.18-buylist-rejects (§11): campos de RECHAZO — poblados SOLO si itemStatus='rechazada';
     // en cualquier otro status se OMITEN. Los plazos returnDeadlineAt/abandonDeadlineAt se DERIVAN
@@ -2270,6 +2568,12 @@ export class BuylistService implements OnModuleInit {
       rawCondition: i.rawCondition ?? undefined,
       // v1.6-finish: acabado snapshoteado en la cotización/solicitud.
       finish: i.finish ?? 'normal',
+      // §BUYLIST-ES F1: versión declarada (`stamp` llega con la liga, F4) y recibida (la llena la recepción, F3). Desglose congelado (`null` = línea previa).
+      language: i.language ?? 'en',
+      stamp: null,
+      receivedLanguage: i.receivedLanguage ?? null,
+      receivedStamp: null,
+      breakdown: (i.offerBreakdown as unknown as BuyBreakdown | null | undefined) ?? null,
       // v1.30 (§4.29): eco del productId cotizado (omitido si la línea es de set_base).
       ...(i.cardProductId != null ? { productId: i.cardProductId } : {}),
       rarity: i.rarity ?? undefined,
@@ -3342,6 +3646,13 @@ export class BuylistService implements OnModuleInit {
         finish: (it.finish ?? 'normal') as Finish,
         // D7: la identidad REAL de la pieza viaja, y es la que entró a la llave del conteo.
         cardProductId: l.cardProductId,
+        // §BUYLIST-ES F1: idioma declarado/recibido y el desglose del número que se OFERTARÍA hoy (castigo congelado → curva vigente), en el
+        // orden de §3. `stamp`/`receivedStamp` llegan con la liga (F4).
+        language: decision?.language ?? it.language ?? 'en',
+        stamp: null,
+        receivedLanguage: itemRows.get(it.id)?.receivedLanguage ?? null,
+        receivedStamp: null,
+        breakdown: decision?.breakdown ?? null,
         // (a) lo que se le cotizó — el snapshot congelado al crear la solicitud.
         quotedPriceCents: it.quotedPriceCents ?? null,
         // §BUYLIST-FLUJO F1c: lo PACTADO, congelado al ofertar (solo lectura; `null` = linea `skip`/pre-ciclo). Los campos
@@ -3475,6 +3786,10 @@ export class BuylistService implements OnModuleInit {
     });
 
     const curve = await this.pricing.loadPricingCurve();
+    // Solo si hay líneas en español (el castigo congelado manda; el vigente es el respaldo de una fila sin desglose).
+    const spanishNow: SpanishConfig = lines.some((l) => (l.it.language ?? 'en') === 'es')
+      ? await this.loadSpanishConfig()
+      : { enabled: false, penaltyPct: null };
     // v1.53 (§4.40.4b): las líneas SIN llave no entran a ningún lote. No es una optimización — es que
     // no hay nada que buscar: preguntarle a los mapas por una clave inventada devolvería el precio de
     // OTRA variante. Es el mismo filtro que `batchQuote` aplica a los overrides (§4.40.3.3).
@@ -3519,7 +3834,7 @@ export class BuylistService implements OnModuleInit {
           : null;
       decisions.set(
         l.it.id,
-        await this.derivedLine(l, curve, override, baseRefs, products, productRefs),
+        await this.derivedLine(l, curve, override, baseRefs, products, productRefs, spanishNow),
       );
     }
     return { lines, decisions, overrides };
@@ -3546,6 +3861,7 @@ export class BuylistService implements OnModuleInit {
     baseRefs: Map<string, { status: string; referenceMxnCents?: number | null }>,
     products: Map<number, { id: string; cardId: string; finishes: string[] }>,
     productRefs: Map<string, { status: string; referenceMxnCents?: number | null }>,
+    spanishNow: SpanishConfig,
   ): Promise<BuyLineDecision | null> {
     const { it } = l;
     const cp = l.cardProductId != null ? (products.get(l.cardProductId) ?? null) : null;
@@ -3602,6 +3918,13 @@ export class BuylistService implements OnModuleInit {
         curve,
         override,
         productId: l.cardProductId ?? undefined,
+        // §BUYLIST-ES F1: la línea se re-deriva EN SU IDIOMA con el castigo CONGELADO al crear (la solicitud no cambia si luego se mueve el
+        // dial) y el interruptor no la bloquea (gobierna solicitudes nuevas, no las firmadas).
+        language: it.language ?? 'en',
+        spanish:
+          (it.language ?? 'en') === 'es'
+            ? { enabled: true, penaltyPct: BuylistService.frozenPenaltyPct(it.offerBreakdown) ?? spanishNow.penaltyPct }
+            : null,
         prefetched: {
           cardProduct: cp ? { id: cp.id, cardId: cp.cardId, finishes: cp.finishes as Finish[] } : null,
           reference,
@@ -3632,7 +3955,10 @@ export class BuylistService implements OnModuleInit {
           // hace el corto por `gradeKey == null`, arriba—. Se queda porque la guarda se re-aplica
           // dentro de `decideBuyLine` y una ruta futura podría llegar aquí por otro camino: es
           // defensa en profundidad, no el mecanismo principal.
-          e.code === 'BUYLIST_RAW_ONLY')
+          e.code === 'BUYLIST_RAW_ONLY' ||
+          // §BUYLIST-ES F1: una línea firmada en español cuyo producto ya no es elegible degrada igual (la lectura no se cae).
+          e.code === 'LANGUAGE_NOT_ELIGIBLE' ||
+          e.code === 'LANGUAGE_NOT_AVAILABLE')
       ) {
         this.logger.warn(
           `decision-table: línea ${it.cardId} sin precio derivable (${e.code}); se emite SIN monto y sin motivo de mercado`,
@@ -8497,7 +8823,10 @@ export class BuylistService implements OnModuleInit {
             // corregidos y la deuda documental registrada en `docs/TECH_DEBT.md` (INV-D7).
             // `null` = línea de set_base ⇒ pieza de set_base. Sin esto, los conteos de la mesa de
             // decisión mezclarían una promo con la del set base (§P.8 / D6).
-            cardProductId: item.cardProductId,
+            // §BUYLIST-ES F1 (§1): la pieza nace en la versión que LLEGÓ (`received*`, que llena la recepción en F3) y, si nadie la revisó,
+            // en la declarada. El precio de venta lo calcula el camino §IDS ya existente (aquí solo se fija la identidad).
+            cardProductId: item.receivedCardProductId ?? item.cardProductId,
+            language: item.receivedLanguage ?? item.language,
             ownerType: 'platform',
             status: 'in_stock',
             // v1.51.18 (§4.39m.3): la ubicación **se ofrece, no se exige**. `undefined` ⇒ la pieza

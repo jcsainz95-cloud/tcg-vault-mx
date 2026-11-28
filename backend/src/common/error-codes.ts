@@ -325,6 +325,10 @@ export const ErrorCode = {
   // `graded:PSA:10` —el grado MÁS CARO— porque el grado real nunca se captura. El bloqueo lo aplica
   // SIEMPRE el backend; el selector del cotizador es sólo UI (SEC-A1).
   BUYLIST_RAW_ONLY: 'BUYLIST_RAW_ONLY',
+  // §BUYLIST-ES F1 (API_CONTRACT_BUYLIST_ES §2): 400. Español pedido para una línea que no puede serlo (producto separado/promo/variante, graduada)
+  // o con el interruptor `buylist_spanish_enabled` apagado (o el castigo inválido ⇒ falla cerrado).
+  LANGUAGE_NOT_ELIGIBLE: 'LANGUAGE_NOT_ELIGIBLE',
+  LANGUAGE_NOT_AVAILABLE: 'LANGUAGE_NOT_AVAILABLE',
   // ⚠️ v1.54 · **B-3 — BACKSTOP, y HOY ES INALCANZABLE.** No es un caso de negocio ni un error del
   // actor: dispara solo si `BUYLIST_ACCEPTED_PRODUCT_TYPES` autoriza un `productType` para el que
   // `BuylistService.gradeKeyInputFor` **no sabe derivar la identidad de la variante** (p. ej. añadir

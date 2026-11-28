@@ -53,14 +53,14 @@ function buildService(vigente?: unknown) {
 describe('§6 — la ruta feliz: un entero, y el que dice el dial', () => {
   it('devuelve el mínimo VIGENTE cuando hay fila en `ConfigSetting`', async () => {
     const svc = buildService(50000);
-    await expect(svc.quotePolicy()).resolves.toEqual({ minimumRequestCents: 50000 });
+    await expect(svc.quotePolicy()).resolves.toMatchObject({ minimumRequestCents: 50000 });
   });
 
   it('sin fila en `ConfigSetting` resuelve al DEFAULT del código (no a 0 ni a undefined)', async () => {
     // Un entorno recién migrado puede no tener la fila. Caer a 0 apagaría el mínimo entero y
     // dejaría pasar cualquier carrito; caer a `undefined` rompería el tipo del DTO.
     const svc = buildService(undefined);
-    await expect(svc.quotePolicy()).resolves.toEqual({
+    await expect(svc.quotePolicy()).resolves.toMatchObject({
       minimumRequestCents: SETTING_DEFAULTS[SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS],
     });
   });
@@ -72,7 +72,7 @@ describe('§6 — la ruta feliz: un entero, y el que dice el dial', () => {
     // correcto». Se recorre una serie de valores para que ni siquiera un `?? 50000` colado pase.
     for (const valor of [1, 30000, 50000, 75000, 120000]) {
       const svc = buildService(valor);
-      await expect(svc.quotePolicy()).resolves.toEqual({ minimumRequestCents: valor });
+      await expect(svc.quotePolicy()).resolves.toMatchObject({ minimumRequestCents: valor });
     }
   });
 
@@ -93,19 +93,21 @@ describe('§6 — la ruta feliz: un entero, y el que dice el dial', () => {
     );
     await svc.quotePolicy();
     await svc.quotePolicy();
-    expect((prisma as any).configSetting.findUnique).toHaveBeenCalledTimes(2);
+    // §BUYLIST-ES F1: cada llamada lee 4 filas (el mínimo + `buylist_spanish_enabled/_penalty_pct` + `buylist_league_enabled`), sin caché.
+    expect((prisma as any).configSetting.findUnique).toHaveBeenCalledTimes(2 * 4);
   });
 });
 
 // ============================================================================================
-describe('§6 — ⚠️ EL DTO TIENE EXACTAMENTE UNA CLAVE (la lista de exclusiones es CERRADA)', () => {
-  it('exactamente UNA clave, y es `minimumRequestCents`', async () => {
+describe('§6 — ⚠️ EL DTO TIENE EXACTAMENTE LAS CLAVES DECLARADAS (la lista de exclusiones es CERRADA)', () => {
+  it('exactamente CUATRO claves: `minimumRequestCents` y, desde §BUYLIST-ES F1, `spanishEnabled`/`leagueEnabled`/`spanishPenaltyPct`', async () => {
     // ⚠️ ESTE es el guard que importa. Un test que solo asertara `minimumRequestCents` pasaría igual
     // el día que alguien añada la tarifa de envío «porque el front la necesitaba»: el DTO es tan
     // importante por lo que NO lleva como por lo que lleva.
     const body = await buildService(50000).quotePolicy();
-    expect(Object.keys(body)).toEqual(['minimumRequestCents']);
-    expect(Object.keys(body)).toHaveLength(1);
+    // §BUYLIST-ES F1 (API_CONTRACT_BUYLIST_ES §1): tres campos de LECTURA (interruptores y castigo de idioma). Un quinto rompe aquí a propósito.
+    expect(Object.keys(body).sort()).toEqual(['leagueEnabled', 'minimumRequestCents', 'spanishEnabled', 'spanishPenaltyPct']);
+    expect(Object.keys(body)).toHaveLength(4);
     expect(typeof body.minimumRequestCents).toBe('number');
     expect(Number.isInteger(body.minimumRequestCents)).toBe(true);
   });
