@@ -2186,8 +2186,8 @@ export const mockSellRequests: MockSellRequestRow[] = [
  */
 export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = {
   minimumRequestCents: 50000,
-  // §BUYLIST-ES (F2): el dial de español está ENCENDIDO en el mock para poder ver la UI; liga queda para F4.
-  spanishEnabled: true,
+  // §BUYLIST-ES: estado real = dial APAGADO (los interruptores nacen false). Los specs que necesiten español lo encienden explícitamente.
+  spanishEnabled: false,
   leagueEnabled: false,
   spanishPenaltyPct: 15,
 };

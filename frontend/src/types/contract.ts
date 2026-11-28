@@ -3392,7 +3392,8 @@ export interface BuylistBreakdownDTO {
   languagePenalty: { pct: number; cents: number } | null;
   adjustedMarketCents: number;
   /** % de la curva vigente (puntos porcentuales, p. ej. 50). */
-  curvePct: number;
+  /** `null` si el servidor no pudo derivar el % (p. ej. oferta sin curva): se pinta la fila sin cifra. */
+  curvePct: number | null;
   finalOfferCents: number;
 }
 

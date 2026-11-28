@@ -32,10 +32,16 @@ export function BuylistBreakdown({
     {
       key: 'language',
       label: t('language', { pct: pen.pct }),
-      value: money(pen.cents),
+      // Signo «−» (U+2212) igual que la etiqueta; el contrato manda el castigo negativo, se pinta su magnitud.
+      value: `−${money(Math.abs(pen.cents))}`,
     },
     { key: 'adjusted', label: t('adjusted'), value: money(breakdown.adjustedMarketCents) },
-    { key: 'base', label: t('base', { pct: breakdown.curvePct }), value: '' },
+    {
+      key: 'base',
+      // `curvePct` puede venir `null` del servidor: la fila se pinta sin cifra, nunca «null %».
+      label: breakdown.curvePct == null ? t('baseNone') : t('base', { pct: breakdown.curvePct }),
+      value: breakdown.curvePct == null ? '—' : '',
+    },
     {
       key: 'offer',
       label: t(offerLabel ?? 'offer'),
@@ -50,9 +56,9 @@ export function BuylistBreakdown({
       className={className ?? 'mt-2 border-l border-border-strong pl-3 text-[12px]'}
     >
       {rows.map((r) => (
-        <div key={r.key} data-row={r.key} className="flex items-baseline justify-between gap-3 py-0.5">
-          <dt className="text-muted">{r.label}</dt>
-          <dd className={`tabular font-mono ${r.strong ? 'font-medium text-text' : 'text-muted'}`}>{r.value}</dd>
+        <div key={r.key} data-row={r.key} className="flex flex-wrap items-baseline justify-between gap-x-3 py-0.5">
+          <dt className="whitespace-nowrap text-muted">{r.label}</dt>
+          <dd className={`tabular whitespace-nowrap font-mono ${r.strong ? 'font-medium text-text' : 'text-muted'}`}>{r.value}</dd>
         </div>
       ))}
     </dl>

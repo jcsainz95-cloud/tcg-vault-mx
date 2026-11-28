@@ -126,6 +126,8 @@ describe('§60.4 · SPEI de UNA carta de un retiro ENTREGADO', () => {
     fireEvent.click(within(dialog).getByTestId('wd-refund-submit'));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create.mock.calls[0][0]).not.toHaveProperty('confirmAboveReference');
+    // La mutación sigue en vuelo: se espera su resolución para que `onSuccess` (setState) no corra tras el teardown de jsdom.
+    expect(await screen.findByTestId('refunds-withdrawal-delivered-done', {}, { timeout: 3000 })).toBeInTheDocument();
   });
 });
 

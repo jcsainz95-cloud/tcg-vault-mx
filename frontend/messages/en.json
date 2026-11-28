@@ -1091,6 +1091,7 @@
       "language": "Spanish language −{pct}%",
       "adjusted": "Adjusted market",
       "base": "Buy curve {pct}%",
+      "baseNone": "Buy curve",
       "offer": "We pay you",
       "offerAdmin": "Offer"
     },

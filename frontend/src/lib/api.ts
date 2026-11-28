@@ -2948,10 +2948,10 @@ function mockApplyLanguage(base: BuylistQuoteResponse, language: CardLanguage | 
   const pct = policy.spanishPenaltyPct ?? 15;
   const adjusted = Math.round((ref * (100 - pct)) / 100);
   const esRaw = fx.mockDemoBuyQuote(adjusted).cents;
-  // Contrato §3: final = round_half_down(ajustado × curvePct/100), castigo half_up.
+  // Contrato §3 (ratificado f8444017): final = round_half_up(ajustado × curvePct/100); castigo half_up.
   const curvePct = esRaw == null ? 0 : Math.round((esRaw * 100) / adjusted);
   const num = adjusted * curvePct;
-  const finalCents = Math.floor(num / 100) + (num % 100 > 50 ? 1 : 0);
+  const finalCents = Math.floor((num + 50) / 100);
   const es = esRaw == null ? null : Math.min(finalCents, en);
   const chosen = language === 'es' ? es : en;
   const offers = { en, es };

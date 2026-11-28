@@ -27,6 +27,18 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
     expect(txt).toContain('595.00');
   });
 
+  it('castigo con «−» (U+2212), nunca guion ASCII; y curvePct null se pinta sin cifra', () => {
+    renderWithIntl(<BuylistBreakdown breakdown={ES} />);
+    expect(screen.getByTestId('buylist-breakdown').querySelector('[data-row="language"] dd')?.textContent).toBe('−MX$150.00');
+  });
+
+  it('curvePct null: fila sin «null» ni NaN', () => {
+    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, curvePct: null }} />);
+    const txt = screen.getByTestId('buylist-breakdown').textContent ?? '';
+    expect(txt).toContain('Curva de compra');
+    expect(txt).not.toMatch(/null|NaN/);
+  });
+
   it('mesa del dueño: la última fila dice «Oferta»', () => {
     renderWithIntl(<BuylistBreakdown breakdown={ES} offerLabel="offerAdmin" />);
     expect(screen.getByText('Oferta')).toBeInTheDocument();

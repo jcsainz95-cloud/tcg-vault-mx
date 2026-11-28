@@ -1091,6 +1091,7 @@
       "language": "Idioma español −{pct} %",
       "adjusted": "Mercado ajustado",
       "base": "Curva de compra {pct} %",
+      "baseNone": "Curva de compra",
       "offer": "Te pagamos",
       "offerAdmin": "Oferta"
     },
