@@ -10,10 +10,18 @@ import type { AppLocale } from '@/i18n/routing';
  *  - `ES_OVER_CAP`: precio del staff en línea ES por encima de `min(oferta EN, referencia)`; tope duro (`details.capCents`).
  * El monto del tope lo manda el servidor (`details.capCents`); aquí solo se formatea. Admin-only: el cliente nunca lo ve.
  */
-export type VersionErrorCode = 'VERSION_PRICE_UNAVAILABLE' | 'OVER_VERSION_CAP' | 'ES_OVER_CAP';
+export type VersionErrorCode =
+  | 'VERSION_PRICE_UNAVAILABLE'
+  | 'OVER_VERSION_CAP'
+  | 'ES_OVER_CAP'
+  | 'VERSION_ALREADY_SET'
+  | 'VERSION_MISMATCH_PENDING'
+  | 'VERSION_NOT_CONFIRMED';
 
 export function versionErrorCode(e: unknown): VersionErrorCode | null {
-  if (!(e instanceof ApiClientError) || e.status !== 422) return null;
+  if (!(e instanceof ApiClientError)) return null;
+  if (e.status === 409) return e.code === 'VERSION_ALREADY_SET' || e.code === 'VERSION_MISMATCH_PENDING' || e.code === 'VERSION_NOT_CONFIRMED' ? e.code : null;
+  if (e.status !== 422) return null;
   return e.code === 'VERSION_PRICE_UNAVAILABLE' || e.code === 'OVER_VERSION_CAP' || e.code === 'ES_OVER_CAP' ? e.code : null;
 }
 
@@ -24,7 +32,13 @@ export function versionErrorText(
 ): string | null {
   const code = versionErrorCode(e);
   if (!code) return null;
-  if (code === 'VERSION_PRICE_UNAVAILABLE') return t('unavailable');
+  if (code === 'VERSION_PRICE_UNAVAILABLE') {
+    // `details.reason`: `no_price` (sin precio para esa versión) | `wrong_card` (la versión no está entre las de la carta).
+    return (e as ApiClientError).details?.reason === 'wrong_card' ? t('wrongCard') : t('unavailable');
+  }
+  if (code === 'VERSION_NOT_CONFIRMED') return t('notConfirmed');
+  if (code === 'VERSION_ALREADY_SET') return t('alreadySet');
+  if (code === 'VERSION_MISMATCH_PENDING') return t('mismatchPending');
   const capCents = (e as ApiClientError).details?.capCents;
   const cap = typeof capCents === 'number' ? t('capOf', { amount: formatMoneyCents(capCents, locale) }) : '';
   return code === 'OVER_VERSION_CAP' ? t('overVersionCap', { cap }) : t('esOverCap', { cap });

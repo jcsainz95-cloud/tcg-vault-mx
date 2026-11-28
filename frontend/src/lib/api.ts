@@ -6199,6 +6199,7 @@ export async function decideBuylistItem(
           expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
           respondedAt: null,
         };
+        item.itemStatus = 'ajustada'; // la baja NO aprueba: decide el vendedor
         return delay({ ...item });
       }
       item.receivedBreakdown = {

@@ -19,14 +19,14 @@ export interface ReceivedPick {
 }
 
 /** Ligas que ofrece el selector «Versión»: las de `versions[]` (valoradas al cotizar) y la declarada. Vacío ⇒ sin fila de versión. */
-export function stampChoices(item: Pick<AdminSellItemDTO, 'versions' | 'stamp'>): BuylistStampDTO[] {
+export function stampChoices(item: Pick<AdminSellItemDTO, 'versions' | 'versionOptions' | 'stamp'>): BuylistStampDTO[] {
   const out = new Map<number, BuylistStampDTO>();
   if (item.stamp) out.set(item.stamp.productId, item.stamp);
-  for (const v of item.versions ?? []) if (v.stamp) out.set(v.stamp.productId, v.stamp);
+  for (const v of [...(item.versions ?? []), ...(item.versionOptions ?? [])]) if (v.stamp) out.set(v.stamp.productId, v.stamp);
   return [...out.values()];
 }
 
-export function declaredPick(item: Pick<AdminSellItemDTO, 'language' | 'stamp' | 'versions'>): ReceivedPick {
+export function declaredPick(item: Pick<AdminSellItemDTO, 'language' | 'stamp' | 'versions' | 'versionOptions'>): ReceivedPick {
   return {
     language: item.language === 'es' ? 'es' : 'en',
     ...(stampChoices(item).length > 0 ? { productId: item.stamp?.productId ?? null } : {}),
@@ -40,7 +40,8 @@ export function ReceivedVersionSelector({
   disabled = false,
 }: {
   item: AdminSellItemDTO;
-  pick: ReceivedPick;
+  /** `null` = el operador AÚN no confirmó lo recibido (BES-1): ningún botón marcado y aprobar queda bloqueado. */
+  pick: ReceivedPick | null;
   onChange: (next: ReceivedPick) => void;
   disabled?: boolean;
 }) {
@@ -53,7 +54,8 @@ export function ReceivedVersionSelector({
     { productId: null, label: tn('normal') },
     ...stamps.map((o) => ({ productId: o.productId, label: o.label || tn('league') })),
   ];
-  const differs = pick.language !== declared.language || (pick.productId ?? null) !== (declared.productId ?? null);
+  const cur = pick ?? declared;
+  const differs = pick != null && (pick.language !== declared.language || (pick.productId ?? null) !== (declared.productId ?? null));
   const nameOf = (lang: CardLanguage, productId: number | null | undefined) =>
     stamps.length > 0
       ? `${t(lang)} · ${productId == null ? tn('normal') : (stamps.find((s) => s.productId === productId)?.label ?? tn('league'))}`
@@ -65,7 +67,7 @@ export function ReceivedVersionSelector({
       </span>
       <div role="group" aria-label={t('group', { card: item.card.name })} className="flex w-full max-w-[320px]">
         {options.map((lang, i) => {
-          const selected = pick.language === lang;
+          const selected = pick != null && pick.language === lang;
           return (
             <button
               key={lang}
@@ -74,7 +76,7 @@ export function ReceivedVersionSelector({
               disabled={disabled}
               data-lang={lang}
               onClick={() => {
-                if (!selected) onChange({ ...pick, language: lang });
+                if (!selected) onChange({ ...cur, language: lang });
               }}
               className={cn(
                 'flex min-h-[44px] flex-1 flex-col items-center justify-center border border-border-strong px-3 py-1 text-[13px] font-semibold focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
@@ -93,7 +95,7 @@ export function ReceivedVersionSelector({
           <span className="eyebrow mt-1">{t('versionLabel')}</span>
           <div role="group" aria-label={t('versionGroup', { card: item.card.name })} className="flex w-full max-w-[420px] flex-wrap">
             {stampOpts.map((o, i) => {
-              const selected = (pick.productId ?? null) === o.productId;
+              const selected = pick != null && (pick.productId ?? null) === o.productId;
               return (
                 <button
                   key={o.productId ?? 'normal'}
@@ -102,7 +104,7 @@ export function ReceivedVersionSelector({
                   disabled={disabled}
                   data-stamp={o.productId ?? 'normal'}
                   onClick={() => {
-                    if (!selected) onChange({ ...pick, productId: o.productId });
+                    if (!selected) onChange({ ...cur, productId: o.productId });
                   }}
                   className={cn(
                     'flex min-h-[44px] flex-1 flex-col items-center justify-center border border-border-strong px-3 py-1 text-[13px] font-semibold focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
@@ -117,6 +119,11 @@ export function ReceivedVersionSelector({
             })}
           </div>
         </>
+      )}
+      {pick == null && (
+        <span className="text-xs leading-[1.5] text-accent" data-testid={`received-version-confirm-${item.id}`}>
+          {t('confirmHint')}
+        </span>
       )}
       {differs && (
         <span className="text-xs leading-[1.5] text-muted" data-testid={`received-version-mismatch-${item.id}`}>

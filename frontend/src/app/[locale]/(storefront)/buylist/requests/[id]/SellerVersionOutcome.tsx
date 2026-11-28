@@ -12,7 +12,7 @@ import { formatMoneyCents } from '@/lib/format';
  * liga). Tres desenlaces, TODOS con montos que manda el servidor (el front no calcula ni compara dinero):
  *  - baja pendiente/resuelta (`revision.proposedCents`): «llegó como … nueva oferta X (antes Y)»; los botones aceptar/rechazar
  *    son los de F2c (`SellerFlujoLines`), no se duplican aquí;
- *  - alza (sin propuesta, con `receivedBreakdown`): «Te pagamos X por tu carta (versión)» con `approvedPriceCents`;
+ *  - alza (sin propuesta, con `receivedBreakdown`): «Te pagamos X por tu carta (versión)» con `receivedBreakdown.finalOfferCents`;
  *  - sin precio: «No pudimos valorar esta versión; te recogemos la carta».
  * Siempre «Llegó como …; declaraste …» y el desglose de `receivedBreakdown` (BES-4: nunca un monto de tope).
  */
@@ -29,7 +29,8 @@ export function SellerVersionOutcome({ line }: { line: SellItemDTO }) {
   const money = (c: number) => formatMoneyCents(c, locale);
   const rev = line.revision && line.revision.proposedCents != null && line.revision.previousCents != null ? line.revision : null;
   const rb = line.receivedBreakdown ?? null;
-  const paid = line.approvedPriceCents ?? rb?.finalOfferCents ?? null;
+  // Alza: el servidor NO escribe `approvedPriceCents` hasta aprobar; el monto es `receivedBreakdown.finalOfferCents`.
+  const paid = rb?.finalOfferCents ?? line.approvedPriceCents ?? null;
   let outcome: string;
   let kind: 'lower' | 'higher' | 'unavailable';
   if (rev) {

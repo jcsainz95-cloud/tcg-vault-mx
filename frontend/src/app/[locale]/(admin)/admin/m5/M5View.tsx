@@ -490,13 +490,17 @@ export function M5View() {
             }
           : {}),
       }),
-    onSuccess: (_d, vars) => {
+    onSuccess: (d, vars) => {
       if (vars.decision === 'adjust') closeAdjust();
+      // §4.1 (baja): la decisión devuelve la fila `ajustada` y NO aprueba: decide el vendedor en 7 días. Alza o igual ⇒ aprobada.
+      const lowered = vars.decision === 'approve' && d?.itemStatus === 'ajustada';
       ok(
         vars.requestId,
-        vars.decision === 'approve'
-          ? t('feedback.approved')
-          : t('feedback.adjusted'),
+        lowered
+          ? tf2('version.lowered')
+          : vars.decision === 'approve'
+            ? t('feedback.approved')
+            : t('feedback.adjusted'),
       );
     },
     onError: (e, vars) => {
@@ -523,6 +527,14 @@ export function M5View() {
       // APPROVED_PRICE_CAP_EXCEEDED o el 400 VALIDATION_ERROR del motivo).
       // §BUYLIST-ES F3: 422 de versión. `VERSION_PRICE_UNAVAILABLE` ⇒ aviso en la fila con «Carta distinta»; los demás, texto claro.
       const vText = versionErrorText(e, tVerr, locale);
+      // 409 `VERSION_NOT_CONFIRMED` (§4.7): se reabre el selector de esa línea (sin confirmar) con el aviso.
+      if (versionErrorCode(e) === 'VERSION_NOT_CONFIRMED') {
+        setReceivedPicks((p) => {
+          const { [vars.itemId]: _gone, ...rest } = p;
+          void _gone;
+          return rest;
+        });
+      }
       if (versionErrorCode(e) === 'VERSION_PRICE_UNAVAILABLE') {
         setVersionIssue({ itemId: vars.itemId, text: vText ?? '' });
         return;
@@ -1673,10 +1685,10 @@ export function M5View() {
                           <>
                             {/* §BUYLIST-FLUJO F2 (diseño A): Aprobar al pactado · Bajar precio · No aceptar · No llegó, en la fila. */}
                             {/* §BUYLIST-ES F3 (§4.1): «Idioma recibido» por línea; default = declarado, un toque para cambiarlo. */}
-                            {it.revision?.state !== 'pending' && it.itemStatus !== 'aprobada' && (
+                            {it.revision?.state !== 'pending' && it.itemStatus !== 'aprobada' && it.receivedVersionSet !== true && (
                               <ReceivedVersionSelector
                                 item={it}
-                                pick={receivedPicks[it.id] ?? declaredPick(it)}
+                                pick={receivedPicks[it.id] ?? null}
                                 onChange={(next) => {
                                   setVersionIssue(null);
                                   setReceivedPicks((p) => ({ ...p, [it.id]: next }));
@@ -1689,12 +1701,14 @@ export function M5View() {
                               panel={reviewPanel}
                               onPanel={setReviewPanel}
                               approving={decisionPending && decisionMutation.variables?.decision === 'approve'}
+                              // BES-1: hay que confirmar lo recibido (un toque, aunque coincida con lo declarado) antes de aprobar.
+                              approveDisabled={it.receivedVersionSet !== true && it.revision?.state !== 'pending' && !receivedPicks[it.id]}
                               onApprove={() =>
                                 decisionMutation.mutate({
                                   requestId: req.id,
                                   itemId: it.id,
                                   decision: 'approve',
-                                  received: receivedPicks[it.id] ?? declaredPick(it),
+                                  received: it.receivedVersionSet === true ? undefined : receivedPicks[it.id],
                                 })
                               }
                             />

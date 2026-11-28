@@ -77,12 +77,15 @@ export function ReviewItemActions({
   onPanel,
   onApprove,
   approving,
+  approveDisabled = false,
 }: {
   item: AdminSellItemDTO;
   panel: ReviewPanelState | null;
   onPanel: (next: ReviewPanelState | null) => void;
   onApprove: () => void;
   approving: boolean;
+  /** BES-1: sin confirmar el idioma/versión recibidos no se aprueba. */
+  approveDisabled?: boolean;
 }) {
   const t = useTranslations('admin.m5.flow.f2');
   const locale = useLocale() as AppLocale;
@@ -147,7 +150,7 @@ export function ReviewItemActions({
   const canRevise = item.offerDecision === 'buy';
   return (
     <>
-      <Button size="sm" variant="primary" loading={approving} onClick={onApprove} data-testid={`f2-approve-${item.id}`}>
+      <Button size="sm" variant="primary" loading={approving} disabled={approveDisabled} onClick={onApprove} data-testid={`f2-approve-${item.id}`}>
         {t('actions.approve')}
       </Button>
       {canRevise && (

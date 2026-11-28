@@ -5433,8 +5433,9 @@ export interface BuylistConvertAllResponse {
 /** Línea de ADMIN: `agreedPriceCents` = el precio PACTADO final (baja aceptada o el ofertado). */
 export interface AdminSellItemDTO extends SellItemDTO {
   agreedPriceCents?: number | null;
-  /** §BUYLIST-ES F4 (§4.1): versiones valoradas al cotizar (de ahí salen las ligas del selector «Versión»); ausente ⇒ solo idioma. */
+  /** §BUYLIST-ES F4 (§4.1): versiones valoradas al cotizar y opciones del selector «Versión» (el servidor manda ambas); ausente ⇒ solo idioma. */
   versions?: BuylistVersionDTO[];
+  versionOptions?: BuylistVersionDTO[];
 }
 
 /** §BUYLIST-RASTREO: `status` es el crudo de la paquetería (picked_up, in_transit, delivered, exception…). */

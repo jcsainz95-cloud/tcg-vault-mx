@@ -173,6 +173,8 @@ describe('M5View · Buylist admin end-to-end', () => {
     });
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
+    // BES-1: se confirma el idioma recibido antes de aprobar.
+    fireEvent.click((await screen.findAllByRole('button', { name: /^Inglés/ }))[0]);
     const approveButtons = await screen.findAllByRole('button', { name: 'Aprobar al pactado' });
     fireEvent.click(approveButtons[0]);
 

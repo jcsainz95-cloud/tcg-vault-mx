@@ -51,6 +51,15 @@ describe('SellerVersionOutcome · §BUYLIST-ES §4.2/§4.4', () => {
     expect(screen.getByTestId('seller-version-arrived-i1')).toHaveTextContent('Arrived as English; you declared Spanish');
   });
 
+  it('alza sin `approvedPriceCents` (el servidor no lo escribe hasta aprobar): el monto es receivedBreakdown.finalOfferCents', () => {
+    renderWithIntl(
+      <SellerVersionOutcome
+        line={base({ language: 'es', receivedLanguage: 'en', receivedBreakdown: { ...RB, languagePenalty: null, adjustedMarketCents: 100000, curveBp: null, finalOfferCents: 70000 } })}
+      />,
+    );
+    expect(screen.getByTestId('seller-version-outcome-i1')).toHaveTextContent('Te pagamos MX$700.00 por tu Charizard (Inglés).');
+  });
+
   it('sin precio para lo recibido: «No pudimos valorar esta versión; te recogemos la carta», sin desglose', () => {
     renderWithIntl(<SellerVersionOutcome line={base({ receivedBreakdown: null, itemStatus: 'rechazada' })} />);
     expect(screen.getByTestId('seller-version-outcome-i1')).toHaveTextContent('No pudimos valorar esta versión; te recogemos la carta');
