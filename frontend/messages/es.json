@@ -1091,7 +1091,6 @@
       "language": "Idioma español −{pct} %",
       "adjusted": "Mercado ajustado",
       "base": "Curva de compra {pct} %",
-      "marketOverride": "Precio fijo de la tienda (inglés)",
       "capEn": "Tope: oferta en inglés",
       "capFloor": "Piso de compra",
       "baseNone": "Curva de compra",
@@ -1099,14 +1098,7 @@
       "offerAdmin": "Oferta"
     },
     "es": {
-      "fixedPrice": "Precio fijo",
-      "marketDrift": "Cambió desde la cotización (era {amount})",
-      "standardKind": {
-        "capEn": "Tope: oferta en inglés",
-        "capFloor": "Piso de compra",
-        "override": "Precio fijo",
-        "curve": "Curva {pct} %"
-      }
+      "fixedPrice": "Precio fijo"
     },
     "payAfterReceipt": "El pago se realiza después de recibir y verificar tus cartas.",
     "shippingGuideLink": "Cómo empacar tus cartas",
@@ -3933,6 +3925,13 @@
         "requestRejected": "Solicitud rechazada; quedó cerrada."
       },
       "desk": {
+        "marketDrift": "Cambió desde la cotización (era {amount})",
+        "standardKind": {
+          "capEn": "Tope: oferta en inglés",
+          "capFloor": "Piso de compra",
+          "override": "Precio fijo",
+          "curve": "Curva {pct} %"
+        },
         "title": "Mesa de decisión",
         "open": "Abrir la mesa de decisión",
         "close": "Cerrar la mesa",

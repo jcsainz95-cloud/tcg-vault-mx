@@ -1091,7 +1091,6 @@
       "language": "Spanish language −{pct}%",
       "adjusted": "Adjusted market",
       "base": "Buy curve {pct}%",
-      "marketOverride": "Store fixed price (English)",
       "capEn": "Cap: English offer",
       "capFloor": "Buy floor",
       "baseNone": "Buy curve",
@@ -1099,14 +1098,7 @@
       "offerAdmin": "Offer"
     },
     "es": {
-      "fixedPrice": "Fixed price",
-      "marketDrift": "Changed since quote (was {amount})",
-      "standardKind": {
-        "capEn": "Cap: English offer",
-        "capFloor": "Buy floor",
-        "override": "Fixed price",
-        "curve": "Curve {pct}%"
-      }
+      "fixedPrice": "Fixed price"
     },
     "payAfterReceipt": "Payment is made after we receive and verify your cards.",
     "shippingGuideLink": "How to pack your cards",
@@ -3933,6 +3925,13 @@
         "requestRejected": "Request rejected; it is now closed."
       },
       "desk": {
+        "marketDrift": "Changed since quote (was {amount})",
+        "standardKind": {
+          "capEn": "Cap: English offer",
+          "capFloor": "Buy floor",
+          "override": "Fixed price",
+          "curve": "Curve {pct}%"
+        },
         "title": "Decision desk",
         "open": "Open the decision desk",
         "close": "Close the desk",

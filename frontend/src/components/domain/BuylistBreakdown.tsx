@@ -32,7 +32,7 @@ export function BuylistBreakdown({
   const locale = useLocale() as AppLocale;
   if (!breakdown || !breakdown.languagePenalty || breakdown.source === 'pending') return null;
   const { languagePenalty: pen } = breakdown;
-  const money = (c: number) => formatMoneyCents(c, locale);
+  const money = (c: number | null) => (c == null ? '—' : formatMoneyCents(c, locale));
   const bp = breakdown.curveBp;
   // Presentación del % (puntos base del servidor → %); no es dinero.
   const pctText = bp == null ? '' : formatCurvePct(bp, locale);

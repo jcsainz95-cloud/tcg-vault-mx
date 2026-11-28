@@ -283,14 +283,19 @@ function readOnlyKey(status: SellRequestStatus): string {
 export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady }: BuylistDecisionDeskProps) {
   const t = useTranslations('admin.m5.desk');
   const tc = useTranslations('common');
-  const te = useTranslations('buylist.es');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
   // §3.3 M2 (líneas ES): «Curva {pct} %» solo con `standardPctBp` no nulo; si no, el rótulo de `standardKind`.
   const standardLabel = (l: BuylistDecisionLineDTO): string => {
-    if (l.standardPctBp != null) return te('standardKind.curve', { pct: formatCurvePct(l.standardPctBp, locale).trim() });
-    const k = l.standardKind;
-    return k === 'cap_en_offer' ? te('standardKind.capEn') : k === 'cap_floor' ? te('standardKind.capFloor') : te('standardKind.override');
+    const k = l.standardKind ?? (l.standardPctBp != null ? 'curve' : null);
+    if (k === 'curve') {
+      // Curva sin % (`standardPctBp:null`) no se inventa: «—», nunca «Precio fijo».
+      return l.standardPctBp != null ? t('standardKind.curve', { pct: formatCurvePct(l.standardPctBp, locale).trim() }) : '—';
+    }
+    if (k === 'cap_en_offer') return t('standardKind.capEn');
+    if (k === 'cap_floor') return t('standardKind.capFloor');
+    if (k === 'override') return t('standardKind.override');
+    return '—';
   };
   // ⚠️ **`'operator'` NO es decoración.** Esta es la pantalla donde v1.58 hizo alcanzables
   // `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` (§M5-A), y sin declarar la audiencia el banner le
@@ -707,7 +712,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         {/* §3.3 B1: marca informativa; no toca chip, Estándar ni Ofertamos (lo congelado no se reevalúa). */}
                         {line.marketDriftCents != null && line.breakdown?.marketMxnCents != null && (
                           <span data-testid="line-market-drift" className="text-xs text-muted">
-                            {te('marketDrift', { amount: formatMoneyCents(line.breakdown.marketMxnCents, locale) })}
+                            {t('marketDrift', { amount: formatMoneyCents(line.breakdown.marketMxnCents, locale) })}
                           </span>
                         )}
                         <span className="text-xs text-muted">
@@ -718,9 +723,15 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                               : '—'}
                           </span>
                         </span>
-                        {/* §BUYLIST-ES: mercado → −idioma → ajustado → % de la curva → oferta, en ese orden. */}
-                        <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" />
                       </div>
+                      {/* §BUYLIST-ES: mercado → −idioma → ajustado → % de la curva → oferta, en ese orden. En escritorio
+                          va en su propia fila bajo las columnas 3-7: en la columna «Mercado» (1fr) las etiquetas se
+                          partían en 2-3 líneas a 1440 px. En celular sigue apilado, sin cambio. */}
+                      {line.breakdown && (
+                        <div className="lg:col-span-5 lg:col-start-3">
+                          <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" />
+                        </div>
+                      )}
 
                       <div className="flex flex-col gap-0.5">
                         <span className="eyebrow lg:hidden">{t('mesa.colStandard')}</span>

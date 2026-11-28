@@ -3387,18 +3387,18 @@ export interface BuylistQuotePolicyDTO {
  * (tope) → oferta. Lo calcula el servidor en centavos enteros; el front NO calcula dinero ni multiplica `ajustado × %`.
  * `languagePenalty:null` ⇒ línea en inglés. `cents` del castigo es NEGATIVO. `curveBp` es INFORMATIVO (puntos base;
  * `curveOfferCents` es la oferta de la curva antes de topes). `cap` ≠ null ⇒ el tope recortó y `finalOfferCents = cap.cents`.
- * `source:'override'` ⇒ precio fijo por carta con castigo de idioma (`curveBp` 10000, `cap` null).
+ * `source:'override'` ⇒ precio fijo por carta con castigo de idioma (`curveBp` null, `cap` null; el precio fijo va en `marketMxnCents`).
  * `source:'bounty'` ⇒ línea EN con recompensa (no lleva castigo de idioma; el desglose no se pinta).
  */
 export interface BuylistBreakdownDTO {
-  marketMxnCents: number;
+  marketMxnCents: number | null;
   languagePenalty: { pct: number; cents: number } | null;
   adjustedMarketCents: number;
   curveBp: number | null;
   curveOfferCents: number | null;
   cap: { reason: 'en_offer' | 'floor'; cents: number } | null;
   source?: 'curve' | 'override' | 'bounty' | 'pending';
-  finalOfferCents: number;
+  finalOfferCents: number | null;
 }
 
 /** §BUYLIST-ES §2 · ofertas por idioma de la versión elegida (centavos | null = sin oferta). */
