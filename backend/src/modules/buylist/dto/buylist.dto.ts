@@ -15,8 +15,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Finish, ProductType, RawCondition } from '@prisma/client';
-import { FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../../common/enum-values';
+import { CardLanguage, Finish, ProductType, RawCondition } from '@prisma/client';
+import { CARD_LANGUAGE_VALUES, FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../../common/enum-values';
 // v2.1.9 (D4, §4.37): `rawCondition` es CLASE R — se declara literal, NO se deriva. PROJECT §E:
 // «Solo compramos cartas en Near Mint (NM); si al recibir/verificar no está en NM, no se compra.»
 // El literal `['NM']` que estaba inline en los tres DTOs de abajo era CORRECTO; ahora es además
@@ -63,6 +63,8 @@ export class PublicQuoteDto {
   // cardProductId). Ausente ⇒ set_base por (cardId, finish). productId inexistente → 422 PRODUCT_NOT_FOUND;
   // que no cuelga del cardId → 422 PRODUCT_CARD_MISMATCH (se resuelven server-side). Entero positivo.
   @IsOptional() @IsInt() @Min(1) productId?: number;
+  // §BUYLIST-ES F1: idioma DECLARADO de la carta (default `en`). `es` con el interruptor apagado o en una línea no elegible ⇒ 400.
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
 }
 
 /**
@@ -78,6 +80,8 @@ export class BuylistQuoteItemDto {
   // v1.30 (§4.29): productId OPCIONAL por-ítem (misma semántica que el quote por-carta). Presente ⇒ la
   // línea es ESE CardProduct separado; errores por-ítem PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH (ok:false).
   @IsOptional() @IsInt() @Min(1) productId?: number;
+  // §BUYLIST-ES F1: idioma DECLARADO de la carta (default `en`). `es` con el interruptor apagado o en una línea no elegible ⇒ 400.
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
 }
 
 /**
@@ -111,6 +115,8 @@ export class RequestItemDto {
   // líneas físicas DISTINTAS. productId inexistente → 422 PRODUCT_NOT_FOUND; que no cuelga → 422
   // PRODUCT_CARD_MISMATCH. Entero positivo.
   @IsOptional() @IsInt() @Min(1) productId?: number;
+  // §BUYLIST-ES F1: idioma DECLARADO de la carta (default `en`). `es` con el interruptor apagado o en una línea no elegible ⇒ 400.
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
   // v1.3.1: `category` REMOVIDO. El backend deriva la regla server-side de Card.rarity (SEC-A1);
   // un `category` que envíe el cliente lo descarta el ValidationPipe (whitelist).
 }
@@ -314,6 +320,21 @@ export class ItemDecisionDto {
   @IsOptional()
   @IsIn(['not_received', 'condition_mismatch', 'wrong_card', 'other'])
   reasonCode?: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other';
+  /** §BUYLIST-ES F3 §4.1: idioma recibido (default = el declarado) y producto de liga recibido (`null` = normal; ausente = el declarado). */
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) receivedLanguage?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) receivedProductId?: number | null;
+}
+
+/** §BUYLIST-ES F3 §4.1: lo recibido de UNA línea en `POST /admin/buylist/:id/receive`. */
+export class ReceiveItemVersionDto {
+  @IsString() @IsNotEmpty() @MaxLength(64) itemId!: string;
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) receivedLanguage?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) receivedProductId?: number | null;
+}
+
+/** `POST /admin/buylist/:id/receive`: cuerpo OPCIONAL (sin él, la recepción de siempre). */
+export class ReceiveRequestDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => ReceiveItemVersionDto) items?: ReceiveItemVersionDto[];
 }
 
 /**
@@ -364,6 +385,9 @@ export class RejectRequestDto {
  */
 export class ReviseItemPriceDto {
   @IsInt() revisedPriceCents!: number;
+  /** §BUYLIST-ES F3 §4.1 punto 4: idioma/versión recibida junto con la baja por condición (el monto revisado se topa en la oferta congelada de lo recibido). */
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) receivedLanguage?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) receivedProductId?: number | null;
   @IsIn(['condition_mismatch', 'wrong_card', 'other']) reasonCode!: 'condition_mismatch' | 'wrong_card' | 'other';
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }

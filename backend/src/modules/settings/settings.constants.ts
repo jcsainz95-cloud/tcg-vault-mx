@@ -466,6 +466,11 @@ export const SettingKey = {
   GRADED_ESTIMATE_DAILY_CREDIT_CAP: 'graded_estimate_daily_credit_cap',
   // 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.7, M-95): mercado del ESPAÑOL = mercado del inglés × este % (entero [1, 200], seed 75).
   SPANISH_MARKET_PCT: 'spanish_market_pct',
+  // §BUYLIST-ES F1 (API_CONTRACT_BUYLIST_ES §1): castigo de idioma de la COMPRA (entero [0,90], seed 15) y los dos interruptores
+  // (se siembran APAGADOS; F3 enciende el español y F4 la liga). `super_admin`; no son diales del dueño ni mueven precios de venta.
+  BUYLIST_SPANISH_PENALTY_PCT: 'buylist_spanish_penalty_pct',
+  BUYLIST_SPANISH_ENABLED: 'buylist_spanish_enabled',
+  BUYLIST_LEAGUE_ENABLED: 'buylist_league_enabled',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -730,6 +735,9 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP]: 3000,
   // v1.116⟨ids⟩ (§IDS.7): sin fila ⇒ 75 (IDS-B4). Decisión del dueño, HECHOS 2026-10-30 «Español y sellos (§IDS)…».
   [SettingKey.SPANISH_MARKET_PCT]: 75,
+  [SettingKey.BUYLIST_SPANISH_PENALTY_PCT]: 15,
+  [SettingKey.BUYLIST_SPANISH_ENABLED]: false,
+  [SettingKey.BUYLIST_LEAGUE_ENABLED]: false,
 };
 
 /**
@@ -1468,6 +1476,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP]: validateIntRange(0, 20000),
   // v1.116⟨ids⟩ (§IDS.7): entero [1, 200]; vacío, 0, negativo, decimal o fuera ⇒ 422.
   [SettingKey.SPANISH_MARKET_PCT]: validateSpanishMarketPct,
+  [SettingKey.BUYLIST_SPANISH_PENALTY_PCT]: (v) =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 90 ? null : 'must be an integer in [0, 90] (percent)',
+  [SettingKey.BUYLIST_SPANISH_ENABLED]: (v) => (typeof v === 'boolean' ? null : 'must be a boolean'),
+  [SettingKey.BUYLIST_LEAGUE_ENABLED]: (v) => (typeof v === 'boolean' ? null : 'must be a boolean'),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1608,6 +1620,10 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   gradedEstimateDailyCreditCap: SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP,
   // 💰 v1.116⟨ids⟩ (§IDS.7): el dial del español; mismo rol que `PUT /admin/pricing/curve` (IDS-B10), auditado.
   spanishMarketPct: SettingKey.SPANISH_MARKET_PCT,
+  // §BUYLIST-ES F1: castigo de idioma e interruptores de la compra (`super_admin`).
+  buylistSpanishPenaltyPct: SettingKey.BUYLIST_SPANISH_PENALTY_PCT,
+  buylistSpanishEnabled: SettingKey.BUYLIST_SPANISH_ENABLED,
+  buylistLeagueEnabled: SettingKey.BUYLIST_LEAGUE_ENABLED,
 };
 
 /**

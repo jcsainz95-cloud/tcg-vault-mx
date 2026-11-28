@@ -7,7 +7,7 @@ import { emitBuylistOffer, getBuylistDecisionTable } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { ApiClientError } from '@/lib/api-client';
 import { formatMoneyCents } from '@/lib/format';
-import type { BuylistDecisionLineDTO, BuylistOfferLineInput, SellRequestStatus } from '@/types/contract';
+import type { BuylistBreakdownDTO, BuylistDecisionLineDTO, BuylistOfferLineInput, SellRequestStatus } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -15,6 +15,9 @@ import { Modal } from '@/components/ui/Modal';
 import { CardPhotoLightbox } from './CardPhotoLightbox';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PriceBasisTag } from '@/components/domain/PriceBasisTag';
+import { versionErrorText } from './version-errors';
+import { BuylistBreakdown, formatCurvePct } from '@/components/domain/BuylistBreakdown';
+import { LanguageChip } from '@/components/domain/VersionChip';
 import {
   defaultSelection,
   emitBlocker,
@@ -213,6 +216,15 @@ function SuggestionLine({ line }: { line: BuylistDecisionLineDTO }) {
   );
 }
 
+// Códigos con texto i18n propio (incluidos los de B1-bis ES: el texto del servidor va solo en español).
+/** Mismo criterio que `BuylistBreakdown`: solo hay desglose que pintar con castigo de idioma y fuente no pendiente. */
+function hasBreakdown(b: BuylistBreakdownDTO | null | undefined): boolean {
+  return !!b && !!b.languagePenalty && b.source !== 'pending';
+}
+/** Códigos con texto propio en `admin.m5.desk.reason.<CÓDIGO>` (es/en). `MARKET_*` no: los explica la nota de mercado. */
+const KNOWN_REASONS = new Set<string>(['STOCK_CAP', 'MANUAL_OVERRIDE', 'BOUNTY', 'FLOOR', 'NO_MARKET', 'CURVE_CHANGED']);
+const isMarketReason = (code: string): boolean => code === 'MARKET_UP' || code === 'MARKET_DOWN';
+
 type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
 
 /**
@@ -221,6 +233,9 @@ type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
  */
 function mesaChip(line: BuylistDecisionLineDTO): MesaChip | null {
   if (line.derivedPriceCents == null || line.priceBasis === 'pending') return 'noPrice';
+  // §3.3 I2: línea ES con la inglesa pendiente (sin Estándar): solo el chip «−P % idioma» (en la celda de la carta);
+  // nunca «Estándar» junto a «—».
+  if (line.language === 'es' && (line.standardKind === 'pending' || line.breakdown?.source === 'pending')) return null;
   if (line.adjustment === undefined) return null;
   if (line.adjustment === null) return 'standard';
   return line.adjustment.deltaCents > 0 ? 'up' : 'down';
@@ -283,11 +298,24 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
+  // §3.3 M2 (líneas ES): «Curva {pct} %» solo con `standardPctBp` no nulo; si no, el rótulo de `standardKind`.
+  const standardLabel = (l: BuylistDecisionLineDTO): string => {
+    const k = l.standardKind ?? (l.standardPctBp != null ? 'curve' : null);
+    if (k === 'curve') {
+      // Curva sin % (`standardPctBp:null`) no se inventa: «—», nunca «Precio fijo».
+      return l.standardPctBp != null ? t('standardKind.curve', { pct: formatCurvePct(l.standardPctBp, locale).trim() }) : '—';
+    }
+    if (k === 'cap_en_offer') return t('standardKind.capEn');
+    if (k === 'cap_floor') return t('standardKind.capFloor');
+    if (k === 'override') return t('standardKind.override');
+    return '—';
+  };
   // ⚠️ **`'operator'` NO es decoración.** Esta es la pantalla donde v1.58 hizo alcanzables
   // `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` (§M5-A), y sin declarar la audiencia el banner le
   // diría al operador que suba **su** INE. El destinatario se resuelve con `details` del servidor
   // primero y con esto después (DESIGN_SYSTEM §26.2 · `lib/error-audience.ts`).
   const getErrorMessage = useErrorMessage('operator');
+  const tVerr = useTranslations('admin.m5.flow.f2.version.errors');
 
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [overrides, setOverrides] = useState<Record<string, LineOverride>>({});
@@ -673,12 +701,27 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
                           {line.card.setName} · {line.card.number} · {line.finish}
                         </span>
+                        {line.language === 'es' && (
+                          <span className="mt-1">
+                            <LanguageChip language="es" size="tile" />
+                            {line.languagePenaltyPct != null && (
+                              <span
+                                data-testid="line-language-penalty"
+                                className="ml-2 whitespace-nowrap font-mono text-[10px] text-muted"
+                              >
+                                {t('mesa.languagePenaltyChip', { pct: line.languagePenaltyPct })}
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </span>
 
                       <div className="flex flex-col gap-0.5">
                         <span className="eyebrow lg:hidden">{t('mesa.colMarket')}</span>
                         <span className="tabular font-mono text-sm text-text" data-testid="line-market">
-                          {line.marketMxnCents != null ? formatMoneyCents(line.marketMxnCents, locale) : '—'}
+                          {(line.marketTodayCents ?? line.marketMxnCents) != null
+                            ? formatMoneyCents((line.marketTodayCents ?? line.marketMxnCents) as number, locale)
+                            : '—'}
                         </span>
                         <span className="text-xs text-muted">
                           {t('quoted')}{' '}
@@ -689,22 +732,21 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                           </span>
                         </span>
                       </div>
-
                       <div className="flex flex-col gap-0.5">
                         <span className="eyebrow lg:hidden">{t('mesa.colStandard')}</span>
                         <span className="tabular font-mono text-sm text-text" data-testid="line-standard">
-                          {line.standardOfferCents != null && line.standardPctBp != null
-                            ? t('mesa.standardCell', {
-                                // Presentación del % (puntos base del servidor → %); no es dinero.
-                                pct: (line.standardPctBp / 100).toLocaleString(
-                                  locale === 'es' ? 'es-MX' : 'en-US',
-                                  {
+                          {line.language === 'es'
+                            ? line.standardOfferCents != null && (line.standardKind ?? (line.standardPctBp != null ? 'curve' : null)) != null && line.standardKind !== 'pending'
+                              ? `${standardLabel(line)} → ${formatMoneyCents(line.standardOfferCents, locale)}`
+                              : t('mesa.standardNone')
+                            : line.standardOfferCents != null && line.standardPctBp != null
+                              ? t('mesa.standardCell', {
+                                  pct: (line.standardPctBp / 100).toLocaleString(locale === 'es' ? 'es-MX' : 'en-US', {
                                     maximumFractionDigits: 1,
-                                  },
-                                ),
-                                amount: formatMoneyCents(line.standardOfferCents, locale),
-                              })
-                            : t('mesa.standardNone')}
+                                  }),
+                                  amount: formatMoneyCents(line.standardOfferCents, locale),
+                                })
+                              : t('mesa.standardNone')}
                         </span>
                       </div>
 
@@ -750,20 +792,28 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                             })()}
                           </span>
                         )}
+                        {/* §3.3 B1-bis: explica el chip (el mercado vivo mueve Ofertamos); se pinta junto a él, no lo sustituye. Estándar y desglose siguen congelados. */}
+                        {line.marketDriftCents != null && line.breakdown?.marketMxnCents != null && (
+                          <span data-testid="line-market-drift" className="text-xs text-muted">
+                            {t('marketDrift', { amount: formatMoneyCents(line.breakdown.marketMxnCents, locale) })}
+                          </span>
+                        )}
                         {changed && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason-edited">
                             {t('mesa.editedByYou')}
                           </span>
                         )}
-                        {!changed && adj && (
+                        {/* §3.3 B1-bis: UNA sola nota de mercado. `MARKET_UP`/`MARKET_DOWN` no tienen línea de motivo propia: su explicación
+                            es «Cambió desde la cotización» (arriba) o, en líneas sin ese campo, la frase de `sinceQuote`. El motivo de los
+                            demás códigos se pinta por `reasonCode` con i18n (`reason.<CÓDIGO>`); `reasonText` solo respalda códigos desconocidos. */}
+                        {!changed && adj && !isMarketReason(adj.reasonCode) && !(sq && sq.reasonCode === adj.reasonCode) && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason">
-                            {locale === 'es' && adj.reasonText
-                              ? adj.reasonText
-                              : t(`mesa.reason.${adj.reasonCode}`)}
+                            {KNOWN_REASONS.has(adj.reasonCode)
+                              ? t(`reason.${adj.reasonCode}`, { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })
+                              : adj.reasonText}
                           </span>
                         )}
-                        {/* Nota APARTE del chip: el mercado se movió desde la cotización. No cambia el chip. */}
-                        {sq && !changed && (
+                        {sq && !changed && !(isMarketReason(sq.reasonCode) && line.marketDriftCents != null) && (
                           <span className="text-xs leading-[1.5] text-muted" data-testid="line-since-quote">
                             {t(`mesa.sinceQuote.${sq.reasonCode}`, {
                               quoted: formatMoneyCents(sq.quotedCents, locale),
@@ -797,6 +847,16 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         <span className="eyebrow lg:hidden">{t('mesa.colStock')}</span>
                         <StockPhrase line={line} />
                       </div>
+
+                      {/* §BUYLIST-ES: mercado → −idioma → ajustado → % de la curva → oferta. En escritorio va en su propia
+                          fila 2 (lg:row-start-2) bajo las columnas 3-7, DESPUÉS de todas las celdas de la línea: si abriera
+                          fila entre «Mercado» y «Estándar», estas caerían en las columnas de 28/72 px. Solo se monta si el
+                          desglose pinta algo (ES con castigo y no pendiente); las líneas EN no llevan contenedor. */}
+                      {hasBreakdown(line.breakdown) && (
+                        <div className="lg:col-span-5 lg:col-start-3 lg:row-start-2 lg:max-w-[28rem]" data-testid="line-breakdown-row">
+                          <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" audience="admin" fixedPriceLabel={t('fixedPrice')} />
+                        </div>
+                      )}
                     </div>
 
                     {/* El PAR (derivedPriceCents, pendingReason) discrimina TRES casos, y el
@@ -933,7 +993,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
               )}
               {emit.isError && Object.keys(priceChanged).length === 0 && (
                 <Banner variant="danger" role="alert">
-                  {getErrorMessage(emit.error)}
+                  {versionErrorText(emit.error, tVerr, locale) ?? getErrorMessage(emit.error)}
                 </Banner>
               )}
 

@@ -3265,6 +3265,15 @@ export interface BuylistQuoteResponse {
   };
   referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
   paymentNotice: 'PAY_AFTER_RECEIPT';
+  // §BUYLIST-ES §2 (ADITIVOS; ausentes con el dial apagado): idioma cotizado, oferta de cada idioma (cambiar el
+  // segmento NO pide red), si la carta admite español y el desglose del idioma elegido.
+  language?: CardLanguage;
+  offers?: BuylistLanguageOffersDTO;
+  spanishEligible?: boolean;
+  breakdown?: BuylistBreakdownDTO | null;
+  /** §BUYLIST-ES F4 (§3.4): ligas de la carta (vacío/ausente ⇒ sin segmento «De liga») y todas sus versiones elegibles. */
+  stampOptions?: BuylistStampDTO[];
+  versions?: BuylistVersionDTO[];
 }
 
 // ---- Cotización en LOTE (contrato §6 · POST /buylist/quote/batch, v1.15) ----
@@ -3289,6 +3298,8 @@ export interface BuylistQuoteItemDTO {
   // (deck_exclusive/promo). Presente ⇒ la línea es ESE producto (acabado ∈ `CardProduct.finishes`,
   // referencia por ese `cardProductId`, precio PROPIO). Ausente ⇒ set_base por (cardId, finish).
   productId?: number;
+  /** §BUYLIST-ES: idioma declarado de la carta; omitido ⇒ `en` (comportamiento de siempre). */
+  language?: CardLanguage;
 }
 
 // Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta.
@@ -3307,6 +3318,15 @@ export interface BuylistQuotePayload {
   };
   referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
   paymentNotice: 'PAY_AFTER_RECEIPT';
+  // §BUYLIST-ES §2 (ADITIVOS; ausentes con el dial apagado): idioma cotizado, oferta de cada idioma (cambiar el
+  // segmento NO pide red), si la carta admite español y el desglose del idioma elegido.
+  language?: CardLanguage;
+  offers?: BuylistLanguageOffersDTO;
+  spanishEligible?: boolean;
+  breakdown?: BuylistBreakdownDTO | null;
+  /** §BUYLIST-ES F4 (§3.4): ligas de la carta (vacío/ausente ⇒ sin segmento «De liga») y todas sus versiones elegibles. */
+  stampOptions?: BuylistStampDTO[];
+  versions?: BuylistVersionDTO[];
 }
 
 // Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el
@@ -3333,7 +3353,10 @@ export type BuylistBatchQuoteResultDTO =
           | 'FINISH_NOT_AVAILABLE'
           | 'PRODUCT_NOT_FOUND'
           | 'PRODUCT_CARD_MISMATCH'
-          | 'BUYLIST_RAW_ONLY';
+          | 'BUYLIST_RAW_ONLY'
+          | 'LANGUAGE_NOT_ELIGIBLE'
+          | 'LANGUAGE_NOT_AVAILABLE'
+          | 'STAMP_NOT_AVAILABLE';
         message: string;
       };
     };
@@ -3357,6 +3380,62 @@ export interface BuylistBatchQuoteResponse {
 // ⛔ Resta PROHIBIDA: `neto ≈ total − tarifa` (además de imposible: la tarifa no viaja).
 export interface BuylistQuotePolicyDTO {
   minimumRequestCents: number;
+  /**
+   * §BUYLIST-ES (F1/F2, docs/API_CONTRACT_BUYLIST_ES.md §1): ADITIVOS. Ausentes o `false` ⇒ la UI NO pinta nada
+   * de idioma (sin regresión). `spanishPenaltyPct` es solo para el texto del segmento; el monto lo manda el servidor.
+   */
+  spanishEnabled?: boolean;
+  leagueEnabled?: boolean;
+  spanishPenaltyPct?: number;
+}
+
+/**
+ * §BUYLIST-ES §3/§3.2 · desglose por línea, en ESTE orden: mercado → castigo de idioma → mercado ajustado → curva →
+ * (tope) → oferta. Lo calcula el servidor en centavos enteros; el front NO calcula dinero ni multiplica `ajustado × %`.
+ * `languagePenalty:null` ⇒ línea en inglés. `cents` del castigo es NEGATIVO. `curveBp` es INFORMATIVO (puntos base;
+ * `curveOfferCents` es la oferta de la curva antes de topes). `cap` ≠ null ⇒ el tope recortó y `finalOfferCents = cap.cents`.
+ * `source:'override'` ⇒ precio fijo por carta con castigo de idioma (`curveBp` null, `cap` null; el precio fijo va en `marketMxnCents`).
+ * `source:'bounty'` ⇒ línea EN con recompensa (no lleva castigo de idioma; el desglose no se pinta).
+ */
+export interface BuylistBreakdownDTO {
+  marketMxnCents: number | null;
+  languagePenalty: { pct: number; cents: number } | null;
+  adjustedMarketCents: number;
+  curveBp: number | null;
+  curveOfferCents?: number | null;
+  /**
+   * BES-4 (§9.2): en el DTO del CLIENTE `cents` NO viaja (ni `curveOfferCents`); con `reason:'floor'` el servidor manda
+   * además `curveBp:null` y la UI pinta «Oferta mínima de la tienda», jamás una cifra de tope. El DTO admin lo conserva.
+   */
+  cap: { reason: 'en_offer' | 'floor'; cents?: number } | null;
+  source?: 'curve' | 'override' | 'bounty' | 'pending' | 'received';
+  finalOfferCents: number | null;
+}
+
+/** §BUYLIST-ES F4 (§3.4) · versión de liga de una carta: `{type,label,productId}` (la etiqueta sale de `card-version.ts`). */
+export interface BuylistStampDTO {
+  type: string;
+  label: string;
+  productId: number;
+}
+
+/**
+ * §BUYLIST-ES F4 (§2, §3.4) · una fila por combinación idioma × (normal | cada liga): lo que ofrecemos por ESA versión. El
+ * segmento «Normal | De liga» y el de idioma eligen entre estas cifras SIN otra llamada; ⛔ el front no calcula ninguna.
+ * `offerCents:null` ⇒ sin oferta para esa versión (`reason`), nunca se paga la normal en su lugar.
+ */
+export interface BuylistVersionDTO {
+  key: string;
+  language: CardLanguage;
+  stamp: BuylistStampDTO | null;
+  offerCents: number | null;
+  reason: 'no_reference' | 'language_not_eligible' | 'precio_pendiente' | null;
+}
+
+/** §BUYLIST-ES §2 · ofertas por idioma de la versión elegida (centavos | null = sin oferta). */
+export interface BuylistLanguageOffersDTO {
+  en: number | null;
+  es: number | null;
 }
 
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity`; v2.0 (P-48) retira `appliedRule`
@@ -3374,6 +3453,19 @@ export interface SellItemDTO {
   // (deck_exclusive/promo). Se propaga al InventoryItem al convertir (M5, ligado a ESE producto,
   // no al set_base). Ausente/null ⇒ línea de set_base (comportamiento actual, retrocompatible).
   productId?: number;
+  // §BUYLIST-ES (ADITIVOS): idioma declarado y desglose congelado; ausentes ⇒ servidor anterior ⇒ inglés, sin chip.
+  language?: CardLanguage;
+  breakdown?: BuylistBreakdownDTO | null;
+  /**
+   * §BUYLIST-ES F3/F4 (§2, §4.3; ADITIVOS): versión DECLARADA (`stamp`, liga o `null`) y lo que se RECIBIÓ al verificar.
+   * `receivedVersionSet` = la recepción ya fijó la versión; `receivedBreakdown` (`source:'received'`) explica el monto de
+   * lo recibido en el mismo orden de §3. Ausentes ⇒ servidor anterior ⇒ no se pinta nada.
+   */
+  stamp?: BuylistStampDTO | null;
+  receivedLanguage?: CardLanguage | null;
+  receivedStamp?: BuylistStampDTO | null;
+  receivedVersionSet?: boolean;
+  receivedBreakdown?: BuylistBreakdownDTO | null;
   // v2.0 (P-48): snapshot INFORMATIVO del catálogo — el monto no depende de la rareza (criterio 84).
   rarity?: string;
   // v2.0 (P-48, §N.8 instrumentación): `appliedRule` SE RETIRA. La línea persiste la decisión de
@@ -3929,6 +4021,9 @@ export interface MasterSetVariantDTO {
     rarity: string | null;
     priceBasis: PriceBasis;
     referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
+    // §BUYLIST-ES (ADITIVOS, solo con el dial encendido): pasan tal cual del batch para que el carrito ofrezca el segmento.
+    offers?: BuylistLanguageOffersDTO;
+    spanishEligible?: boolean;
   } | null;
   // v1.22-2-finish-display (N-16): espejo de conveniencia = (finish ∈ displayFinishes de la celda).
   // Es la variante que el render PLANO pinta (una tarjeta por variante `displayed===true`). Opcional
@@ -4968,16 +5063,28 @@ export interface BuylistDecisionLineDTO {
    * BUYLIST-MESA (docs/API_CONTRACT_BUYLIST_MESA.md) — campos ADITIVOS, todos calculados por el servidor en
    * centavos enteros. `undefined` = servidor anterior al anexo (la UI no pinta chip); `null` = sin dato (nunca 0).
    */
+  /** §BUYLIST-ES (ADITIVOS): idioma declarado y desglose (mercado → −idioma → % curva → oferta). Ausente ⇒ sin chip. */
+  language?: CardLanguage;
+  breakdown?: BuylistBreakdownDTO | null;
+  /** §BUYLIST-ES: % de castigo de idioma congelado (chip «−15 % idioma»); `null`/ausente en líneas EN. */
+  languagePenaltyPct?: number | null;
   /** Mercado de HOY en MXN centavos. */
   marketMxnCents?: number | null;
   /** Curva pura sobre ese mercado (sin override, tope ni bounty). */
   standardOfferCents?: number | null;
   /** % efectivo en puntos base (`round(standard*10000/market)`). */
   standardPctBp?: number | null;
+  /**
+   * §BUYLIST-ES §3.3 (ADITIVOS, líneas ES): qué es el monto «Estándar» (`standardPctBp` solo viene con `curve`);
+   * «Mercado hoy» vivo SIN castigo y su diferencia contra lo congelado (`null` si 0, override o pendiente).
+   */
+  standardKind?: 'curve' | 'cap_en_offer' | 'cap_floor' | 'override' | 'pending' | null;
+  marketTodayCents?: number | null;
+  marketDriftCents?: number | null;
   /** `null` ⇔ oferta == estándar. `deltaCents = derived - standard`. */
   adjustment?: {
     deltaCents: number;
-    reasonCode: 'STOCK_CAP' | 'MANUAL_OVERRIDE' | 'BOUNTY' | 'FLOOR' | 'NO_MARKET';
+    reasonCode: 'STOCK_CAP' | 'MANUAL_OVERRIDE' | 'BOUNTY' | 'FLOOR' | 'NO_MARKET' | 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
     reasonText: string;
   } | null;
   /** Solo si cotizado y derivado existen y difieren. `deltaCents = derived - quoted`. */
@@ -5275,6 +5382,7 @@ export interface BuylistTrackingDTO {
   daysInTransit: number;
 }
 export type BuylistRejectionCode =
+  | 'version_mismatch'
   | 'not_received'
   | 'condition_mismatch'
   | 'wrong_card'
@@ -5325,6 +5433,9 @@ export interface BuylistConvertAllResponse {
 /** Línea de ADMIN: `agreedPriceCents` = el precio PACTADO final (baja aceptada o el ofertado). */
 export interface AdminSellItemDTO extends SellItemDTO {
   agreedPriceCents?: number | null;
+  /** §BUYLIST-ES F4 (§4.1): versiones valoradas al cotizar y opciones del selector «Versión» (el servidor manda ambas); ausente ⇒ solo idioma. */
+  versions?: BuylistVersionDTO[];
+  versionOptions?: BuylistVersionDTO[];
 }
 
 /** §BUYLIST-RASTREO: `status` es el crudo de la paquetería (picked_up, in_transit, delivered, exception…). */
@@ -5569,6 +5680,9 @@ export interface RevealClabeResponse {
 export interface BuylistItemDecisionInput {
   decision: 'approve' | 'adjust' | 'reject';
   approvedPriceCents?: number;
+  /** §BUYLIST-ES §4.1: idioma/versión que el operador vio (default de la UI = lo declarado). `null` = normal. */
+  receivedLanguage?: CardLanguage;
+  receivedProductId?: number | null;
   reason?: string;
   /** §BUYLIST-FLUJO F2b: OBLIGATORIO con `reject` (sin él ⇒ 400 `field:'reasonCode'`). */
   reasonCode?: BuylistRejectReasonCode;

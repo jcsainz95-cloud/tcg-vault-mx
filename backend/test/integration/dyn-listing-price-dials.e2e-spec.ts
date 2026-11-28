@@ -80,6 +80,8 @@ function candidates(key: SettingKeyType, current: unknown): unknown[] {
   const out: unknown[] = [...specific(key, current)];
   if (typeof current === 'number') {
     out.push(current + 1, current * 2, current - 1, Math.round(current / 2), 0, 1, 2, 5, 10, 25, 50, 99, 100, 1000, 0.5, 0.05);
+  } else if (typeof current === 'boolean') {
+    out.push(!current);
   } else if (current === null) {
     out.push(25, 20.5, 1, 'manual', [], {});
   } else if (typeof current === 'string') {

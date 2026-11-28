@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  BuylistStampDTO,
+  CardLanguage,
   RawCondition,
   Finish,
   BuylistQuoteResponse,
@@ -61,8 +63,57 @@ export interface CartLine {
    * de set_base. Entra a la llave de dedup y viaja a POST /buylist/requests.
    */
   productId?: number;
+  /**
+   * §BUYLIST-ES: idioma declarado de la carta; ausente ⇒ inglés (lo de siempre). ENTRA a la llave de dedup:
+   * EN y ES de la misma carta son 2 líneas. Solo se escribe `'es'` (el inglés no deja rastro en el storage).
+   */
+  language?: CardLanguage;
   quote: BuylistQuoteResponse;
   quantity: number;
+}
+
+/** Idioma efectivo de una línea (`undefined` = inglés). */
+export function lineLanguage(l: Pick<CartLine, 'language'>): CardLanguage {
+  return l.language === 'es' ? 'es' : 'en';
+}
+
+/**
+ * ¿Esta línea ofrece el segmento Inglés/Español? Solo con el dial encendido (`spanishEnabled`), si el servidor
+ * dice que la carta es elegible y trae oferta en español (o la línea YA es española: debe poder volver a inglés).
+ * Con el dial apagado devuelve `false` siempre ⇒ la UI no muestra nada nuevo.
+ */
+export function lineOffersSpanish(l: CartLine, spanishEnabled: boolean | undefined): boolean {
+  if (!spanishEnabled) return false;
+  if (lineLanguage(l) === 'es') return true;
+  return l.quote.spanishEligible === true && l.quote.offers?.es != null;
+}
+
+/**
+ * §BUYLIST-ES F4 · liga elegida de una línea: la opción de `stampOptions` cuyo `productId` es el de la línea; `null` ⇒ normal.
+ * (Solo esas: un `productId` de promo/deck_exclusive no es una liga y no ofrece el segmento.)
+ */
+export function lineStamp(l: CartLine): BuylistStampDTO | null {
+  if (l.productId == null) return null;
+  return l.quote.stampOptions?.find((o) => o.productId === l.productId) ?? null;
+}
+
+/**
+ * ¿Esta línea ofrece el segmento «Normal | De liga»? Solo con el dial `leagueEnabled`, si el servidor manda `stampOptions` y la
+ * línea es la normal o ya es una de esas ligas. Con el dial apagado devuelve `false` ⇒ la UI no muestra nada nuevo.
+ */
+export function lineOffersStamp(l: CartLine, leagueEnabled: boolean | undefined): boolean {
+  if (!leagueEnabled || !l.quote.stampOptions?.length || !l.quote.versions?.length) return false;
+  return l.productId == null || lineStamp(l) != null;
+}
+
+/** Oferta (centavos, del servidor) de la versión idioma × liga; `null` = sin oferta. */
+export function versionOfferCents(
+  quote: BuylistQuoteResponse,
+  language: CardLanguage,
+  stampProductId: number | null,
+): number | null {
+  const v = quote.versions?.find((x) => x.language === language && (x.stamp?.productId ?? null) === stampProductId);
+  return v?.offerCents ?? null;
 }
 
 /** Línea entrante (sin id/cantidad: los asigna el merge con dedup). */
@@ -130,6 +181,7 @@ function sanitizeLines(raw: unknown): CartLine[] {
       ...(typeof l.rawCondition === 'string' ? { rawCondition: l.rawCondition as RawCondition } : {}),
       finish: l.finish as Finish,
       ...(typeof l.productId === 'number' ? { productId: l.productId } : {}),
+      ...(l.language === 'es' ? { language: 'es' as const } : {}),
       quote,
       quantity: clampQuantity(typeof l.quantity === 'number' ? l.quantity : 1),
     });
@@ -167,7 +219,8 @@ function mergeCartLine(prev: CartLine[], line: NewCartLine): CartLine[] {
     (l) =>
       l.card.id === line.card.id &&
       l.finish === line.finish &&
-      (l.productId ?? null) === (line.productId ?? null),
+      (l.productId ?? null) === (line.productId ?? null) &&
+      lineLanguage(l) === lineLanguage(line),
   );
   if (idx >= 0) {
     // IMP-A: aun sumando de a 1, mantén la cantidad dentro del tope defensivo.
@@ -194,6 +247,89 @@ function payloadToQuote(p: BuylistQuotePayload, prev: BuylistQuoteResponse): Buy
     quote: p.quote,
     referencePrice: p.referencePrice,
     paymentNotice: p.paymentNotice,
+    ...(p.language ? { language: p.language } : {}),
+    ...(p.offers ? { offers: p.offers } : {}),
+    ...(p.spanishEligible != null ? { spanishEligible: p.spanishEligible } : {}),
+    ...(p.breakdown ? { breakdown: p.breakdown } : {}),
+    ...(p.stampOptions?.length ? { stampOptions: p.stampOptions } : {}),
+    ...(p.versions ? { versions: p.versions } : {}),
+  };
+}
+
+/** Qué pasó con «Todas en español»: cuántas piezas pasaron y cuántas se omitieron (no elegibles). */
+export interface SpanishBulkResult {
+  switched: number;
+  skipped: number;
+}
+
+function withoutLanguage(l: CartLine, quote: BuylistQuoteResponse): CartLine {
+  const { language: _drop, ...rest } = l;
+  void _drop;
+  return { ...rest, quote };
+}
+
+/** Funde líneas que, tras un cambio de idioma, quedaron con la misma llave (suman cantidad). */
+function dedupLines(lines: CartLine[]): CartLine[] {
+  const out: CartLine[] = [];
+  for (const l of lines) {
+    const idx = out.findIndex(
+      (o) =>
+        o.card.id === l.card.id &&
+        o.finish === l.finish &&
+        (o.productId ?? null) === (l.productId ?? null) &&
+        lineLanguage(o) === lineLanguage(l),
+    );
+    if (idx >= 0) out[idx] = { ...out[idx], quantity: clampQuantity(out[idx].quantity + l.quantity) };
+    else out.push(l);
+  }
+  return out;
+}
+
+/**
+ * Pasa UNA línea a `lang` SIN red: la oferta de cada idioma ya viene de la cotización (`offers`). Si no hay oferta
+ * en ese idioma devuelve la línea intacta. El desglose se descarta (era del otro idioma; lo re-emite el servidor al
+ * crear la solicitud). ⛔ El front no calcula dinero: solo elige cuál de las dos cifras del servidor mostrar.
+ */
+function switchLanguage(l: CartLine, lang: CardLanguage): CartLine {
+  if (lineLanguage(l) === lang) return l;
+  const cents = l.quote.offers?.[lang];
+  if (cents == null) return l;
+  const { language: _drop, ...rest } = l;
+  void _drop;
+  const { breakdown: _bd, ...quoteRest } = l.quote;
+  void _bd;
+  return {
+    ...rest,
+    ...(lang === 'es' ? { language: 'es' as const } : {}),
+    quote: { ...quoteRest, language: lang, quote: { ...l.quote.quote, quotedPriceCents: cents } },
+  };
+}
+
+/**
+ * Pasa UNA línea a la versión normal (`null`) o a la liga `productId` SIN red: las ofertas ya vienen en `versions[]`. Conserva el
+ * idioma; si esa versión no tiene oferta en ese idioma devuelve la línea intacta (el segmento la deja apagada, «Sin oferta»).
+ * `offers` se recompone con las dos cifras de la versión elegida, para que el segmento de idioma siga sin red.
+ * ⛔ El front no calcula dinero: solo elige entre cifras del servidor.
+ */
+function switchStamp(l: CartLine, stampProductId: number | null): CartLine {
+  if ((l.productId ?? null) === stampProductId) return l;
+  const lang = lineLanguage(l);
+  const cents = versionOfferCents(l.quote, lang, stampProductId);
+  if (cents == null) return l;
+  const { breakdown: _bd, productId: _pid, ...quoteRest } = l.quote;
+  void _bd;
+  void _pid;
+  const { productId: _lp, ...rest } = l;
+  void _lp;
+  return {
+    ...rest,
+    ...(stampProductId != null ? { productId: stampProductId } : {}),
+    quote: {
+      ...quoteRest,
+      ...(stampProductId != null ? { productId: stampProductId } : {}),
+      offers: { en: versionOfferCents(l.quote, 'en', stampProductId), es: versionOfferCents(l.quote, 'es', stampProductId) },
+      quote: { ...l.quote.quote, quotedPriceCents: cents },
+    },
   };
 }
 
@@ -259,9 +395,12 @@ export function useSellCart() {
           ...(l.rawCondition ? { rawCondition: l.rawCondition } : {}),
           finish: l.finish,
           ...(l.productId != null ? { productId: l.productId } : {}),
+          ...(lineLanguage(l) === 'es' ? { language: 'es' as const } : {}),
         }));
         const fresh = new Map<string, BuylistQuoteResponse>();
         const dropped = new Set<string>();
+        const toEnglish = new Map<string, CartLine>();
+        const englishNow = new Set<string>();
         for (let offset = 0; offset < items.length; offset += BUYLIST_QUOTE_BATCH_MAX) {
           const chunk = items.slice(offset, offset + BUYLIST_QUOTE_BATCH_MAX);
           const res = await batchQuote(chunk);
@@ -269,8 +408,31 @@ export function useSellCart() {
             const line = lines[offset + r.index];
             if (!line) continue;
             if (r.ok) fresh.set(line.id, payloadToQuote(r, line.quote));
-            else dropped.add(line.id);
+            else if (
+              lineLanguage(line) === 'es' &&
+              (r.error.code === 'LANGUAGE_NOT_ELIGIBLE' || r.error.code === 'LANGUAGE_NOT_AVAILABLE')
+            ) {
+              // §BUYLIST-ES: el español ya no se ofrece (dial apagado / carta no elegible): la línea NO se pierde,
+              // vuelve a inglés y se recotiza abajo.
+              toEnglish.set(line.id, line);
+            } else dropped.add(line.id);
           }
+        }
+        for (const [id, l] of toEnglish) {
+          const res = await batchQuote([
+            {
+              cardId: l.card.id,
+              productType: 'raw',
+              ...(l.rawCondition ? { rawCondition: l.rawCondition } : {}),
+              finish: l.finish,
+              ...(l.productId != null ? { productId: l.productId } : {}),
+            },
+          ]);
+          const r0 = res.results[0];
+          if (r0?.ok) {
+            fresh.set(id, payloadToQuote(r0, l.quote));
+            englishNow.add(id);
+          } else dropped.add(id);
         }
         // Una línea sin resultado (respuesta incompleta) se trata como caída: no se afirma su precio.
         for (const l of lines) if (!fresh.has(l.id) && !dropped.has(l.id)) dropped.add(l.id);
@@ -283,13 +445,23 @@ export function useSellCart() {
           .map((l) => {
             const q = fresh.get(l.id)!;
             if (q.quote.quotedPriceCents !== l.quote.quote.quotedPriceCents) changed = true;
-            return { ...l, quote: q };
+            return englishNow.has(l.id) ? withoutLanguage(l, q) : { ...l, quote: q };
           });
         const afterCents = estimatedTotal(survivors);
         const droppedCount = lines.filter((l) => dropped.has(l.id)).reduce((n, l) => n + l.quantity, 0);
 
         commit((prev) =>
-          prev.filter((l) => !dropped.has(l.id)).map((l) => (fresh.has(l.id) ? { ...l, quote: fresh.get(l.id)! } : l)),
+          dedupLines(
+            prev
+              .filter((l) => !dropped.has(l.id))
+              .map((l) =>
+                !fresh.has(l.id)
+                  ? l
+                  : englishNow.has(l.id)
+                    ? withoutLanguage(l, fresh.get(l.id)!)
+                    : { ...l, quote: fresh.get(l.id)! },
+              ),
+          ),
         );
         setExpandedLines((prev) => {
           const next = { ...prev };
@@ -365,6 +537,40 @@ export function useSellCart() {
     [commit],
   );
 
+  /** Interruptor Inglés/Español de UNA línea: cambia el monto sin llamada (contrato BUYLIST-ES §6.9). */
+  const setLineLanguage = useCallback(
+    (lineId: string, lang: CardLanguage) => {
+      commit((prev) => dedupLines(prev.map((l) => (l.id === lineId ? switchLanguage(l, lang) : l))));
+    },
+    [commit],
+  );
+
+  /** Interruptor «Normal | De liga» de UNA línea (`null` = normal): cambia el monto sin llamada (contrato BUYLIST-ES §5/§6.9). */
+  const setLineStamp = useCallback(
+    (lineId: string, stampProductId: number | null) => {
+      commit((prev) => dedupLines(prev.map((l) => (l.id === lineId ? switchStamp(l, stampProductId) : l))));
+    },
+    [commit],
+  );
+
+  /**
+   * «Todas en español»: pasa a español toda línea elegible (con oferta ES) y cuenta las que omitió. Se calcula
+   * sobre el carrito actual y devuelve el resultado para que la pantalla lo anuncie.
+   */
+  const setAllSpanish = useCallback((): SpanishBulkResult => {
+    let switched = 0;
+    let skipped = 0;
+    const next = cartRef.current.map((l) => {
+      if (lineLanguage(l) === 'es') return l;
+      const moved = switchLanguage(l, 'es');
+      if (moved === l) skipped += l.quantity;
+      else switched += l.quantity;
+      return moved;
+    });
+    if (switched > 0) commit(dedupLines(next));
+    return { switched, skipped };
+  }, [commit]);
+
   const removeLine = useCallback(
     (lineId: string) => {
       commit((prev) => prev.filter((l) => l.id !== lineId));
@@ -435,6 +641,8 @@ export function useSellCart() {
           finish: l.finish,
           // v1.30 (§4.29): línea de producto separado → viaja su productId (snapshot server-side).
           ...(l.productId != null ? { productId: l.productId } : {}),
+          // §BUYLIST-ES: solo viaja `language` cuando es español; sin él = comportamiento de hoy.
+          ...(lineLanguage(l) === 'es' ? { language: 'es' as const } : {}),
         })),
       ),
     [cart],
@@ -445,6 +653,9 @@ export function useSellCart() {
     expandedLines,
     addLine,
     setQuantity,
+    setLineLanguage,
+    setLineStamp,
+    setAllSpanish,
     removeLine,
     clearCart,
     toggleLineDetail,

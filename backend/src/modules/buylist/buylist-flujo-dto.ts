@@ -51,6 +51,10 @@ export function revisionReasonText(code: SellItemRejectionCode | null | undefine
   if (code === 'wrong_card') {
     return en ? 'A different card than the declared one arrived' : 'Llegó una carta distinta a la declarada';
   }
+  // §BUYLIST-ES F3 §4.4: la versión que llegó no es la declarada (el detalle «Llegó como X; declaraste Y» lo pinta el cliente desde `receivedLanguage`/`receivedStamp`).
+  if (code === 'version_mismatch') {
+    return en ? 'The card arrived in a different version than declared' : 'La carta llegó en una versión distinta a la declarada';
+  }
   if (code === 'other') return note ?? null;
   return null;
 }

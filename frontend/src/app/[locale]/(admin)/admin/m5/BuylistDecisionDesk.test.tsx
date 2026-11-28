@@ -545,11 +545,137 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(chips).toEqual(['standard', 'up', 'down', 'noPrice']);
     expect(screen.getAllByTestId('line-chip')[1]).toHaveTextContent('Subida +MX$50.00');
     expect(screen.getAllByTestId('line-chip')[2]).toHaveTextContent('Bajada −MX$200.00');
-    expect(screen.getByText('Ya tenemos 10.')).toBeInTheDocument();
+    // §3.3: el motivo se pinta por `reasonCode` con i18n (`admin.m5.desk.reason.STOCK_CAP`), no con `reasonText` del servidor.
+    expect(screen.getByText('Ya tenemos el tope de esta carta.')).toBeInTheDocument();
+    expect(screen.queryByText('Ya tenemos 10.')).toBeNull();
     expect(screen.getByTestId('line-since-quote')).toHaveTextContent('Cotizamos MX$700.00; hoy ofertamos MX$750.00 (MX$50.00 más): el mercado subió desde la cotización');
     expect(screen.getAllByTestId('line-standard')[0]).toHaveTextContent('70 % → MX$700.00');
     expect(screen.getAllByTestId('line-stock')[2]).toHaveTextContent('ya no necesitamos');
     expect(screen.getAllByTestId('line-stock')[0]).toHaveTextContent('Tenemos 9 · aceptamos hasta 10');
+  });
+
+  it('B2: línea ES con curveBp no entero pinta «≈ 43.87 %» en Estándar, igual que el desglose', async () => {
+    const es = line({
+      itemId: 'es1',
+      card: { ...CARD, name: 'Espanola' },
+      language: 'es',
+      derivedPriceCents: 37290,
+      marketMxnCents: 100000,
+      standardOfferCents: 37290,
+      standardPctBp: 4387,
+      languagePenaltyPct: 15,
+      adjustment: null,
+      sinceQuote: null,
+      breakdown: {
+        marketMxnCents: 100000,
+        languagePenalty: { pct: 15, cents: -15000 },
+        adjustedMarketCents: 85000,
+        curveBp: 4387,
+        curveOfferCents: 37290,
+        cap: null,
+        source: 'curve',
+        finalOfferCents: 37290,
+      },
+    });
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getByTestId('line-standard')).toHaveTextContent('Curva ≈ 43.87 % → MX$372.90');
+    expect(screen.getByTestId('buylist-breakdown').querySelector('[data-row="base"]')).toHaveTextContent('≈ 43.87 %');
+  });
+
+  it('§3.3 M2/B1: ES con tope muestra el rótulo, sin %; marca de mercado cambiado', async () => {
+    const es = line({
+      itemId: 'es2',
+      card: { ...CARD, name: 'Tope' },
+      language: 'es',
+      derivedPriceCents: 68000,
+      marketMxnCents: 90000,
+      marketTodayCents: 90000,
+      marketDriftCents: 5000,
+      standardOfferCents: 68000,
+      standardPctBp: null,
+      standardKind: 'cap_en_offer',
+      languagePenaltyPct: 15,
+      adjustment: null,
+      sinceQuote: null,
+      breakdown: {
+        marketMxnCents: 85000,
+        languagePenalty: { pct: 15, cents: -12750 },
+        adjustedMarketCents: 72250,
+        curveBp: 5000,
+        curveOfferCents: 72250,
+        cap: { reason: 'en_offer', cents: 68000 },
+        source: 'curve',
+        finalOfferCents: 68000,
+      },
+    });
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getByTestId('line-standard')).toHaveTextContent('Tope: oferta en inglés → MX$680.00');
+    expect(screen.getByTestId('line-standard')).not.toHaveTextContent('%');
+    expect(screen.getByTestId('line-market-drift')).toHaveTextContent('Cambió desde la cotización (era MX$850.00)');
+  });
+
+  it('§3.3 B1-bis: el chip y la nota «Cambió desde la cotización» van juntos bajo Ofertamos', async () => {
+    const es = line({
+      itemId: 'es3',
+      language: 'es',
+      derivedPriceCents: 18001,
+      marketDriftCents: 15000,
+      standardOfferCents: 11188,
+      standardKind: 'curve',
+      standardPctBp: 3729,
+      languagePenaltyPct: 15,
+      adjustment: { deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'El mercado subió desde la cotización.' },
+      sinceQuote: null,
+      breakdown: {
+        marketMxnCents: 30000,
+        languagePenalty: { pct: 15, cents: -4500 },
+        adjustedMarketCents: 25500,
+        curveBp: 3729,
+        curveOfferCents: 11188,
+        cap: null,
+        source: 'curve',
+        finalOfferCents: 11188,
+      },
+    });
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    const chip = screen.getByTestId('line-chip');
+    const note = screen.getByTestId('line-market-drift');
+    expect(chip).toHaveTextContent('Subida');
+    expect(note).toHaveTextContent('Cambió desde la cotización (era MX$300.00)');
+    expect(chip.parentElement).toBe(note.parentElement);
+    // Una sola nota de mercado: `MARKET_UP` no tiene línea de motivo propia (la explica «Cambió desde la cotización»).
+    expect(screen.queryByTestId('line-reason')).toBeNull();
+    expect(screen.queryByTestId('line-since-quote')).toBeNull();
+  });
+
+  it('§3.3 I2: ES pendiente no pinta «Estándar» junto a «—»; sí el chip «−P % idioma»', async () => {
+    const es = line({
+      itemId: 'es4',
+      language: 'es',
+      derivedPriceCents: 9000,
+      standardOfferCents: null,
+      standardKind: 'pending',
+      standardPctBp: null,
+      languagePenaltyPct: 15,
+      adjustment: null,
+      breakdown: {
+        marketMxnCents: null,
+        languagePenalty: { pct: 15, cents: null },
+        adjustedMarketCents: null,
+        curveBp: null,
+        curveOfferCents: null,
+        cap: null,
+        source: 'pending',
+        finalOfferCents: null,
+      },
+    } as never);
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.queryByTestId('line-chip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('line-language-penalty')).toBeInTheDocument();
   });
 
   it('«Solo las que cambian» oculta las Estándar', async () => {
@@ -695,3 +821,122 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(list).toHaveAttribute('aria-activedescendant');
   });
 });
+
+describe('Mesa de decisión — §BUYLIST-ES (idioma)', () => {
+  it('línea en español: chip «Español» y desglose en el orden del dueño (mercado → −15 % → % curva → oferta)', async () => {
+    render(
+      table({
+        lines: [
+          line({
+            language: 'es',
+            languagePenaltyPct: 15,
+            marketMxnCents: 100000,
+            breakdown: {
+              marketMxnCents: 100000,
+              languagePenalty: { pct: 15, cents: -15000 },
+              adjustedMarketCents: 85000,
+              curveBp: 7000,
+              curveOfferCents: 59500,
+              cap: null,
+              finalOfferCents: 59500,
+            },
+          }),
+        ],
+      }),
+    );
+    const bd = await screen.findByTestId('buylist-breakdown');
+    expect(Array.from(bd.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'))).toEqual([
+      'market',
+      'language',
+      'adjusted',
+      'base',
+      'offer',
+    ]);
+    expect(within(bd).getByText('Oferta')).toBeInTheDocument();
+    expect(document.querySelector('[data-version-chip="language"]')?.textContent).toBe('Español');
+    expect(screen.getByTestId('line-language-penalty')).toHaveTextContent('−15 % idioma');
+  });
+
+  it('línea en inglés (o servidor anterior): sin chip ni desglose — la mesa queda como hoy', async () => {
+    render(table());
+    await screen.findByTestId('line-market');
+    expect(screen.queryByTestId('buylist-breakdown')).toBeNull();
+    expect(document.querySelector('[data-version-chip="language"]')).toBeNull();
+  });
+});
+
+describe('Mesa de decisión — B-L1 rejilla y textos EN', () => {
+  const bd = {
+    marketMxnCents: 100000,
+    languagePenalty: { pct: 15, cents: -15000 },
+    adjustedMarketCents: 85000,
+    curveBp: 7000,
+    curveOfferCents: 59500,
+    cap: null,
+    source: 'curve',
+    finalOfferCents: 59500,
+  };
+
+  it('B-L1: el desglose ES es la ÚLTIMA celda de la rejilla (fila 2); EN con breakdown no monta contenedor', async () => {
+    render(
+      table({
+        lines: [
+          line({ itemId: 'en1', breakdown: { ...bd, languagePenalty: null } } as never),
+          line({ itemId: 'es1', language: 'es', languagePenaltyPct: 15, breakdown: bd } as never),
+        ],
+      }),
+    );
+    await screen.findAllByTestId('desk-line');
+    const rows = screen.getAllByTestId('line-breakdown-row');
+    expect(rows).toHaveLength(1);
+    const grid = rows[0].parentElement!;
+    expect(grid.lastElementChild).toBe(rows[0]);
+    expect(rows[0].className).toContain('lg:row-start-2');
+    const std = within(grid).getByTestId('line-standard').parentElement!;
+    expect(Array.from(grid.children).indexOf(std)).toBeLessThan(Array.from(grid.children).indexOf(rows[0]));
+  });
+
+  it('§3.3: MARKET_UP/DOWN no pintan motivo propio; CURVE_CHANGED y STOCK_CAP salen por reasonCode en inglés; sin repetir si sinceQuote ya lo dice', async () => {
+    render(
+      table({
+        lines: [
+          line({ itemId: 'u', adjustment: { deltaCents: 5000, reasonCode: 'MARKET_UP', reasonText: 'El mercado subió.' }, sinceQuote: null } as never),
+          line({ itemId: 'd', adjustment: { deltaCents: -5000, reasonCode: 'MARKET_DOWN', reasonText: 'El mercado bajó.' }, sinceQuote: null } as never),
+          line({
+            itemId: 'c',
+            adjustment: { deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'Cambió la curva.' },
+            sinceQuote: { quotedCents: 65000, deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'x' },
+          } as never),
+          line({ itemId: 's', adjustment: { deltaCents: -5000, reasonCode: 'STOCK_CAP', reasonText: 'Ya tenemos 10.' }, sinceQuote: null } as never),
+          line({ itemId: 'x', adjustment: { deltaCents: 5000, reasonCode: 'FUTURE_CODE', reasonText: 'Texto del servidor.' }, sinceQuote: null } as never),
+        ],
+      }),
+      'en',
+    );
+    await screen.findAllByTestId('desk-line');
+    const reasons = screen.getAllByTestId('line-reason').map((e) => e.textContent);
+    expect(reasons).toEqual(['We already hold the cap for this card.', 'Texto del servidor.']);
+    expect(document.body.textContent).not.toMatch(/El mercado|Cambió la curva|Ya tenemos 10/);
+    expect(screen.getAllByTestId('line-since-quote')).toHaveLength(1);
+  });
+
+  it('§3.3: UNA sola nota de mercado (deriva + sinceQuote MARKET_*: solo «Cambió desde la cotización»; sin deriva: solo sinceQuote)', async () => {
+    const sq = { quotedCents: 30000, deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'x' };
+    const withDrift = line({
+      itemId: 'w',
+      language: 'es',
+      marketDriftCents: 15000,
+      adjustment: { deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'x' },
+      sinceQuote: sq,
+      breakdown: { marketMxnCents: 30000, languagePenalty: { pct: 15, cents: -4500 }, adjustedMarketCents: 25500, curveBp: 3729, curveOfferCents: 11188, cap: null, source: 'curve', finalOfferCents: 11188 },
+    } as never);
+    const noDrift = line({ itemId: 'n', adjustment: { deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'x' }, sinceQuote: sq } as never);
+    render(table({ lines: [withDrift, noDrift] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getAllByTestId('line-market-drift')).toHaveLength(1);
+    expect(screen.getAllByTestId('line-since-quote')).toHaveLength(1);
+    expect(screen.queryByTestId('line-reason')).toBeNull();
+  });
+
+});
+

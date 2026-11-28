@@ -37,7 +37,10 @@ import { stripComments } from '@/test/strip-comments';
  */
 // 2026-11-22: el celular de la solicitud vive en `common.phoneGate`; las claves `buylist.request.phone.*` se borraron (muertas).
 // 2026-11-27: +~110 B por el acabado `first_edition` (finish.*, version.finishLabel*) en es/en (§AUTO-ENLACE F4); medido 48 605 (es).
-const HOME_MESSAGES_MAX_BYTES = 48_700;
+// 2026-11-28: +~900 B de §BUYLIST-ES F2 (`buylist.lang`/`buylist.breakdown`, 2 códigos `error.LANGUAGE_*`) en es/en; medido 49 500 (es).
+// 2026-11-28: +~130 B del desglose §BUYLIST-ES (tope/override: `buylist.breakdown.capEn|capFloor|marketOverride|baseNone`) en es/en; medido ~49 630 (es).
+// 2026-11-28: las claves solo de la mesa (`standardKind`, `marketDrift`) se movieron a `admin.m5.desk` (fuera de la portada) y se borró `marketOverride`.
+const HOME_MESSAGES_MAX_BYTES = 49_800;
 
 /**
  * Falsos positivos de la medición estática (literales `'<ns>.<clave>'` que NO se traducen en la portada):

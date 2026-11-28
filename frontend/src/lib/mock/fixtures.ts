@@ -2184,7 +2184,13 @@ export const mockSellRequests: MockSellRequestRow[] = [
  * falso — NO es un default de la ruta real: la ruta real NUNCA inventa el mínimo (si el endpoint
  * falla, el front no pinta faltante y deja el botón vivo; el 422 del servidor trae el número).
  */
-export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = { minimumRequestCents: 50000 };
+export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = {
+  minimumRequestCents: 50000,
+  // §BUYLIST-ES: estado real = dial APAGADO (los interruptores nacen false). Los specs que necesiten español lo encienden explícitamente.
+  spanishEnabled: false,
+  leagueEnabled: false,
+  spanishPenaltyPct: 15,
+};
 
 /**
  * KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo.
@@ -7224,10 +7230,10 @@ function mockMesaFields(
   pending: boolean,
 ): Pick<
   BuylistDecisionLineDTO,
-  'marketMxnCents' | 'standardOfferCents' | 'standardPctBp' | 'adjustment' | 'sinceQuote'
+  'marketMxnCents' | 'standardOfferCents' | 'standardPctBp' | 'standardKind' | 'adjustment' | 'sinceQuote'
 > {
   if (pending || derived == null) {
-    return { marketMxnCents: null, standardOfferCents: null, standardPctBp: null, adjustment: null, sinceQuote: null };
+    return { marketMxnCents: null, standardOfferCents: null, standardPctBp: null, standardKind: null, adjustment: null, sinceQuote: null };
   }
   const quoted = item.quotedPriceCents ?? derived;
   // Siembra: la 2.ª línea sube (bounty), la 3.ª baja (precio fijado a mano); el resto es estándar.
@@ -7238,6 +7244,7 @@ function mockMesaFields(
     marketMxnCents: market,
     standardOfferCents: standard,
     standardPctBp: Math.round((standard * 10000) / market),
+    standardKind: 'curve',
     adjustment:
       delta === 0
         ? null

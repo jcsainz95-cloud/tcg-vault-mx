@@ -1,5 +1,7 @@
 'use client';
 
+import { BuylistBreakdown } from '@/components/domain/BuylistBreakdown';
+import { LanguageChip, StampChip } from '@/components/domain/VersionChip';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -9,7 +11,7 @@ import { useSession } from '@/lib/session';
 import { useBuylistSteps } from '@/lib/pipelines';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
-import type { SellItemDTO, SellRequestDetailDTO } from '@/types/contract';
+import type { SellItemDTO, SellRequestDetailDTO, StampType } from '@/types/contract';
 import { Link } from '@/i18n/navigation';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
@@ -26,6 +28,7 @@ import { OfferAmounts } from './OfferAmounts';
 import { readOffer } from './offer-readiness';
 import { SellerLabelBlock } from './SellerLabelBlock';
 import { SellerFlujoLines } from './SellerFlujoLines';
+import { SellerVersionOutcome } from './SellerVersionOutcome';
 import { SellerCarrierLine } from './SellerCarrierLine';
 
 /** Identidad de la carta bajo su nombre: set · número · acabado. Mismo renglón que el correo. */
@@ -475,11 +478,31 @@ function Detail({
                   {line.card.name}
                 </span>
                 <LineSpec line={line} />
+                {/* §BUYLIST-ES: chip «Español» solo en líneas declaradas en español (inglés = sin chip, como hoy). */}
+                {(line.language === 'es' || line.stamp) && (
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    {line.language === 'es' && <LanguageChip language="es" size="tile" />}
+                    {/* §BUYLIST-ES F4: chip de liga (el servidor manda `stamp` en la línea declarada de liga). */}
+                    {line.stamp && <StampChip type={line.stamp.type as StampType} size="tile" />}
+                  </span>
+                )}
               </span>
               {!hideMoney && line.quotedPriceCents != null && (
                 <span className="tabular font-mono text-sm text-muted">
                   {formatMoneyCents(line.quotedPriceCents, locale)}
                 </span>
+              )}
+              {/* §BUYLIST-ES: desglose congelado (mercado → −idioma → % de la curva → te pagamos). */}
+              {!hideMoney && line.language === 'es' && (
+                <div className="basis-full">
+                  <BuylistBreakdown breakdown={line.breakdown} />
+                </div>
+              )}
+              {/* §BUYLIST-ES F3/F4 (§4.2): llegó en otro idioma/versión ⇒ «Llegó como …» + desglose de lo recibido. */}
+              {!hideMoney && (
+                <div className="basis-full">
+                  <SellerVersionOutcome line={line} />
+                </div>
               )}
             </li>
           ))}

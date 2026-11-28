@@ -1,5 +1,6 @@
 'use client';
 
+import { LanguageChip } from '@/components/domain/VersionChip';
 import { useEffect, useId, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -116,6 +117,7 @@ export function SellRequestStepView() {
                     <span className="font-mono text-[10px] text-muted">×{l.quantity}</span>
                     {/* P-14 (§18.5): el mismo FinishMark que en el carrito. */}
                     <FinishMark finish={l.finish} className="translate-y-[1px]" />
+                    {l.language === 'es' && <LanguageChip language="es" size="tile" />}
                   </span>
                   <span className="tabular shrink-0">
                     {pending ? <BuylistPendingLineLabel /> : formatMoneyCents(unitCents * l.quantity, locale)}

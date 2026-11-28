@@ -203,7 +203,7 @@ describe('E2E — §IDS.4 captura por versión', () => {
 
   it('IDS-B13 (528, I-6): la buylist no cotiza la liga y la lista de deseos no casa una pieza en español', async () => {
     const q = await h.api('POST', '/buylist/quote', { json: { cardId: cardA, productType: 'raw', productId: pid, finish: 'holofoil' } });
-    expect([q.status, err(q).code]).toEqual([422, 'PRODUCT_NOT_FOUND']);
+    expect([q.status, err(q).code]).toEqual([400, 'STAMP_NOT_AVAILABLE']); // §BUYLIST-ES F4: dial de liga apagado ⇒ 400 (antes 422 PRODUCT_NOT_FOUND)
     const esListed = await h.prisma.inventoryItem.create({
       data: { folio: `IDC-${run}-W`, cardId: cardA, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'listed', acquisitionType: 'compra', language: 'es' },
     });

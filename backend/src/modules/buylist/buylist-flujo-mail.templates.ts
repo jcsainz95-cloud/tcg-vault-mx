@@ -267,9 +267,11 @@ export interface SellItemRevisionParams {
   /** Lo ofertado y lo propuesto, en centavos DE ESTA linea (nunca de otras). */
   offeredCents: number;
   proposedCents: number;
-  cause: 'condition_mismatch' | 'wrong_card' | 'other';
+  cause: 'condition_mismatch' | 'wrong_card' | 'other' | 'version_mismatch';
   declaredCondition?: string | null;
   note?: string | null;
+  /** §BUYLIST-ES F3 (§4.4): solo con `cause:'version_mismatch'`; los nombres de versión YA en el idioma del correo («Inglés», «Español · De liga»…). */
+  version?: { declared: string; received: string };
   /** `revisionProposedAt` + 7 d; la plantilla ⛔ no suma dias: lo recibe. */
   expiresAt: Date;
   responseDays: number;
@@ -333,7 +335,12 @@ export function sellItemRevisionTemplate(params: SellItemRevisionParams, name: s
   const d = params.declaredCondition ? ` (${params.declaredCondition})` : '';
   const n = params.note ? ` (${params.note})` : '';
   const causeLine =
-    params.cause === 'condition_mismatch'
+    params.cause === 'version_mismatch' && params.version
+      ? // §4.4 `sellerFlujo.version.lower` (el mismo texto que la pantalla).
+        en
+        ? `${card} arrived as ${params.version.received} but you declared ${params.version.declared}; new offer ${prop} (was ${orig}). Accept or decline within ${params.responseDays} days.`
+        : `${card} llegó como ${params.version.received} y declaraste ${params.version.declared}; nueva oferta ${prop} (antes ${orig}). Acéptala o recházala en ${params.responseDays} días.`
+      : params.cause === 'condition_mismatch'
       ? en
         ? `It arrived in a different condition than the one you declared${d}.`
         : `Llegó en una condición distinta a la que declaraste${d}.`
@@ -444,6 +451,61 @@ export function sellItemRevisionCancelledTemplate(params: SellItemRevisionCancel
   return {
     to: '',
     subject: en ? 'We withdrew the new price proposal for a card' : 'Retiramos la propuesta de nuevo precio de una carta',
+    html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
+    text,
+  };
+}
+
+export interface SellItemVersionHigherParams {
+  folio: string;
+  card: FlujoCard;
+  /** Lo que se paga por ESTA línea (centavos): `min(oferta congelada de lo recibido, referencia congelada)`. */
+  payCents: number;
+  /** La versión recibida YA en el idioma del correo («Inglés», «Español · De liga»). */
+  versionName: string;
+  portalUrl?: string;
+}
+
+/**
+ * §BUYLIST-ES F3 §4.4 — «TE PAGAMOS MÁS»: llegó una versión que vale más que la declarada (ES→EN, normal→liga). Sin consentimiento ni plazo (nunca se paga
+ * menos): solo informa `sellerFlujo.version.higher` «Te pagamos MX$X por tu {carta} ({versión}).». Sin cifras internas (§9.2): solo el monto de ESTA línea.
+ */
+export function sellItemVersionHigherTemplate(params: SellItemVersionHigherParams, name: string, locale?: string | null): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const card = cardLabel(params.card);
+  const line = en
+    ? `We pay ${money(params.payCents, l)} for your ${card} (${params.versionName}).`
+    : `Te pagamos ${money(params.payCents, l)} por tu ${card} (${params.versionName}).`;
+  const title = en ? 'We pay more for your card' : 'Te pagamos más por tu carta';
+  const eyebrow = en ? 'VERSION CONFIRMED' : 'VERSIÓN CONFIRMADA';
+  const intro = en
+    ? `When we checked your package (request ${params.folio}) your card arrived in a version we value higher than the declared one.`
+    : `Al revisar tu paquete (solicitud ${params.folio}) tu carta llegó en una versión que valoramos más que la declarada.`;
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}${en ? ',' : ':'}`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(16),
+    cardLineRows({
+      title: params.card.cardName,
+      meta: `${params.card.setName} · #${params.card.cardNumber} · ${FINISH_LABELS[params.card.finish] ?? params.card.finish}`,
+    }),
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(24),
+    proseRow(line),
+    ...(params.portalUrl ? [spacerRow(24), ctaRows(params.portalUrl, en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD', 'ink')] : []),
+  ];
+  const text = `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${intro}\n${line}\n${params.portalUrl ? `\n${params.portalUrl}\n` : ''}\n${BRAND}`;
+  return {
+    to: '',
+    subject: en ? 'We pay more for a card in your sell request' : 'Te pagamos más por una carta de tu solicitud',
     html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
     text,
   };

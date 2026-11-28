@@ -248,6 +248,8 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
       new ApiClientError(422, { code: 'ITEM_NOT_OFFERED', message: 'This line was not purchased', details: { itemId: 'it-n', offerDecision: 'skip' } }),
     );
     await render('verificacion', [item('it-n', 'Nidoran', null)]);
+    // BES-1: antes de aprobar se confirma el idioma recibido (un toque).
+    fireEvent.click(within(screen.getByTestId('m5-item-it-n')).getByRole('button', { name: /^Inglés/ }));
     fireEvent.click(within(screen.getByTestId('m5-item-it-n')).getByRole('button', { name: APPROVE }));
     expect(await screen.findByText(es.error.ITEM_NOT_OFFERED)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('This line was not purchased');
@@ -350,6 +352,8 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   it('Aprobar (fila) sobre una carta ya pagada ⇒ texto de `pagada`, recarga, sin botones ni casilla', async () => {
     vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('pagada'));
     const list = await renderStale('pagada');
+    // BES-1: antes de aprobar se confirma el idioma recibido (un toque).
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: /^Inglés/ }));
     fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: APPROVE }));
     const notice = await screen.findByText(PAID);
     expect(notice.closest('[role="status"]')).not.toBeNull();

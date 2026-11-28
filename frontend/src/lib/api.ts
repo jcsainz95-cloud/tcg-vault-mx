@@ -17,6 +17,7 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
+import { MOCK_LEAGUE, mockApplyLeague } from './mock/buylist-league';
 import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm, mockSetAutoLink, mockFinishReview, mockFinishDecision, mockSetCards, mockCardConfirm, mockAutoLinkRuns } from './mock/link-repair';
 import { registerLinkRepairMock } from './api/catalog-link-repair';
 import { registerLinkExceptionsMock, registerAutoLinkDialMock } from './api/catalog-link-exceptions';
@@ -2928,6 +2929,56 @@ export interface BuylistQuoteInput {
    * referencia/precio PROPIOS por ese productId). Ausente ⇒ set_base por (cardId, finish).
    */
   productId?: number;
+  /** §BUYLIST-ES (ADITIVO): idioma de la carta; omitido ⇒ `en`. */
+  language?: CardLanguage;
+}
+
+/**
+ * MOCK §BUYLIST-ES (F2): el mock hace de SERVIDOR con el dial `spanishEnabled` de `mockBuylistQuotePolicy`.
+ * Con el dial apagado NO añade campo alguno (forma de siempre). Encendido: `offers.{en,es}` +
+ * `spanishEligible` + `breakdown` (mercado → −idioma → ajustado → % → oferta). Es una aproximación de demo
+ * sobre `mockDemoBuyQuote`; el cálculo real vive en `decideBuyLine` (backend). Jamás sube la oferta ES por
+ * encima de la EN (anti-inflado, contrato §3.4).
+ */
+function mockApplyLanguage(base: BuylistQuoteResponse, language: CardLanguage | undefined): BuylistQuoteResponse {
+  const policy = fx.mockBuylistQuotePolicy;
+  if (!policy.spanishEnabled) return base;
+  const ref = base.referencePrice.status === 'priced' ? (base.referencePrice.priceMxnCents ?? null) : null;
+  const en = base.quote.quotedPriceCents;
+  if (ref == null || en == null) return { ...base, language: 'en', spanishEligible: false, offers: { en, es: null } };
+  const pct = policy.spanishPenaltyPct ?? 15;
+  // Contrato §3: castigo half_up sobre el MERCADO; la curva sobre el ajustado; tope ES ≤ EN.
+  const penaltyCents = Math.floor((ref * pct + 50) / 100);
+  const adjusted = ref - penaltyCents;
+  const curveRaw = fx.mockDemoBuyQuote(adjusted).cents;
+  const es = curveRaw == null ? null : Math.min(curveRaw, en);
+  const offers = { en, es };
+  const enBreakdown = {
+    marketMxnCents: ref, languagePenalty: null, adjustedMarketCents: ref,
+    curveBp: Math.round((en * 10000) / ref), curveOfferCents: en, cap: null, source: 'curve' as const,
+    finalOfferCents: en,
+  };
+  if (language !== 'es' || es == null || curveRaw == null) {
+    return { ...base, language: 'en', spanishEligible: true, offers, breakdown: enBreakdown };
+  }
+  return {
+    ...base,
+    language: 'es',
+    spanishEligible: true,
+    offers,
+    quote: { ...base.quote, quotedPriceCents: es },
+    breakdown: {
+      marketMxnCents: ref,
+      languagePenalty: { pct, cents: -penaltyCents },
+      adjustedMarketCents: adjusted,
+      // `curveBp` es informativo (derivado del dinero ya calculado); el monto manda.
+      curveBp: Math.floor((curveRaw * 10000) / adjusted + 0.5),
+      curveOfferCents: curveRaw,
+      cap: es < curveRaw ? { reason: 'en_offer', cents: es } : null,
+      source: 'curve',
+      finalOfferCents: es,
+    },
+  };
 }
 
 /**
@@ -2975,7 +3026,10 @@ type MockQuoteItemError =
   | 'FINISH_NOT_AVAILABLE'
   | 'PRODUCT_NOT_FOUND'
   | 'PRODUCT_CARD_MISMATCH'
-  | 'BUYLIST_RAW_ONLY';
+  | 'BUYLIST_RAW_ONLY'
+  | 'LANGUAGE_NOT_ELIGIBLE'
+  | 'LANGUAGE_NOT_AVAILABLE'
+  | 'STAMP_NOT_AVAILABLE';
 
 /**
  * MOCK v1.30 (§4.29): resuelve UN ítem de cotización (carta BASE o PRODUCTO SEPARADO por
@@ -2990,7 +3044,7 @@ function mockResolveQuoteItem(
   // el mock hace de SERVIDOR y la guarda de v1.53 es server-side (§4.40.3.2) — tiene que poder
   // rechazar un payload que llegue fuera de tipo (JS crudo, bundle viejo en caché), igual que el
   // backend rechaza un `curl`.
-  item: { cardId: string; productType?: string; finish?: Finish; productId?: number },
+  item: { cardId: string; productType?: string; finish?: Finish; productId?: number; language?: CardLanguage },
   // El batch valida el acabado base ∈ availableFinishes (SEC-A1, por-ítem); el quote por-carta NO lo
   // hacía (retrocompat de mock) — se preserva ese matiz con este flag. La whitelist del PRODUCTO
   // separado (CardProduct.finishes) SIEMPRE se valida (contrato §4.29, ambos endpoints).
@@ -3007,6 +3061,13 @@ function mockResolveQuoteItem(
   if (!card) return { ok: false, code: 'NOT_FOUND' };
   const rarity = card.rarity ?? '';
 
+  if (item.productId != null && MOCK_LEAGUE[item.cardId]?.productId === item.productId) {
+    // §BUYLIST-ES F4: producto de liga. Dial apagado ⇒ 400 `STAMP_NOT_AVAILABLE`; encendido ⇒ se cotiza como versión propia.
+    if (!fx.mockBuylistQuotePolicy.leagueEnabled) return { ok: false, code: 'STAMP_NOT_AVAILABLE' };
+    const finish: Finish = item.finish ?? 'holofoil';
+    const baseQ = mockApplyLanguage(mockRuleQuote(rarity, finish, fx.mockMarketReferenceForVariant(item.cardId, finish) ?? null), 'en');
+    return { ok: true, payload: mockApplyLeague(baseQ, item.cardId, item.language, item.productId) };
+  }
   if (item.productId != null) {
     const res = fx.resolveSeparateProduct(item.cardId, item.productId);
     if (res.status === 'not_found') return { ok: false, code: 'PRODUCT_NOT_FOUND' };
@@ -3016,6 +3077,8 @@ function mockResolveQuoteItem(
     const finish: Finish = item.finish ?? (product.finishes.length === 1 ? product.finishes[0] : 'normal');
     if (!product.finishes.includes(finish)) return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
     const refCents = product.prices.find((p) => p.finish === finish)?.marketReferenceMxnCents ?? null;
+    // §BUYLIST-ES F2: el producto separado (promo/deck_exclusive) NO es elegible para español.
+    if (item.language === 'es') return { ok: false, code: 'LANGUAGE_NOT_ELIGIBLE' };
     return { ok: true, payload: mockRuleQuote(rarity, finish, refCents, item.productId) };
   }
 
@@ -3024,7 +3087,13 @@ function mockResolveQuoteItem(
     return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
   }
   const refCents = fx.mockMarketReferenceForVariant(item.cardId, finish) ?? null;
-  return { ok: true, payload: mockRuleQuote(rarity, finish, refCents) };
+  if (item.language === 'es' && !fx.mockBuylistQuotePolicy.spanishEnabled) {
+    return { ok: false, code: 'LANGUAGE_NOT_AVAILABLE' };
+  }
+  return {
+    ok: true,
+    payload: mockApplyLeague(mockApplyLanguage(mockRuleQuote(rarity, finish, refCents), item.language), item.cardId, item.language, undefined),
+  };
 }
 
 export async function getBuylistQuote(input: BuylistQuoteInput): Promise<BuylistQuoteResponse> {
@@ -3072,6 +3141,9 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
     PRODUCT_NOT_FOUND: 'Product not found',
     PRODUCT_CARD_MISMATCH: 'Product does not belong to this card',
     BUYLIST_RAW_ONLY: 'The buylist only accepts raw cards',
+    LANGUAGE_NOT_ELIGIBLE: 'This card is not eligible in Spanish',
+    LANGUAGE_NOT_AVAILABLE: 'Spanish offers are not available',
+    STAMP_NOT_AVAILABLE: 'League versions are not available',
   };
   const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
     // v1.30 (§4.29): resuelve base O producto separado por-ítem; errores por-ítem NO tumban el lote.
@@ -3228,6 +3300,8 @@ export interface CreateSellRequestInput {
     // v1.30 (§4.29): TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
     // (deck_exclusive/promo). Se snapshotea en SellRequestItem.cardProductId server-side.
     productId?: number;
+    /** §BUYLIST-ES (ADITIVO): `'es'` solo cuando la carta es en español; en inglés se OMITE (= comportamiento de hoy). */
+    language?: CardLanguage;
   }[];
   /**
    * ⚠️ v1.51.3 (D36/D37) — **OBLIGATORIO**. Id de una dirección de la libreta del PROPIO vendedor
@@ -3314,6 +3388,7 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
       finish,
       // v1.30 (§4.29): snapshot del productId cuando la línea es un producto separado.
       ...(it.productId != null ? { productId: it.productId } : {}),
+      ...(payload?.language ? { language: payload.language, breakdown: payload.breakdown ?? null } : {}),
       rarity: card.rarity,
       // v2.0 (§N.8): instrumentación de la decisión de precio en lugar de `appliedRule`.
       priceBasis: payload?.priceBasis ?? 'pending',
@@ -6089,6 +6164,56 @@ export async function decideBuylistItem(
     return delay({ ...item });
   }
   const hadPendingBaja = item.revision?.state === 'pending';
+  // §BUYLIST-ES F3 (§4.1; servidor FALSO, ADITIVO): `receivedLanguage` ≠ declarado ⇒ la versión se fija UNA vez y paga según §4.
+  // EN→ES (vale menos): propuesta de baja a la oferta española del mock; ES→EN (vale más): se paga lo ofertado en inglés (≤ referencia);
+  // sin mercado ⇒ `422 VERSION_PRICE_UNAVAILABLE`. El mock reparte cifras de demostración; los montos reales los fija el servidor.
+  if (input.decision === 'approve' && input.receivedLanguage && !item.receivedVersionSet) {
+    const declared = item.language === 'es' ? 'es' : 'en';
+    if (input.receivedLanguage !== declared) {
+      if (item.marketMxnCents == null) {
+        throw new ApiClientError(422, { code: 'VERSION_PRICE_UNAVAILABLE', message: 'No price for the received version' });
+      }
+      const penalty = Math.round(item.marketMxnCents * 0.15);
+      const adjusted = item.marketMxnCents - penalty;
+      const offer = Math.min(Math.round(adjusted * 0.5), item.quotedPriceCents ?? Number.MAX_SAFE_INTEGER);
+      item.receivedLanguage = input.receivedLanguage;
+      item.receivedVersionSet = true;
+      if (input.receivedLanguage === 'es') {
+        item.receivedBreakdown = {
+          marketMxnCents: item.marketMxnCents,
+          languagePenalty: { pct: 15, cents: -penalty },
+          adjustedMarketCents: adjusted,
+          curveBp: 5000,
+          curveOfferCents: offer,
+          cap: null,
+          source: 'received',
+          finalOfferCents: offer,
+        };
+        item.revision = {
+          state: 'pending',
+          proposedCents: offer,
+          previousCents: item.offeredPriceCents ?? item.quotedPriceCents ?? null,
+          reasonCode: 'version_mismatch',
+          note: null,
+          proposedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+          respondedAt: null,
+        };
+        item.itemStatus = 'ajustada'; // la baja NO aprueba: decide el vendedor
+        return delay({ ...item });
+      }
+      item.receivedBreakdown = {
+        marketMxnCents: item.marketMxnCents,
+        languagePenalty: null,
+        adjustedMarketCents: item.marketMxnCents,
+        curveBp: null,
+        curveOfferCents: null,
+        cap: null,
+        source: 'received',
+        finalOfferCents: item.offeredPriceCents ?? item.quotedPriceCents ?? null,
+      };
+    } else item.receivedVersionSet = true;
+  }
   if (input.decision === 'approve') mockCancelPendingRevision(item); // aprobar = retirar la baja y pagar lo pactado
   item.itemStatus = next[input.decision];
   item.approvedPriceCents =

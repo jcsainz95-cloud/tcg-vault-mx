@@ -381,6 +381,26 @@ COMMIT;
     'revertPromoLink',
   );
 }
+/** T-AC3 — quita §BUYLIST-ES F1 (columnas de idioma de `SellRequestItem` + 3 diales). Va ANTES que M-95b: esas columnas dependen del tipo `CardLanguage` que la reversa de M-95b borra. */
+export function revertBuylistEsF1(schema: string): void {
+  // M7: la migración se restauró a su contenido ENTREGADO (checksum intacto), así que su cabecera ya no trae «-- Reversa (…)»:
+  // la reversa literal vive aquí (columnas, diales y la fila de `_prisma_migrations`).
+  psqlOk(
+    schema,
+    `BEGIN;
+-- §BUYLIST-ES F3 (20261215120000_buylist_es_f3) va ANTES: su \`PendingPriceEntry.language\` también depende de \`CardLanguage\`.
+ALTER TABLE "SellRequestItem" DROP COLUMN IF EXISTS "spanishPenaltyPctAtQuote", DROP COLUMN IF EXISTS "versionMarkets", DROP COLUMN IF EXISTS "receivedBreakdown";
+ALTER TABLE "PendingPriceEntry" DROP COLUMN IF EXISTS "language";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261215120000_buylist_es_f3';
+ALTER TABLE "SellRequestItem" DROP COLUMN IF EXISTS "language", DROP COLUMN IF EXISTS "versionOffers", DROP COLUMN IF EXISTS "receivedLanguage",
+  DROP COLUMN IF EXISTS "receivedCardProductId", DROP COLUMN IF EXISTS "receivedVersionSet", DROP COLUMN IF EXISTS "offerBreakdown";
+DELETE FROM "ConfigSetting" WHERE key IN ('buylist_spanish_penalty_pct','buylist_spanish_enabled','buylist_league_enabled');
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261214120100_buylist_es_f1';
+COMMIT;
+`,
+    'revertBuylistEsF1',
+  );
+}
 /** T-AC3 — quita M-95b (idioma y versiones de liga, v1.116⟨ids⟩). Va ANTES que M-94 (orden inverso de despliegue). */
 export function revertM95(schema: string): void {
   revertFromHeader(schema, '_m95b_ids_versions', 'revertM95');

@@ -1055,6 +1055,20 @@
         "alreadyDone": "Esta carta ya se entregó; no se puede cambiar el método.",
         "generic": "No pudimos guardar tu elección. Intenta de nuevo."
       }
+    },
+    "version": {
+      "lower": "{card} llegó como {received} y declaraste {declared}; nueva oferta {amount} (antes {before}). Acéptala o recházala en 7 días.",
+      "higher": "Te pagamos {amount} por tu {card} ({version}).",
+      "arrivedAs": "Llegó como {received}; declaraste {declared}",
+      "unavailable": "No pudimos valorar esta versión; te recogemos la carta",
+      "group": "Versión de {name}",
+      "floorNote": "Oferta mínima de la tienda",
+      "name": {
+        "en": "Inglés",
+        "es": "Español",
+        "normal": "Normal",
+        "league": "De liga"
+      }
     }
   },
   "buylistCarrier": {
@@ -1073,6 +1087,32 @@
       "wePay": "Te pagamos",
       "marketEach": "Valor de mercado c/u",
       "wePayEach": "Te pagamos c/u"
+    },
+    "lang": {
+      "groupLabel": "Idioma de {name}",
+      "en": "Inglés",
+      "es": "Español",
+      "noOffer": "Sin oferta",
+      "allSpanish": "Todas en español",
+      "allSpanishDone": "{switched, plural, one {# carta pasó a español.} other {# cartas pasaron a español.}}",
+      "allSpanishSkipped": "{skipped, plural, one {Omitimos # que no tiene oferta en español.} other {Omitimos # que no tienen oferta en español.}}",
+      "allSpanishNone": "Ninguna carta de tu lista tiene oferta en español.",
+      "penaltyHint": "En español pagamos {pct} % menos sobre el mercado; el monto ya incluye ese ajuste."
+    },
+    "breakdown": {
+      "title": "Cómo se calcula",
+      "market": "Mercado",
+      "language": "Idioma español −{pct} %",
+      "adjusted": "Mercado ajustado",
+      "base": "Curva de compra {pct} %",
+      "capEn": "Tope: oferta en inglés",
+      "capFloor": "Piso de compra",
+      "baseNone": "Curva de compra",
+      "offer": "Te pagamos",
+      "offerAdmin": "Oferta"
+    },
+    "es": {
+      "fixedPrice": "Precio fijo"
     },
     "payAfterReceipt": "El pago se realiza después de recibir y verificar tus cartas.",
     "shippingGuideLink": "Cómo empacar tus cartas",
@@ -3720,6 +3760,29 @@
             "netIf": "Si acepta se depositarían {net}",
             "cancelsNote": "Si apruebas o rechazas esta carta, la propuesta de baja se cancela y el vendedor la ve como «retirada»."
           },
+          "version": {
+            "label": "Idioma recibido",
+            "group": "Idioma recibido de {card}",
+            "versionLabel": "Versión recibida",
+            "versionGroup": "Versión recibida de {card}",
+            "en": "Inglés",
+            "es": "Español",
+            "declared": "declarado",
+            "mismatch": "Distinto de lo declarado ({declared}): al aprobar se vuelve a valorar y, si vale menos, el vendedor decide en 7 días.",
+            "confirmHint": "Confirma el idioma que llegó antes de aprobar.",
+            "lowered": "La baja se envió al vendedor: decide en 7 días. La carta queda sin aprobar.",
+            "differentCard": "Carta distinta",
+            "errors": {
+              "unavailable": "No hay precio para la versión que llegó. Si no es la carta que declaró, usa «Carta distinta».",
+              "overVersionCap": "El monto no puede pasar de la oferta de la versión recibida{cap}. No se guardó nada.",
+              "notConfirmed": "El servidor pide confirmar el idioma/versión recibidos antes de aprobar. Elígelo en la fila y vuelve a aprobar.",
+              "wrongCard": "No encontramos esa versión entre las de esta carta. Si no es la carta que declaró, usa «Carta distinta».",
+              "alreadySet": "La versión de esta carta ya se fijó al recibirla; no se puede cambiar.",
+              "mismatchPending": "Hay una baja por versión esperando al vendedor. Espera su respuesta o usa «No aceptar».",
+              "esOverCap": "En español el precio no puede superar la oferta en inglés ni la referencia{cap}. No se guardó nada.",
+              "capOf": " ({amount})"
+            }
+          },
           "revisionPendingPay": "Hay una baja de precio esperando al vendedor: no se puede pagar hasta que conteste (o venza su plazo).",
           "revise": {
             "newPrice": "Nuevo precio (MX$)",
@@ -3899,6 +3962,22 @@
         "requestRejected": "Solicitud rechazada; quedó cerrada."
       },
       "desk": {
+        "marketDrift": "Cambió desde la cotización (era {amount})",
+        "standardKind": {
+          "capEn": "Tope: oferta en inglés",
+          "capFloor": "Piso de compra",
+          "override": "Precio fijo",
+          "curve": "Curva {pct} %"
+        },
+        "reason": {
+          "STOCK_CAP": "Ya tenemos el tope de esta carta.",
+          "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
+          "BOUNTY": "Hay un bounty que la busca.",
+          "FLOOR": "Se aplicó el precio mínimo.",
+          "NO_MARKET": "No hay precio de mercado.",
+          "CURVE_CHANGED": "Cambió la curva: {amount} de diferencia con el estándar."
+        },
+        "fixedPrice": "Precio fijo",
         "title": "Mesa de decisión",
         "open": "Abrir la mesa de decisión",
         "close": "Cerrar la mesa",
@@ -3918,6 +3997,7 @@
           "colChange": "Cambio",
           "colStock": "Stock",
           "colBuy": "Comprar",
+          "languagePenaltyChip": "−{pct} % idioma",
           "standardCell": "{pct} % → {amount}",
           "standardNone": "—",
           "summaryHint": "Mercado de hoy → estándar de la curva → oferta final. El chip junto a la oferta dice si se aparta del estándar y por qué.",
@@ -3931,13 +4011,6 @@
             "up": "Subida +{amount}",
             "down": "Bajada −{amount}",
             "noPrice": "Sin precio"
-          },
-          "reason": {
-            "STOCK_CAP": "Ya tenemos el tope de esta carta.",
-            "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
-            "BOUNTY": "Hay un bounty que la busca.",
-            "FLOOR": "Se aplicó el precio mínimo.",
-            "NO_MARKET": "No hay precio de mercado."
           },
           "sinceQuote": {
             "MARKET_UP": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} más): el mercado subió desde la cotización.",
@@ -9588,6 +9661,8 @@
     "ITEM_IN_ANOTHER_SHIPMENT": "Esta carta ya está en otro envío.",
     "BUYLIST_LIMIT_EXCEEDED": "Esta cotización pasa el máximo que te podemos comprar en un mes. Quita algunas cartas y vuelve a intentar; el tope se renueva cada mes.",
     "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; las gradeadas y el sellado no entran al cotizador.",
+    "LANGUAGE_NOT_ELIGIBLE": "Esta carta no tiene oferta en español; déjala en inglés.",
+    "LANGUAGE_NOT_AVAILABLE": "Por ahora no cotizamos cartas en español.",
     "INE_REQUIRED": "Esta venta supera nuestro límite: sube tu INE para continuar.",
     "CLABE_NOT_OWN_NAME": "La CLABE debe estar a tu nombre.",
     "CLABE_INVALID": "La CLABE no es válida.",
@@ -9609,6 +9684,13 @@
     "EMAIL_NOT_VERIFIED": "Verifica tu correo para completar esta acción.",
     "EMAIL_VERIFY_TOKEN_INVALID": "El enlace de verificación es inválido o expiró.",
     "RESET_TOKEN_INVALID": "El enlace de restablecimiento es inválido o expiró.",
+    "ES_OVER_CAP": "Sobre el tope.",
+    "OVER_VERSION_CAP": "Sobre el tope.",
+    "STAMP_NOT_AVAILABLE": "Sin liga.",
+    "VERSION_PRICE_UNAVAILABLE": "Sin precio.",
+    "VERSION_ALREADY_SET": "Ya fijada.",
+    "VERSION_MISMATCH_PENDING": "Pendiente.",
+    "VERSION_NOT_CONFIRMED": "Sin confirmar.",
     "APPROVED_PRICE_CAP_EXCEEDED": "El monto que estás aprobando no cabe en el tope de esta carta: no puede pasar del doble de lo cotizado ni del máximo que le podemos comprar al vendedor en el mes. Baja el monto aprobado, o rechaza la carta con su motivo. No se guardó nada.",
     "INE_REQUIRED_OPERATOR": "La oferta no salió: el vendedor no tiene su INE en el expediente y por este monto se lo tenemos que pedir. No se guardó nada y él no recibió aviso. Llámalo para que lo suba desde su perfil y vuelve a emitir, o declina la solicitud. Ningún rol puede saltarse este requisito.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "Esta oferta dejaría al vendedor por encima del máximo que le podemos comprar este mes, así que no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope.",

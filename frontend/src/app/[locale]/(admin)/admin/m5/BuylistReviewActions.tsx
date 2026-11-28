@@ -6,6 +6,7 @@
  * recogida («Entregada»). Regla de oro: el front MUESTRA lo que manda el servidor (neto de la baja, texto de las causas
  * como vista previa) y no suma dinero. Anexo §3–§6 de `docs/API_CONTRACT_BUYLIST_FLUJO.md`.
  */
+import { versionErrorText } from './version-errors';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -40,7 +41,7 @@ const DAY_MS = 86_400_000;
 const NOTE_MIN = 3;
 const NOTE_MAX = 500;
 
-export type ReviewPanelKind = 'reduce' | 'reject' | 'not_received';
+export type ReviewPanelKind = 'reduce' | 'reject' | 'not_received' | 'wrong_card';
 export interface ReviewPanelState {
   itemId: string;
   kind: ReviewPanelKind;
@@ -76,12 +77,15 @@ export function ReviewItemActions({
   onPanel,
   onApprove,
   approving,
+  approveDisabled = false,
 }: {
   item: AdminSellItemDTO;
   panel: ReviewPanelState | null;
   onPanel: (next: ReviewPanelState | null) => void;
   onApprove: () => void;
   approving: boolean;
+  /** BES-1: sin confirmar el idioma/versión recibidos no se aprueba. */
+  approveDisabled?: boolean;
 }) {
   const t = useTranslations('admin.m5.flow.f2');
   const locale = useLocale() as AppLocale;
@@ -146,7 +150,7 @@ export function ReviewItemActions({
   const canRevise = item.offerDecision === 'buy';
   return (
     <>
-      <Button size="sm" variant="primary" loading={approving} onClick={onApprove} data-testid={`f2-approve-${item.id}`}>
+      <Button size="sm" variant="primary" loading={approving} disabled={approveDisabled} onClick={onApprove} data-testid={`f2-approve-${item.id}`}>
         {t('actions.approve')}
       </Button>
       {canRevise && (
@@ -198,6 +202,7 @@ export function RevisePricePanel({
   onDone: (message: string) => void;
 }) {
   const t = useTranslations('admin.m5.flow.f2.revise');
+  const tVerr = useTranslations('admin.m5.flow.f2.version.errors');
   const locale = useLocale() as AppLocale;
   const [amount, setAmount] = useState('');
   const [reasonCode, setReasonCode] = useState<BuylistReviseReasonCode>('condition_mismatch');
@@ -227,7 +232,7 @@ export function RevisePricePanel({
         ...(note.trim() ? { note: note.trim() } : {}),
       }),
     onSuccess: () => onDone(t('sent', { card: item.card.name })),
-    onError: (e) => setError(mapReviseError(e, t, offered, locale) ?? getError(e)),
+    onError: (e) => setError(versionErrorText(e, tVerr, locale) ?? mapReviseError(e, t, offered, locale) ?? getError(e)),
   });
 
   const noteTrim = note.trim();

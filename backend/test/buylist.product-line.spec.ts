@@ -376,7 +376,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
     // producto separado — money-safe).
     expect(pricing.settlePendingForVariant).toHaveBeenCalledWith(
       'no_market',
-      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', cardProductId: 707029 },
+      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', cardProductId: 707029, language: 'en' },
       'buylist',
     );
   });
