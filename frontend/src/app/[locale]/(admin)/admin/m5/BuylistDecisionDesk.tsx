@@ -678,6 +678,14 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         {line.language === 'es' && (
                           <span className="mt-1">
                             <LanguageChip language="es" size="tile" />
+                            {line.languagePenaltyPct != null && (
+                              <span
+                                data-testid="line-language-penalty"
+                                className="ml-2 whitespace-nowrap font-mono text-[10px] text-muted"
+                              >
+                                {t('mesa.languagePenaltyChip', { pct: line.languagePenaltyPct })}
+                              </span>
+                            )}
                           </span>
                         )}
                       </span>

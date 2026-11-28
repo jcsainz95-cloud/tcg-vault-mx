@@ -2946,32 +2946,35 @@ function mockApplyLanguage(base: BuylistQuoteResponse, language: CardLanguage | 
   const en = base.quote.quotedPriceCents;
   if (ref == null || en == null) return { ...base, language: 'en', spanishEligible: false, offers: { en, es: null } };
   const pct = policy.spanishPenaltyPct ?? 15;
-  const adjusted = Math.round((ref * (100 - pct)) / 100);
-  const esRaw = fx.mockDemoBuyQuote(adjusted).cents;
-  // Contrato §3 (ratificado f8444017): final = round_half_up(ajustado × curvePct/100); castigo half_up.
-  const curvePct = esRaw == null ? 0 : Math.round((esRaw * 100) / adjusted);
-  const num = adjusted * curvePct;
-  const finalCents = Math.floor((num + 50) / 100);
-  const es = esRaw == null ? null : Math.min(finalCents, en);
-  const chosen = language === 'es' ? es : en;
+  // Contrato §3: castigo half_up sobre el MERCADO; la curva sobre el ajustado; tope ES ≤ EN.
+  const penaltyCents = Math.floor((ref * pct + 50) / 100);
+  const adjusted = ref - penaltyCents;
+  const curveRaw = fx.mockDemoBuyQuote(adjusted).cents;
+  const es = curveRaw == null ? null : Math.min(curveRaw, en);
   const offers = { en, es };
-  if (language !== 'es' || es == null) {
-    return { ...base, language: 'en', spanishEligible: true, offers, breakdown: {
-      marketMxnCents: ref, languagePenalty: null, adjustedMarketCents: ref,
-      curvePct: Math.round((en * 100) / ref), finalOfferCents: en,
-    } };
+  const enBreakdown = {
+    marketMxnCents: ref, languagePenalty: null, adjustedMarketCents: ref,
+    curveBp: Math.round((en * 10000) / ref), curveOfferCents: en, cap: null, source: 'curve' as const,
+    finalOfferCents: en,
+  };
+  if (language !== 'es' || es == null || curveRaw == null) {
+    return { ...base, language: 'en', spanishEligible: true, offers, breakdown: enBreakdown };
   }
   return {
     ...base,
     language: 'es',
     spanishEligible: true,
     offers,
-    quote: { ...base.quote, quotedPriceCents: chosen },
+    quote: { ...base.quote, quotedPriceCents: es },
     breakdown: {
       marketMxnCents: ref,
-      languagePenalty: { pct, cents: adjusted - ref },
+      languagePenalty: { pct, cents: -penaltyCents },
       adjustedMarketCents: adjusted,
-      curvePct,
+      // `curveBp` es informativo (derivado del dinero ya calculado); el monto manda.
+      curveBp: Math.floor((curveRaw * 10000) / adjusted + 0.5),
+      curveOfferCents: curveRaw,
+      cap: es < curveRaw ? { reason: 'en_offer', cents: es } : null,
+      source: 'curve',
       finalOfferCents: es,
     },
   };

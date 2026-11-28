@@ -703,12 +703,15 @@ describe('Mesa de decisión — §BUYLIST-ES (idioma)', () => {
         lines: [
           line({
             language: 'es',
+            languagePenaltyPct: 15,
             marketMxnCents: 100000,
             breakdown: {
               marketMxnCents: 100000,
               languagePenalty: { pct: 15, cents: -15000 },
               adjustedMarketCents: 85000,
-              curvePct: 70,
+              curveBp: 7000,
+              curveOfferCents: 59500,
+              cap: null,
               finalOfferCents: 59500,
             },
           }),
@@ -725,6 +728,7 @@ describe('Mesa de decisión — §BUYLIST-ES (idioma)', () => {
     ]);
     expect(within(bd).getByText('Oferta')).toBeInTheDocument();
     expect(document.querySelector('[data-version-chip="language"]')?.textContent).toBe('Español');
+    expect(screen.getByTestId('line-language-penalty')).toHaveTextContent('−15 % idioma');
   });
 
   it('línea en inglés (o servidor anterior): sin chip ni desglose — la mesa queda como hoy', async () => {

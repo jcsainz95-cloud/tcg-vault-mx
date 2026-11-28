@@ -3383,17 +3383,20 @@ export interface BuylistQuotePolicyDTO {
 }
 
 /**
- * §BUYLIST-ES §3 · desglose por línea, en ESTE orden: mercado → castigo de idioma → mercado ajustado → % de la
- * curva → oferta. Lo calcula el servidor en centavos enteros (`mercado + castigo = ajustado`; `final = round_half_down(ajustado × curvePct/100)`); el front NO calcula dinero.
- * `languagePenalty:null` ⇒ línea en inglés (sin renglón de idioma). `cents` del castigo es NEGATIVO.
+ * §BUYLIST-ES §3/§3.2 · desglose por línea, en ESTE orden: mercado → castigo de idioma → mercado ajustado → curva →
+ * (tope) → oferta. Lo calcula el servidor en centavos enteros; el front NO calcula dinero ni multiplica `ajustado × %`.
+ * `languagePenalty:null` ⇒ línea en inglés. `cents` del castigo es NEGATIVO. `curveBp` es INFORMATIVO (puntos base;
+ * `curveOfferCents` es la oferta de la curva antes de topes). `cap` ≠ null ⇒ el tope recortó y `finalOfferCents = cap.cents`.
+ * `source:'override'` ⇒ precio fijo por carta con castigo de idioma (`curveBp` 10000, `cap` null).
  */
 export interface BuylistBreakdownDTO {
   marketMxnCents: number;
   languagePenalty: { pct: number; cents: number } | null;
   adjustedMarketCents: number;
-  /** % de la curva vigente (puntos porcentuales, p. ej. 50). */
-  /** `null` si el servidor no pudo derivar el % (p. ej. oferta sin curva): se pinta la fila sin cifra. */
-  curvePct: number | null;
+  curveBp: number | null;
+  curveOfferCents: number | null;
+  cap: { reason: 'en_offer' | 'floor'; cents: number } | null;
+  source?: 'curve' | 'override';
   finalOfferCents: number;
 }
 
@@ -5021,6 +5024,8 @@ export interface BuylistDecisionLineDTO {
   /** §BUYLIST-ES (ADITIVOS): idioma declarado y desglose (mercado → −idioma → % curva → oferta). Ausente ⇒ sin chip. */
   language?: CardLanguage;
   breakdown?: BuylistBreakdownDTO | null;
+  /** §BUYLIST-ES: % de castigo de idioma congelado (chip «−15 % idioma»); `null`/ausente en líneas EN. */
+  languagePenaltyPct?: number | null;
   /** Mercado de HOY en MXN centavos. */
   marketMxnCents?: number | null;
   /** Curva pura sobre ese mercado (sin override, tope ni bounty). */

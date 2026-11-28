@@ -1091,6 +1091,9 @@
       "language": "Spanish language −{pct}%",
       "adjusted": "Adjusted market",
       "base": "Buy curve {pct}%",
+      "marketOverride": "Store fixed price (English)",
+      "capEn": "Cap: English offer",
+      "capFloor": "Buy floor",
       "baseNone": "Buy curve",
       "offer": "We pay you",
       "offerAdmin": "Offer"
@@ -3939,6 +3942,7 @@
           "colChange": "Change",
           "colStock": "Stock",
           "colBuy": "Buy",
+          "languagePenaltyChip": "−{pct}% language",
           "standardCell": "{pct}% → {amount}",
           "standardNone": "—",
           "summaryHint": "Market today → standard from the curve → final offer. The chip next to the offer says whether it departs from the standard and why.",

@@ -1091,6 +1091,9 @@
       "language": "Idioma español −{pct} %",
       "adjusted": "Mercado ajustado",
       "base": "Curva de compra {pct} %",
+      "marketOverride": "Precio fijo de la tienda (inglés)",
+      "capEn": "Tope: oferta en inglés",
+      "capFloor": "Piso de compra",
       "baseNone": "Curva de compra",
       "offer": "Te pagamos",
       "offerAdmin": "Oferta"
@@ -3939,6 +3942,7 @@
           "colChange": "Cambio",
           "colStock": "Stock",
           "colBuy": "Comprar",
+          "languagePenaltyChip": "−{pct} % idioma",
           "standardCell": "{pct} % → {amount}",
           "standardNone": "—",
           "summaryHint": "Mercado de hoy → estándar de la curva → oferta final. El chip junto a la oferta dice si se aparta del estándar y por qué.",

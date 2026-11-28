@@ -7,7 +7,7 @@ import { formatMoneyCents } from '@/lib/format';
 
 /**
  * §BUYLIST-ES §3 · desglose de una línea EN EL ORDEN del dueño (HECHOS 2026-11-27): mercado → −idioma →
- * mercado ajustado → % de la curva → oferta. Todo lo manda el servidor (centavos enteros); el front solo lo pinta.
+ * mercado ajustado → curva (monto del servidor) → tope → oferta. Todo lo manda el servidor (centavos enteros); el front solo lo pinta.
  * Solo existe para líneas con castigo de idioma (`languagePenalty != null`): una línea en inglés ya tiene su
  * mercado y su estándar en otras columnas, así que devuelve `null` y la pantalla queda como hoy.
  * El contrato garantiza que `mercado + castigo = ajustado`, así que el importe del castigo se pinta siempre.
@@ -27,8 +27,15 @@ export function BuylistBreakdown({
   if (!breakdown || !breakdown.languagePenalty) return null;
   const { languagePenalty: pen } = breakdown;
   const money = (c: number) => formatMoneyCents(c, locale);
+  const bp = breakdown.curveBp;
+  // Presentación del % (puntos base del servidor → %); no es dinero. «≈» si no es entero.
+  const pctText =
+    bp == null
+      ? ''
+      : `${bp % 100 === 0 ? '' : '≈ '}${(bp / 100).toLocaleString(locale === 'es' ? 'es-MX' : 'en-US', { maximumFractionDigits: 2 })}`;
+  const override = breakdown.source === 'override';
   const rows: { key: string; label: string; value: string; strong?: boolean }[] = [
-    { key: 'market', label: t('market'), value: money(breakdown.marketMxnCents) },
+    { key: 'market', label: override ? t('marketOverride') : t('market'), value: money(breakdown.marketMxnCents) },
     {
       key: 'language',
       label: t('language', { pct: pen.pct }),
@@ -36,19 +43,28 @@ export function BuylistBreakdown({
       value: `−${money(Math.abs(pen.cents))}`,
     },
     { key: 'adjusted', label: t('adjusted'), value: money(breakdown.adjustedMarketCents) },
-    {
-      key: 'base',
-      // `curvePct` puede venir `null` del servidor: la fila se pinta sin cifra, nunca «null %».
-      label: breakdown.curvePct == null ? t('baseNone') : t('base', { pct: breakdown.curvePct }),
-      value: breakdown.curvePct == null ? '—' : '',
-    },
-    {
-      key: 'offer',
-      label: t(offerLabel ?? 'offer'),
-      value: money(breakdown.finalOfferCents),
-      strong: true,
-    },
   ];
+  if (!override) {
+    rows.push({
+      key: 'base',
+      // `curveBp` puede venir `null`: la fila se pinta sin cifra, nunca «null %».
+      label: bp == null ? t('baseNone') : t('base', { pct: pctText }),
+      value: breakdown.curveOfferCents != null ? money(breakdown.curveOfferCents) : '—',
+    });
+  }
+  if (breakdown.cap) {
+    rows.push({
+      key: 'cap',
+      label: t(breakdown.cap.reason === 'floor' ? 'capFloor' : 'capEn'),
+      value: money(breakdown.cap.cents),
+    });
+  }
+  rows.push({
+    key: 'offer',
+    label: t(offerLabel ?? 'offer'),
+    value: money(breakdown.finalOfferCents),
+    strong: true,
+  });
   return (
     <dl
       aria-label={t('title')}
