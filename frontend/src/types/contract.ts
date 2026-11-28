@@ -3384,7 +3384,7 @@ export interface BuylistQuotePolicyDTO {
 
 /**
  * §BUYLIST-ES §3 · desglose por línea, en ESTE orden: mercado → castigo de idioma → mercado ajustado → % de la
- * curva → oferta. Lo calcula el servidor en centavos enteros (`base + castigo = final`); el front NO calcula dinero.
+ * curva → oferta. Lo calcula el servidor en centavos enteros (`mercado + castigo = ajustado`; `final = round_half_down(ajustado × curvePct/100)`); el front NO calcula dinero.
  * `languagePenalty:null` ⇒ línea en inglés (sin renglón de idioma). `cents` del castigo es NEGATIVO.
  */
 export interface BuylistBreakdownDTO {
@@ -3392,8 +3392,7 @@ export interface BuylistBreakdownDTO {
   languagePenalty: { pct: number; cents: number } | null;
   adjustedMarketCents: number;
   /** % de la curva vigente (puntos porcentuales, p. ej. 50). */
-  basePct: number;
-  baseOfferCents: number;
+  curvePct: number;
   finalOfferCents: number;
 }
 

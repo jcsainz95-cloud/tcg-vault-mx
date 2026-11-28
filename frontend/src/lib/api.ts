@@ -2948,13 +2948,17 @@ function mockApplyLanguage(base: BuylistQuoteResponse, language: CardLanguage | 
   const pct = policy.spanishPenaltyPct ?? 15;
   const adjusted = Math.round((ref * (100 - pct)) / 100);
   const esRaw = fx.mockDemoBuyQuote(adjusted).cents;
-  const es = esRaw == null ? null : Math.min(esRaw, en);
+  // Contrato §3: final = round_half_down(ajustado × curvePct/100), castigo half_up.
+  const curvePct = esRaw == null ? 0 : Math.round((esRaw * 100) / adjusted);
+  const num = adjusted * curvePct;
+  const finalCents = Math.floor(num / 100) + (num % 100 > 50 ? 1 : 0);
+  const es = esRaw == null ? null : Math.min(finalCents, en);
   const chosen = language === 'es' ? es : en;
   const offers = { en, es };
   if (language !== 'es' || es == null) {
     return { ...base, language: 'en', spanishEligible: true, offers, breakdown: {
       marketMxnCents: ref, languagePenalty: null, adjustedMarketCents: ref,
-      basePct: Math.round((en * 100) / ref), baseOfferCents: en, finalOfferCents: en,
+      curvePct: Math.round((en * 100) / ref), finalOfferCents: en,
     } };
   }
   return {
@@ -2967,8 +2971,7 @@ function mockApplyLanguage(base: BuylistQuoteResponse, language: CardLanguage | 
       marketMxnCents: ref,
       languagePenalty: { pct, cents: adjusted - ref },
       adjustedMarketCents: adjusted,
-      basePct: Math.round((es * 100) / adjusted),
-      baseOfferCents: es,
+      curvePct,
       finalOfferCents: es,
     },
   };

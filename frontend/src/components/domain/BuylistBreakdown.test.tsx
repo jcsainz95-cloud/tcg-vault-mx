@@ -8,9 +8,8 @@ const ES: BuylistBreakdownDTO = {
   marketMxnCents: 100000,
   languagePenalty: { pct: 15, cents: -15000 },
   adjustedMarketCents: 85000,
-  basePct: 50,
-  baseOfferCents: 42500,
-  finalOfferCents: 42500,
+  curvePct: 70,
+  finalOfferCents: 59500,
 };
 
 describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
@@ -23,9 +22,9 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
     expect(txt).toContain('Idioma español −15 %');
     expect(txt).toContain('150.00');
     expect(txt).toContain('850.00');
-    expect(txt).toContain('Curva de compra 50 %');
+    expect(txt).toContain('Curva de compra 70 %');
     expect(txt).toContain('Te pagamos');
-    expect(txt).toContain('425.00');
+    expect(txt).toContain('595.00');
   });
 
   it('mesa del dueño: la última fila dice «Oferta»', () => {
@@ -38,11 +37,5 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
     expect(a.container.firstChild).toBeNull();
     const b = renderWithIntl(<BuylistBreakdown breakdown={undefined} />);
     expect(b.container.firstChild).toBeNull();
-  });
-
-  it('si el castigo no cuadra con mercado − ajustado, no pinta una cifra que no suma', () => {
-    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, languagePenalty: { pct: 15, cents: -7500 } }} />);
-    const row = document.querySelector('[data-row="language"] dd');
-    expect(row?.textContent).toBe('');
   });
 });

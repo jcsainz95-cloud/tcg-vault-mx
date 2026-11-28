@@ -10,10 +10,7 @@ import { formatMoneyCents } from '@/lib/format';
  * mercado ajustado → % de la curva → oferta. Todo lo manda el servidor (centavos enteros); el front solo lo pinta.
  * Solo existe para líneas con castigo de idioma (`languagePenalty != null`): una línea en inglés ya tiene su
  * mercado y su estándar en otras columnas, así que devuelve `null` y la pantalla queda como hoy.
- *
- * Defensa de coherencia: el importe del castigo se pinta SOLO si cuadra con lo que se ve en pantalla
- * (`mercado + castigo = mercado ajustado`); si el servidor lo expresara sobre otra base, se pinta el % sin cifra
- * en vez de un renglón que no suma.
+ * El contrato garantiza que `mercado + castigo = ajustado`, así que el importe del castigo se pinta siempre.
  */
 export function BuylistBreakdown({
   breakdown,
@@ -29,17 +26,16 @@ export function BuylistBreakdown({
   const locale = useLocale() as AppLocale;
   if (!breakdown || !breakdown.languagePenalty) return null;
   const { languagePenalty: pen } = breakdown;
-  const showPenaltyCents = breakdown.marketMxnCents + pen.cents === breakdown.adjustedMarketCents;
   const money = (c: number) => formatMoneyCents(c, locale);
   const rows: { key: string; label: string; value: string; strong?: boolean }[] = [
     { key: 'market', label: t('market'), value: money(breakdown.marketMxnCents) },
     {
       key: 'language',
       label: t('language', { pct: pen.pct }),
-      value: showPenaltyCents ? money(pen.cents) : '',
+      value: money(pen.cents),
     },
     { key: 'adjusted', label: t('adjusted'), value: money(breakdown.adjustedMarketCents) },
-    { key: 'base', label: t('base', { pct: breakdown.basePct }), value: '' },
+    { key: 'base', label: t('base', { pct: breakdown.curvePct }), value: '' },
     {
       key: 'offer',
       label: t(offerLabel ?? 'offer'),
