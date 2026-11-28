@@ -854,6 +854,8 @@ La oferta de liga parte del mercado de SU producto de liga y pasa por el mismo c
 `offerBreakdown Json?` congela el desglose (§1); dials booleanos true/false; redondeo de la oferta ES = half_up de la curva vigente (se retira half_down); EN «precio pendiente» + ES ⇒ 200 `precio_pendiente`, no 400; ejemplo §3.1 sin cifras bajo MX$500; sin idempotencia de solicitud. Cero cambios de código.
 ### Gate F1+F2 (2026-11-28, arquitecto; contrato §3.2)
 `curveBp` informativo derivado del dinero (tolerancia ≤ 1 centavo, nunca recalcula monto) + `curveOfferCents` + `cap{reason,cents}`; override sí recibe castigo ES; mesa ES muestra % real de curva más «−15 % idioma»; desglose y mesa leen solo `offerBreakdown` congelado; se elimina `esOnlyPending`. Dinero cobrado intacto.
+### Medición backend b1f75ddf (2026-11-28, arquitecto)
+Tolerancia de `curveBp` pasa a ≤ 2 centavos hasta MX$2,000 (medido: 53/1738 con 2 c, solo tramo MX$100–500); sin más resolución, el «≈» ya lo cubre. `cap.reason:'floor'` ratificado también para el recorte `min(…, ref)`; no hay otro valor.
 ### Defaults de lo demás (se avisan, no se preguntan)
 Si llega inglés cuando se declaró español (o liga cuando se declaró normal) se paga la versión recibida. Sin bounty en español ni en liga. Promo/deck_exclusive/Pattern/graduada no elegibles para ES ni liga.
 
