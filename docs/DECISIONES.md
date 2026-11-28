@@ -118,6 +118,9 @@
 | 2026-11-12 | §PROV · Portal de proveedores de dos sentidos: compra a tiendas aliadas y venta de mayoreo a ellas | Diseño en la sección «§PROV» al final de este archivo; decisiones literales en HECHOS 2026-11-12 | PROJECT §PROV |
 | 2026-09-01 | D30, D34–D40 · rondas 4ª, 6ª y 7ª del ciclo de buylist (oferta condicional NM, piso de neto MX$200 inclusivo, meta de bounty 2, el reloj reinicia al cancelar, «Declinar ahora», dirección al crear la solicitud) | Literal no conservado en `PROJECT.md`; resúmenes de ronda retirados el 2026-10-25, texto en git `ee8d5c73` | §P, criterios 16–172 |
 
+## §PISO-COSTO · Piso de costo (2026-11-28; HECHOS 2026-11-28 últimas 2 filas; contrato `API_CONTRACT_PISO_COSTO.md`; módulos `pricing`/`inventory`/`orders` ⇒ gates qa + seguridad-lead)
+DECIDIDO: arranca en `shadow`; SKU liberado queda `released` pegajoso (nunca se oculta de nuevo, se vende a `max(mercado, mínimo)`; el mínimo no se recalcula si cambia el costo promedio, solo avisa «bajo costo»; el dueño puede editarlo o quitarlo); margen sugerido 10 % sobre costo neto tras IVA y comisión (costo $100 ⇒ sugerido $134). Sin preguntas abiertas.
+
 ## §PRICE-PATTERN · Versiones «(… Pattern/Ball)» de TCGCSV no prestan precio a la carta normal (2026-11-17; HECHOS 2026-11-17; módulo `pricing` ⇒ gates qa + seguridad-lead)
 
 **Causa medida (backend, código):** `classifyCardProductKind` deja «X (Master Ball Pattern)» como `set_base` (`providers/tcgcsv-singles.provider.ts:184-190`); el resolver lo cuelga de la misma carta por número; la lectura (`pricing.service.ts:1305-1310`) acepta `set_base|other` y `isBetterRef` (`:425-446`) desempata al final por uuid. Además, al ser `set_base`, su acabado entra en `Card.availableFinishes` (reconciliador) y en el binder. Precios en BD de producción: NO MEDIDO.
