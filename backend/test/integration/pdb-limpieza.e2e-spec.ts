@@ -50,6 +50,7 @@ import {
   revertM92,
   revertM93,
   revertM94,
+  revertBuylistEsF1,
   revertM95,
   revertM99,
   revertM101,
@@ -1236,6 +1237,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
     // v1.114.5⟨portada⟩: M-94 y luego M-93 (orden inverso de despliegue) — el B congelado no conoce sus seis tablas.
+    revertBuylistEsF1(a.schema); // §BUYLIST-ES F1: antes que M-95 (sus columnas dependen de `CardLanguage`) y que todo lo demás (orden inverso de despliegue).
     revertM118(a.schema); // §FICHA-CLIENTE: el B congelado no conoce `CustomerNote` (G-8 abortaría).
     revertM114(a.schema); // §PROV-F4: el B congelado no conoce `SupplySuggestion` (G-8 abortaría).
     revertM112(a.schema); // §DEMANDA: el B congelado no conoce `SearchDemandSeen`, `DemandTermMatch` ni `SearchDemandDaily` (G-8 abortaría).
@@ -1261,6 +1263,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
+    revertBuylistEsF1(twin); // §BUYLIST-ES F1 (ídem).
     revertM118(twin); // §FICHA-CLIENTE (ídem).
     revertM114(twin); // §PROV-F4 (ídem).
     revertM112(twin); // §DEMANDA (ídem).

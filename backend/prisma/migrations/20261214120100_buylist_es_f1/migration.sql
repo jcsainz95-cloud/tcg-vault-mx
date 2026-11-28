@@ -1,7 +1,9 @@
 -- §BUYLIST-ES F1 (API_CONTRACT_BUYLIST_ES §1). ADITIVA, sin backfill: toda fila previa queda con language='en' (DEFAULT) y el resto en NULL/false.
--- Reversa: ALTER TABLE "SellRequestItem" DROP COLUMN "language", DROP COLUMN "versionOffers", DROP COLUMN "receivedLanguage",
---   DROP COLUMN "receivedCardProductId", DROP COLUMN "receivedVersionSet", DROP COLUMN "offerBreakdown";
+-- Reversa (literal; va ANTES que la de M-95b, que borra el tipo "CardLanguage" del que dependen estas columnas):
+--   ALTER TABLE "SellRequestItem" DROP COLUMN IF EXISTS "language", DROP COLUMN IF EXISTS "versionOffers", DROP COLUMN IF EXISTS "receivedLanguage",
+--     DROP COLUMN IF EXISTS "receivedCardProductId", DROP COLUMN IF EXISTS "receivedVersionSet", DROP COLUMN IF EXISTS "offerBreakdown";
 --   DELETE FROM "ConfigSetting" WHERE key IN ('buylist_spanish_penalty_pct','buylist_spanish_enabled','buylist_league_enabled');
+--   DELETE FROM "_prisma_migrations" WHERE migration_name = '20261214120100_buylist_es_f1';
 ALTER TABLE "SellRequestItem"
   ADD COLUMN IF NOT EXISTS "language" "CardLanguage" NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS "versionOffers" JSONB,

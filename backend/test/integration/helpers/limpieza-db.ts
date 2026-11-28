@@ -381,6 +381,10 @@ COMMIT;
     'revertPromoLink',
   );
 }
+/** T-AC3 — quita §BUYLIST-ES F1 (columnas de idioma de `SellRequestItem` + 3 diales). Va ANTES que M-95b: esas columnas dependen del tipo `CardLanguage` que la reversa de M-95b borra. */
+export function revertBuylistEsF1(schema: string): void {
+  revertFromHeader(schema, '_buylist_es_f1', 'revertBuylistEsF1');
+}
 /** T-AC3 — quita M-95b (idioma y versiones de liga, v1.116⟨ids⟩). Va ANTES que M-94 (orden inverso de despliegue). */
 export function revertM95(schema: string): void {
   revertFromHeader(schema, '_m95b_ids_versions', 'revertM95');

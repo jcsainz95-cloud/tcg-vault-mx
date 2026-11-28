@@ -381,4 +381,11 @@ describe('§BUYLIST-ES F1 · §1 — diales: semilla, validadores y `quote-polic
     const on = await buildSvc({ market: 1, dials: { enabled: true, penalty: 20, league: true } }).svc.quotePolicy();
     expect(on).toMatchObject({ spanishEnabled: true, leagueEnabled: true, spanishPenaltyPct: 20 });
   });
+
+  it('quote-policy con el castigo INVÁLIDO: español apagado y el castigo no inventa un 15 (0)', async () => {
+    for (const bad of [150, -1, 15.5, '15']) {
+      const pol = await buildSvc({ market: 1, dials: { enabled: true, penalty: bad as number, league: false } }).svc.quotePolicy();
+      expect(pol).toMatchObject({ spanishEnabled: false, spanishPenaltyPct: 0 });
+    }
+  });
 });

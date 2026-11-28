@@ -1759,7 +1759,7 @@ export class BuylistService implements OnModuleInit {
     minimumRequestCents: number;
     spanishEnabled: boolean;
     leagueEnabled: boolean;
-    spanishPenaltyPct: number;
+    spanishPenaltyPct: number; // 0 si el dial es inválido (con spanishEnabled:false)
   }> {
     // §BUYLIST-ES §1: suma tres campos de LECTURA (interruptores y castigo; sin cifras de dinero de la tienda). Dial inválido ⇒ falla cerrado.
     const spanish = await this.loadSpanishConfig();
@@ -1768,7 +1768,8 @@ export class BuylistService implements OnModuleInit {
       minimumRequestCents: await this.settings.getNumber(SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS),
       spanishEnabled: spanish.enabled && spanish.penaltyPct != null,
       leagueEnabled: leagueRaw === true,
-      spanishPenaltyPct: spanish.penaltyPct ?? 15,
+      // Castigo inválido ⇒ el español no se ofrece (`spanishEnabled:false`) y NO se publica un 15 inventado: 0 = «sin castigo aplicable».
+      spanishPenaltyPct: spanish.penaltyPct ?? 0,
     };
   }
 
