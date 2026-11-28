@@ -860,3 +860,60 @@ describe('Mesa de decisión — §BUYLIST-ES (idioma)', () => {
     expect(document.querySelector('[data-version-chip="language"]')).toBeNull();
   });
 });
+
+describe('Mesa de decisión — B-L1 rejilla y textos EN', () => {
+  const bd = {
+    marketMxnCents: 100000,
+    languagePenalty: { pct: 15, cents: -15000 },
+    adjustedMarketCents: 85000,
+    curveBp: 7000,
+    curveOfferCents: 59500,
+    cap: null,
+    source: 'curve',
+    finalOfferCents: 59500,
+  };
+
+  it('B-L1: el desglose ES es la ÚLTIMA celda de la rejilla (fila 2); EN con breakdown no monta contenedor', async () => {
+    render(
+      table({
+        lines: [
+          line({ itemId: 'en1', breakdown: { ...bd, languagePenalty: null } } as never),
+          line({ itemId: 'es1', language: 'es', languagePenaltyPct: 15, breakdown: bd } as never),
+        ],
+      }),
+    );
+    await screen.findAllByTestId('desk-line');
+    const rows = screen.getAllByTestId('line-breakdown-row');
+    expect(rows).toHaveLength(1);
+    const grid = rows[0].parentElement!;
+    expect(grid.lastElementChild).toBe(rows[0]);
+    expect(rows[0].className).toContain('lg:row-start-2');
+    const std = within(grid).getByTestId('line-standard').parentElement!;
+    expect(Array.from(grid.children).indexOf(std)).toBeLessThan(Array.from(grid.children).indexOf(rows[0]));
+  });
+
+  it('EN: MARKET_UP/DOWN/CURVE_CHANGED en inglés con el monto; sin repetir si sinceQuote ya lo dice', async () => {
+    render(
+      table({
+        lines: [
+          line({ itemId: 'u', adjustment: { deltaCents: 5000, reasonCode: 'MARKET_UP', reasonText: 'El mercado subió.' }, sinceQuote: null } as never),
+          line({ itemId: 'd', adjustment: { deltaCents: -5000, reasonCode: 'MARKET_DOWN', reasonText: 'El mercado bajó.' }, sinceQuote: null } as never),
+          line({
+            itemId: 'c',
+            adjustment: { deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'Cambió la curva.' },
+            sinceQuote: { quotedCents: 65000, deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'x' },
+          } as never),
+        ],
+      }),
+      'en',
+    );
+    await screen.findAllByTestId('desk-line');
+    const reasons = screen.getAllByTestId('line-reason').map((e) => e.textContent);
+    expect(reasons).toHaveLength(2);
+    expect(reasons[0]).toMatch(/market rose.*50\.00 above the standard/);
+    expect(reasons[1]).toMatch(/market fell.*50\.00 below the standard/);
+    expect(document.body.textContent).not.toMatch(/El mercado|Cambió la curva/);
+    expect(screen.getAllByTestId('line-since-quote')).toHaveLength(1);
+  });
+});
+

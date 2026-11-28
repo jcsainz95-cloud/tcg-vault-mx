@@ -3971,7 +3971,10 @@
             "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
             "BOUNTY": "Hay un bounty que la busca.",
             "FLOOR": "Se aplicó el precio mínimo.",
-            "NO_MARKET": "No hay precio de mercado."
+            "NO_MARKET": "No hay precio de mercado.",
+            "MARKET_UP": "El mercado subió: {amount} más que el estándar.",
+            "MARKET_DOWN": "El mercado bajó: {amount} menos que el estándar.",
+            "CURVE_CHANGED": "Cambió la curva: {amount} de diferencia con el estándar."
           },
           "sinceQuote": {
             "MARKET_UP": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} más): el mercado subió desde la cotización.",

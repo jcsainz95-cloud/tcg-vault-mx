@@ -7,7 +7,7 @@ import { emitBuylistOffer, getBuylistDecisionTable } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { ApiClientError } from '@/lib/api-client';
 import { formatMoneyCents } from '@/lib/format';
-import type { BuylistDecisionLineDTO, BuylistOfferLineInput, SellRequestStatus } from '@/types/contract';
+import type { BuylistBreakdownDTO, BuylistDecisionLineDTO, BuylistOfferLineInput, SellRequestStatus } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -215,8 +215,12 @@ function SuggestionLine({ line }: { line: BuylistDecisionLineDTO }) {
   );
 }
 
-// Códigos con texto i18n propio; los de B1-bis ES (MARKET_UP/DOWN, CURVE_CHANGED) llegan con `reasonText` del servidor.
-const KNOWN_REASONS = new Set<string>(['STOCK_CAP', 'MANUAL_OVERRIDE', 'BOUNTY', 'FLOOR', 'NO_MARKET']);
+// Códigos con texto i18n propio (incluidos los de B1-bis ES: el texto del servidor va solo en español).
+/** Mismo criterio que `BuylistBreakdown`: solo hay desglose que pintar con castigo de idioma y fuente no pendiente. */
+function hasBreakdown(b: BuylistBreakdownDTO | null | undefined): boolean {
+  return !!b && !!b.languagePenalty && b.source !== 'pending';
+}
+const KNOWN_REASONS = new Set<string>(['STOCK_CAP', 'MANUAL_OVERRIDE', 'BOUNTY', 'FLOOR', 'NO_MARKET', 'MARKET_UP', 'MARKET_DOWN', 'CURVE_CHANGED']);
 
 type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
 
@@ -724,15 +728,6 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                           </span>
                         </span>
                       </div>
-                      {/* §BUYLIST-ES: mercado → −idioma → ajustado → % de la curva → oferta, en ese orden. En escritorio
-                          va en su propia fila bajo las columnas 3-7: en la columna «Mercado» (1fr) las etiquetas se
-                          partían en 2-3 líneas a 1440 px. En celular sigue apilado, sin cambio. */}
-                      {line.breakdown && (
-                        <div className="lg:col-span-5 lg:col-start-3">
-                          <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" />
-                        </div>
-                      )}
-
                       <div className="flex flex-col gap-0.5">
                         <span className="eyebrow lg:hidden">{t('mesa.colStandard')}</span>
                         <span className="tabular font-mono text-sm text-text" data-testid="line-standard">
@@ -804,11 +799,11 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                             {t('mesa.editedByYou')}
                           </span>
                         )}
-                        {!changed && adj && (
+                        {!changed && adj && !(sq && sq.reasonCode === adj.reasonCode) && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason">
                             {(locale === 'es' && adj.reasonText) || !KNOWN_REASONS.has(adj.reasonCode)
                               ? adj.reasonText
-                              : t(`mesa.reason.${adj.reasonCode}`)}
+                              : t(`mesa.reason.${adj.reasonCode}`, { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })}
                           </span>
                         )}
                         {/* Nota APARTE del chip: el mercado se movió desde la cotización. No cambia el chip. */}
@@ -846,6 +841,16 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                         <span className="eyebrow lg:hidden">{t('mesa.colStock')}</span>
                         <StockPhrase line={line} />
                       </div>
+
+                      {/* §BUYLIST-ES: mercado → −idioma → ajustado → % de la curva → oferta. En escritorio va en su propia
+                          fila 2 (lg:row-start-2) bajo las columnas 3-7, DESPUÉS de todas las celdas de la línea: si abriera
+                          fila entre «Mercado» y «Estándar», estas caerían en las columnas de 28/72 px. Solo se monta si el
+                          desglose pinta algo (ES con castigo y no pendiente); las líneas EN no llevan contenedor. */}
+                      {hasBreakdown(line.breakdown) && (
+                        <div className="lg:col-span-5 lg:col-start-3 lg:row-start-2 lg:max-w-[28rem]" data-testid="line-breakdown-row">
+                          <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" />
+                        </div>
+                      )}
                     </div>
 
                     {/* El PAR (derivedPriceCents, pendingReason) discrimina TRES casos, y el

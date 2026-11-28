@@ -3971,7 +3971,10 @@
             "MANUAL_OVERRIDE": "Price set by staff.",
             "BOUNTY": "A bounty is looking for it.",
             "FLOOR": "The minimum price applied.",
-            "NO_MARKET": "There is no market price."
+            "NO_MARKET": "There is no market price.",
+            "MARKET_UP": "The market rose: {amount} above the standard.",
+            "MARKET_DOWN": "The market fell: {amount} below the standard.",
+            "CURVE_CHANGED": "The curve changed: {amount} difference from the standard."
           },
           "sinceQuote": {
             "MARKET_UP": "Quoted {quoted}; we now offer {offer} ({delta} more): the market rose since the quote.",
