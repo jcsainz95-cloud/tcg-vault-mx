@@ -1092,7 +1092,7 @@
       "adjusted": "Adjusted market",
       "base": "Buy curve {pct}%",
       "marketOverride": "Store fixed price (English)",
-      "capEn": "Cap: English offer",
+      "capEn": "Cap: we never pay more than the English offer",
       "capFloor": "Buy floor",
       "baseNone": "Buy curve",
       "offer": "We pay you",

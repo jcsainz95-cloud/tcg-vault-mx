@@ -53,7 +53,7 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
     renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, curveOfferCents: 59500, cap: { reason: 'en_offer', cents: 50000 }, finalOfferCents: 50000 }} />);
     const rows = Array.from(document.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'));
     expect(rows).toEqual(['market', 'language', 'adjusted', 'base', 'cap', 'offer']);
-    expect(screen.getByText(/Tope: oferta en inglés/)).toBeInTheDocument();
+    expect(screen.getByText(/Tope: no pagamos más que la oferta en inglés/)).toBeInTheDocument();
   });
 
   it('cap floor: «Piso de compra»', () => {
@@ -78,5 +78,12 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
     expect(a.container.firstChild).toBeNull();
     const b = renderWithIntl(<BuylistBreakdown breakdown={undefined} />);
     expect(b.container.firstChild).toBeNull();
+  });
+});
+
+describe('BuylistBreakdown · source bounty (M5)', () => {
+  it('source «bounty» en línea EN (sin castigo) no pinta desglose', () => {
+    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, languagePenalty: null, source: 'bounty' }} />);
+    expect(screen.queryByTestId('buylist-breakdown')).not.toBeInTheDocument();
   });
 });

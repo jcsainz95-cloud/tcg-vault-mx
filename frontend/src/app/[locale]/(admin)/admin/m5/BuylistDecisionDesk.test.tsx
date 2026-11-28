@@ -552,6 +552,35 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(screen.getAllByTestId('line-stock')[0]).toHaveTextContent('Tenemos 9 · aceptamos hasta 10');
   });
 
+  it('B2: línea ES con curveBp no entero pinta «≈ 43.87 %» en Estándar, igual que el desglose', async () => {
+    const es = line({
+      itemId: 'es1',
+      card: { ...CARD, name: 'Espanola' },
+      language: 'es',
+      derivedPriceCents: 37290,
+      marketMxnCents: 100000,
+      standardOfferCents: 37290,
+      standardPctBp: 4387,
+      languagePenaltyPct: 15,
+      adjustment: null,
+      sinceQuote: null,
+      breakdown: {
+        marketMxnCents: 100000,
+        languagePenalty: { pct: 15, cents: -15000 },
+        adjustedMarketCents: 85000,
+        curveBp: 4387,
+        curveOfferCents: 37290,
+        cap: null,
+        source: 'curve',
+        finalOfferCents: 37290,
+      },
+    });
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getByTestId('line-standard')).toHaveTextContent('≈ 43.87 % → MX$372.90');
+    expect(screen.getByTestId('buylist-breakdown').querySelector('[data-row="base"]')).toHaveTextContent('≈ 43.87 %');
+  });
+
   it('«Solo las que cambian» oculta las Estándar', async () => {
     render(table({ lines }));
     await screen.findAllByTestId('desk-line');

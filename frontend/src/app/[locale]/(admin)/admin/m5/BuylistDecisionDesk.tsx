@@ -15,7 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { CardPhotoLightbox } from './CardPhotoLightbox';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PriceBasisTag } from '@/components/domain/PriceBasisTag';
-import { BuylistBreakdown } from '@/components/domain/BuylistBreakdown';
+import { BuylistBreakdown, formatCurvePct } from '@/components/domain/BuylistBreakdown';
 import { LanguageChip } from '@/components/domain/VersionChip';
 import {
   defaultSelection,
@@ -713,12 +713,14 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                           {line.standardOfferCents != null && line.standardPctBp != null
                             ? t('mesa.standardCell', {
                                 // Presentación del % (puntos base del servidor → %); no es dinero.
-                                pct: (line.standardPctBp / 100).toLocaleString(
-                                  locale === 'es' ? 'es-MX' : 'en-US',
-                                  {
-                                    maximumFractionDigits: 1,
-                                  },
-                                ),
+                                // ES: curveBp informativo (§3.2), mismo texto que el desglose («≈ 43.87»).
+                                pct:
+                                  line.language === 'es'
+                                    ? formatCurvePct(line.standardPctBp, locale)
+                                    : (line.standardPctBp / 100).toLocaleString(
+                                        locale === 'es' ? 'es-MX' : 'en-US',
+                                        { maximumFractionDigits: 1 },
+                                      ),
                                 amount: formatMoneyCents(line.standardOfferCents, locale),
                               })
                             : t('mesa.standardNone')}

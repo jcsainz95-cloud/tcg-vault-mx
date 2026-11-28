@@ -1092,7 +1092,7 @@
       "adjusted": "Mercado ajustado",
       "base": "Curva de compra {pct} %",
       "marketOverride": "Precio fijo de la tienda (inglés)",
-      "capEn": "Tope: oferta en inglés",
+      "capEn": "Tope: no pagamos más que la oferta en inglés",
       "capFloor": "Piso de compra",
       "baseNone": "Curva de compra",
       "offer": "Te pagamos",

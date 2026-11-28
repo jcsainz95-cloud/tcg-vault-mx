@@ -12,6 +12,11 @@ import { formatMoneyCents } from '@/lib/format';
  * mercado y su estándar en otras columnas, así que devuelve `null` y la pantalla queda como hoy.
  * El contrato garantiza que `mercado + castigo = ajustado`, así que el importe del castigo se pinta siempre.
  */
+/** §BUYLIST-ES §3.2 · % informativo de la curva (puntos base → %): 2 decimales y «≈ » si no es entero. Mismo texto en mesa y desglose. */
+export function formatCurvePct(bp: number, locale: AppLocale): string {
+  return `${bp % 100 === 0 ? '' : '≈ '}${(bp / 100).toLocaleString(locale === 'es' ? 'es-MX' : 'en-US', { maximumFractionDigits: 2 })}`;
+}
+
 export function BuylistBreakdown({
   breakdown,
   offerLabel,
@@ -28,11 +33,8 @@ export function BuylistBreakdown({
   const { languagePenalty: pen } = breakdown;
   const money = (c: number) => formatMoneyCents(c, locale);
   const bp = breakdown.curveBp;
-  // Presentación del % (puntos base del servidor → %); no es dinero. «≈» si no es entero.
-  const pctText =
-    bp == null
-      ? ''
-      : `${bp % 100 === 0 ? '' : '≈ '}${(bp / 100).toLocaleString(locale === 'es' ? 'es-MX' : 'en-US', { maximumFractionDigits: 2 })}`;
+  // Presentación del % (puntos base del servidor → %); no es dinero.
+  const pctText = bp == null ? '' : formatCurvePct(bp, locale);
   const override = breakdown.source === 'override';
   const rows: { key: string; label: string; value: string; strong?: boolean }[] = [
     { key: 'market', label: override ? t('marketOverride') : t('market'), value: money(breakdown.marketMxnCents) },
@@ -72,9 +74,9 @@ export function BuylistBreakdown({
       className={className ?? 'mt-2 border-l border-border-strong pl-3 text-[12px]'}
     >
       {rows.map((r) => (
-        <div key={r.key} data-row={r.key} className="flex flex-wrap items-baseline justify-between gap-x-3 py-0.5">
-          <dt className="whitespace-nowrap text-muted">{r.label}</dt>
-          <dd className={`tabular whitespace-nowrap font-mono ${r.strong ? 'font-medium text-text' : 'text-muted'}`}>{r.value}</dd>
+        <div key={r.key} data-row={r.key} className="flex items-baseline justify-between gap-x-3 py-0.5">
+          <dt className="min-w-0 text-muted">{r.label}</dt>
+          <dd className={`tabular shrink-0 whitespace-nowrap font-mono ${r.strong ? 'font-medium text-text' : 'text-muted'}`}>{r.value}</dd>
         </div>
       ))}
     </dl>
