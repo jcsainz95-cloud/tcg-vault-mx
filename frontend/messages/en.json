@@ -1092,11 +1092,21 @@
       "adjusted": "Adjusted market",
       "base": "Buy curve {pct}%",
       "marketOverride": "Store fixed price (English)",
-      "capEn": "Cap: we never pay more than the English offer",
+      "capEn": "Cap: English offer",
       "capFloor": "Buy floor",
       "baseNone": "Buy curve",
       "offer": "We pay you",
       "offerAdmin": "Offer"
+    },
+    "es": {
+      "fixedPrice": "Fixed price",
+      "marketDrift": "Changed since quote (was {amount})",
+      "standardKind": {
+        "capEn": "Cap: English offer",
+        "capFloor": "Buy floor",
+        "override": "Fixed price",
+        "curve": "Curve {pct}%"
+      }
     },
     "payAfterReceipt": "Payment is made after we receive and verify your cards.",
     "shippingGuideLink": "How to pack your cards",

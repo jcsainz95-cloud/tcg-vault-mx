@@ -28,32 +28,41 @@ export function BuylistBreakdown({
   className?: string;
 }) {
   const t = useTranslations('buylist.breakdown');
+  const te = useTranslations('buylist.es');
   const locale = useLocale() as AppLocale;
-  if (!breakdown || !breakdown.languagePenalty) return null;
+  if (!breakdown || !breakdown.languagePenalty || breakdown.source === 'pending') return null;
   const { languagePenalty: pen } = breakdown;
   const money = (c: number) => formatMoneyCents(c, locale);
   const bp = breakdown.curveBp;
   // Presentación del % (puntos base del servidor → %); no es dinero.
   const pctText = bp == null ? '' : formatCurvePct(bp, locale);
   const override = breakdown.source === 'override';
-  const rows: { key: string; label: string; value: string; strong?: boolean }[] = [
-    { key: 'market', label: override ? t('marketOverride') : t('market'), value: money(breakdown.marketMxnCents) },
-    {
-      key: 'language',
-      label: t('language', { pct: pen.pct }),
-      // Signo «−» (U+2212) igual que la etiqueta; el contrato manda el castigo negativo, se pinta su magnitud.
-      value: `−${money(Math.abs(pen.cents))}`,
-    },
-    { key: 'adjusted', label: t('adjusted'), value: money(breakdown.adjustedMarketCents) },
-  ];
-  if (!override) {
-    rows.push({
-      key: 'base',
-      // `curveBp` puede venir `null`: la fila se pinta sin cifra, nunca «null %».
-      label: bp == null ? t('baseNone') : t('base', { pct: pctText }),
-      value: breakdown.curveOfferCents != null ? money(breakdown.curveOfferCents) : '—',
-    });
-  }
+  // §3.3 M6: con precio fijo la cadena es «Precio fijo · Idioma −P % · Te pagamos» (sin Mercado, Ajustado ni Curva).
+  const rows: { key: string; label: string; value: string; strong?: boolean }[] = override
+    ? [
+        { key: 'fixed', label: te('fixedPrice'), value: money(breakdown.marketMxnCents) },
+        {
+          key: 'language',
+          label: t('language', { pct: pen.pct }),
+          value: `−${money(Math.abs(pen.cents))}`,
+        },
+      ]
+    : [
+        { key: 'market', label: t('market'), value: money(breakdown.marketMxnCents) },
+        {
+          key: 'language',
+          label: t('language', { pct: pen.pct }),
+          // Signo «−» (U+2212) igual que la etiqueta; el contrato manda el castigo negativo, se pinta su magnitud.
+          value: `−${money(Math.abs(pen.cents))}`,
+        },
+        { key: 'adjusted', label: t('adjusted'), value: money(breakdown.adjustedMarketCents) },
+        {
+          key: 'base',
+          // `curveBp` puede venir `null`: la fila se pinta sin cifra, nunca «null %».
+          label: bp == null ? t('baseNone') : t('base', { pct: pctText }),
+          value: breakdown.curveOfferCents != null ? money(breakdown.curveOfferCents) : '—',
+        },
+      ];
   if (breakdown.cap) {
     rows.push({
       key: 'cap',

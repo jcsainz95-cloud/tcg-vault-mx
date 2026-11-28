@@ -283,8 +283,15 @@ function readOnlyKey(status: SellRequestStatus): string {
 export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady }: BuylistDecisionDeskProps) {
   const t = useTranslations('admin.m5.desk');
   const tc = useTranslations('common');
+  const te = useTranslations('buylist.es');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
+  // §3.3 M2 (líneas ES): «Curva {pct} %» solo con `standardPctBp` no nulo; si no, el rótulo de `standardKind`.
+  const standardLabel = (l: BuylistDecisionLineDTO): string => {
+    if (l.standardPctBp != null) return te('standardKind.curve', { pct: formatCurvePct(l.standardPctBp, locale).trim() });
+    const k = l.standardKind;
+    return k === 'cap_en_offer' ? te('standardKind.capEn') : k === 'cap_floor' ? te('standardKind.capFloor') : te('standardKind.override');
+  };
   // ⚠️ **`'operator'` NO es decoración.** Esta es la pantalla donde v1.58 hizo alcanzables
   // `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` (§M5-A), y sin declarar la audiencia el banner le
   // diría al operador que suba **su** INE. El destinatario se resuelve con `details` del servidor
@@ -693,8 +700,16 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                       <div className="flex flex-col gap-0.5">
                         <span className="eyebrow lg:hidden">{t('mesa.colMarket')}</span>
                         <span className="tabular font-mono text-sm text-text" data-testid="line-market">
-                          {line.marketMxnCents != null ? formatMoneyCents(line.marketMxnCents, locale) : '—'}
+                          {(line.marketTodayCents ?? line.marketMxnCents) != null
+                            ? formatMoneyCents((line.marketTodayCents ?? line.marketMxnCents) as number, locale)
+                            : '—'}
                         </span>
+                        {/* §3.3 B1: marca informativa; no toca chip, Estándar ni Ofertamos (lo congelado no se reevalúa). */}
+                        {line.marketDriftCents != null && line.breakdown?.marketMxnCents != null && (
+                          <span data-testid="line-market-drift" className="text-xs text-muted">
+                            {te('marketDrift', { amount: formatMoneyCents(line.breakdown.marketMxnCents, locale) })}
+                          </span>
+                        )}
                         <span className="text-xs text-muted">
                           {t('quoted')}{' '}
                           <span className="tabular font-mono">
@@ -710,20 +725,18 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                       <div className="flex flex-col gap-0.5">
                         <span className="eyebrow lg:hidden">{t('mesa.colStandard')}</span>
                         <span className="tabular font-mono text-sm text-text" data-testid="line-standard">
-                          {line.standardOfferCents != null && line.standardPctBp != null
-                            ? t('mesa.standardCell', {
-                                // Presentación del % (puntos base del servidor → %); no es dinero.
-                                // ES: curveBp informativo (§3.2), mismo texto que el desglose («≈ 43.87»).
-                                pct:
-                                  line.language === 'es'
-                                    ? formatCurvePct(line.standardPctBp, locale)
-                                    : (line.standardPctBp / 100).toLocaleString(
-                                        locale === 'es' ? 'es-MX' : 'en-US',
-                                        { maximumFractionDigits: 1 },
-                                      ),
-                                amount: formatMoneyCents(line.standardOfferCents, locale),
-                              })
-                            : t('mesa.standardNone')}
+                          {line.language === 'es'
+                            ? line.standardOfferCents != null && (line.standardKind ?? (line.standardPctBp != null ? 'curve' : null)) != null && line.standardKind !== 'pending'
+                              ? `${standardLabel(line)} → ${formatMoneyCents(line.standardOfferCents, locale)}`
+                              : t('mesa.standardNone')
+                            : line.standardOfferCents != null && line.standardPctBp != null
+                              ? t('mesa.standardCell', {
+                                  pct: (line.standardPctBp / 100).toLocaleString(locale === 'es' ? 'es-MX' : 'en-US', {
+                                    maximumFractionDigits: 1,
+                                  }),
+                                  amount: formatMoneyCents(line.standardOfferCents, locale),
+                                })
+                              : t('mesa.standardNone')}
                         </span>
                       </div>
 

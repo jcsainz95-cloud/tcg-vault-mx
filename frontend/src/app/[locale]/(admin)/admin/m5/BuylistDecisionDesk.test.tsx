@@ -577,8 +577,41 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     });
     render(table({ lines: [es] }));
     await screen.findAllByTestId('desk-line');
-    expect(screen.getByTestId('line-standard')).toHaveTextContent('≈ 43.87 % → MX$372.90');
+    expect(screen.getByTestId('line-standard')).toHaveTextContent('Curva ≈ 43.87 % → MX$372.90');
     expect(screen.getByTestId('buylist-breakdown').querySelector('[data-row="base"]')).toHaveTextContent('≈ 43.87 %');
+  });
+
+  it('§3.3 M2/B1: ES con tope muestra el rótulo, sin %; marca de mercado cambiado', async () => {
+    const es = line({
+      itemId: 'es2',
+      card: { ...CARD, name: 'Tope' },
+      language: 'es',
+      derivedPriceCents: 68000,
+      marketMxnCents: 90000,
+      marketTodayCents: 90000,
+      marketDriftCents: 5000,
+      standardOfferCents: 68000,
+      standardPctBp: null,
+      standardKind: 'cap_en_offer',
+      languagePenaltyPct: 15,
+      adjustment: null,
+      sinceQuote: null,
+      breakdown: {
+        marketMxnCents: 85000,
+        languagePenalty: { pct: 15, cents: -12750 },
+        adjustedMarketCents: 72250,
+        curveBp: 5000,
+        curveOfferCents: 72250,
+        cap: { reason: 'en_offer', cents: 68000 },
+        source: 'curve',
+        finalOfferCents: 68000,
+      },
+    });
+    render(table({ lines: [es] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getByTestId('line-standard')).toHaveTextContent('Tope: oferta en inglés → MX$680.00');
+    expect(screen.getByTestId('line-standard')).not.toHaveTextContent('%');
+    expect(screen.getByTestId('line-market-drift')).toHaveTextContent('Cambió desde la cotización (era MX$850.00)');
   });
 
   it('«Solo las que cambian» oculta las Estándar', async () => {

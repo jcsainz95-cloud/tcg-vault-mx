@@ -53,7 +53,7 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
     renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, curveOfferCents: 59500, cap: { reason: 'en_offer', cents: 50000 }, finalOfferCents: 50000 }} />);
     const rows = Array.from(document.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'));
     expect(rows).toEqual(['market', 'language', 'adjusted', 'base', 'cap', 'offer']);
-    expect(screen.getByText(/Tope: no pagamos más que la oferta en inglés/)).toBeInTheDocument();
+    expect(screen.getByText(/Tope: oferta en inglés/)).toBeInTheDocument();
   });
 
   it('cap floor: «Piso de compra»', () => {
@@ -64,8 +64,9 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
   it('source override: precio fijo con castigo, sin fila de curva', () => {
     renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, source: 'override', curveBp: 10000, curveOfferCents: 85000, finalOfferCents: 85000 }} />);
     const rows = Array.from(document.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'));
-    expect(rows).toEqual(['market', 'language', 'adjusted', 'offer']);
-    expect(screen.getByText('Precio fijo de la tienda (inglés)')).toBeInTheDocument();
+    expect(rows).toEqual(['fixed', 'language', 'offer']);
+    expect(screen.getByText('Precio fijo')).toBeInTheDocument();
+    expect(screen.queryByText('Mercado ajustado')).not.toBeInTheDocument();
   });
 
   it('mesa del dueño: la última fila dice «Oferta»', () => {

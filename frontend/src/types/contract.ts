@@ -3397,7 +3397,7 @@ export interface BuylistBreakdownDTO {
   curveBp: number | null;
   curveOfferCents: number | null;
   cap: { reason: 'en_offer' | 'floor'; cents: number } | null;
-  source?: 'curve' | 'override' | 'bounty';
+  source?: 'curve' | 'override' | 'bounty' | 'pending';
   finalOfferCents: number;
 }
 
@@ -5033,6 +5033,13 @@ export interface BuylistDecisionLineDTO {
   standardOfferCents?: number | null;
   /** % efectivo en puntos base (`round(standard*10000/market)`). */
   standardPctBp?: number | null;
+  /**
+   * §BUYLIST-ES §3.3 (ADITIVOS, líneas ES): qué es el monto «Estándar» (`standardPctBp` solo viene con `curve`);
+   * «Mercado hoy» vivo SIN castigo y su diferencia contra lo congelado (`null` si 0, override o pendiente).
+   */
+  standardKind?: 'curve' | 'cap_en_offer' | 'cap_floor' | 'override' | 'pending' | null;
+  marketTodayCents?: number | null;
+  marketDriftCents?: number | null;
   /** `null` ⇔ oferta == estándar. `deltaCents = derived - standard`. */
   adjustment?: {
     deltaCents: number;
