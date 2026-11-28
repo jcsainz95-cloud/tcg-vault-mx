@@ -19,4 +19,5 @@ export const FINISH_LABEL_OF = {
   holofoil: 'holo',
   reverse_holo: 'reverse_holo',
   first_edition_holofoil: 'first_edition_holo',
+  first_edition: 'first_edition',
 } as const;

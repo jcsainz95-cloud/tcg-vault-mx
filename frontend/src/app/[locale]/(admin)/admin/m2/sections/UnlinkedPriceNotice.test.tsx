@@ -19,6 +19,9 @@ const REPORT: UnlinkedPriceReport = {
   notLinkable: { totalCards: 4, sets: [{ setId: 'x', name: 'Promos Raros', unlinked: 4, reason: 'no_group' }] },
 };
 
+const SUM: exc.LinkExceptionsSummary = {
+  unlinkedCards: 12, unlinkedSets: 2, repairedYesterday: 5, pricedYesterday: 5, lastRunAt: null, nextRunAt: null, waitingDecision: null, pendingConfirm: null, autoLinkEnabled: null,
+};
 const R = (o: Partial<repair.LinkRepairResult>): repair.LinkRepairResult => ({
   linked: 0, priced: null, groupUsed: null, reason: null, nextAttemptAt: null, reasons: [], piecesCorrected: 0, piecesExcluded: [], ...o,
 });
@@ -110,12 +113,14 @@ describe('UnlinkedPriceNotice · nombre y motivos', () => {
 });
 
 describe('§AUTO-ENLACE · F1/F2/F4', () => {
+  const X = { lastAttemptAt: null, tries: null, candidates: [], canConfirm: false };
   const EXC = {
     unlinkedCards: 12,
+    summary: SUM,
     sets: [
-      { setId: UUID1, name: 'Scarlet', unlinked: 9, total: 100, reason: 'group_ambiguous' as const, groupUsed: null, nextAttemptAt: null },
-      { setId: UUID2, name: 'Violet', unlinked: 3, total: 50, reason: null, groupUsed: { groupId: 7, name: 'SV: Violet', via: 'auto' as const }, nextAttemptAt: null },
-      { setId: 'z', name: 'Fuera', unlinked: 2, total: 5, reason: 'not_in_provider' as const, groupUsed: null, nextAttemptAt: null },
+      { setId: UUID1, name: 'Scarlet', unlinked: 9, total: 100, reason: 'group_ambiguous' as const, groupUsed: null, nextAttemptAt: null, ...X },
+      { setId: UUID2, name: 'Violet', unlinked: 3, total: 50, reason: null, groupUsed: { groupId: 7, name: 'SV: Violet', via: 'auto' as const }, nextAttemptAt: null, ...X },
+      { setId: 'z', name: 'Fuera', unlinked: 2, total: 5, reason: 'not_in_provider' as const, groupUsed: null, nextAttemptAt: null, ...X },
     ],
   };
   it('lista desde link-exceptions: motivo y grupo por set; sin botón para «no en proveedor»', async () => {
@@ -266,5 +271,105 @@ describe('readLinkRepair', () => {
     expect(mixed.reasons).toEqual([{ key: 'ownerConflict', count: 2 }, { key: 'nameMismatch', count: 1 }]);
     expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'no_local_card', count: 9 }] }).reasons).toEqual([{ key: 'noLocalCard', count: 9 }]);
     expect(repair.readLinkRepair({ linked: 0, omitted: [{ reason: 'name_mismatch', count: 2 }] }).reasons).toEqual([{ key: 'nameMismatch', count: 2 }]);
+  });
+});
+describe('§AUTO-ENLACE F3 · Confirmar candidato', () => {
+  const CAND = { groupId: 24380, name: 'Classic Collection', publishedOn: '2026-06-12', productCount: 34, score: 0.9 };
+  const EXC3: exc.LinkExceptions = {
+    unlinkedCards: 11,
+    summary: SUM,
+    sets: [{ setId: UUID1, name: 'Scarlet', unlinked: 11, total: 30, reason: 'name_mismatch', groupUsed: null, nextAttemptAt: null, lastAttemptAt: null, tries: 1, canConfirm: true,
+      candidates: [CAND, { ...CAND, groupId: 2, name: 'Otro' }] }],
+  };
+  it('muestra el mejor candidato arriba, confirma y pinta el resultado junto al caso', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue(EXC3);
+    const spy = vi.spyOn(exc, 'confirmLinkException').mockResolvedValue({ setId: UUID1, groupUsed: null, linked: 9, priced: 18, collisions: 0, conflicts: 0 });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    expect(await screen.findByText(/Mejor candidato: Classic Collection/)).toBeTruthy();
+    expect(screen.getByText(/los nombres de las cartas no coinciden/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar el grupo Classic Collection para Scarlet/ }));
+    const res = await screen.findByTestId('confirm-result');
+    expect(spy).toHaveBeenCalledWith(UUID1, 24380);
+    expect(res.closest('li')?.textContent).toContain('Scarlet');
+    expect(res.textContent).toMatch(/Confirmado en Scarlet: 9 cartas ligadas y 18 precios actualizados\./);
+  });
+  it('§10: b3_unverified explica la retención, muestra muestras de mercado y no_source_product no cuenta ni tiene «Revisar»', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({
+      ...EXC3,
+      sets: [
+        { ...EXC3.sets[0], reason: 'b3_unverified', sample: [{ cardName: 'Pikachu', number: '25', finish: 'reverse_holo', newPriceCents: 12300 }], b3Published: 3, b3Held: 5, nextAttemptAt: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+        { ...EXC3.sets[0], setId: UUID1 + 'x', name: 'Sin fuente', unlinked: 4, reason: 'no_source_product', canConfirm: false, candidates: [] },
+      ],
+    });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    const held = await screen.findByTestId('b3-held');
+    expect(held.textContent).toMatch(/los que ya estaban publicados se conservan/);
+    expect(held.textContent).toMatch(/Pikachu #25 \(Reverse Holofoil\).*MX\$123\.00 mercado \(sin margen ni IVA\)/);
+    expect(screen.getByTestId('b3-published').textContent).toMatch(/3 con precio ya publicado antes de confirmar/);
+    expect(screen.getByTestId('b3-held-count').textContent).toMatch(/5 esperando confirmación \(sin precio\)/);
+    expect(screen.getByTestId('unlinked-group').textContent).not.toMatch(/\d{4}|a las/);
+    expect(screen.getByText(/Sin fuente/).closest('li')?.textContent).toMatch(/la fuente no tiene producto/);
+    expect(screen.getByText(/Sin fuente/).closest('li')?.querySelector('button')).toBeNull();
+    expect(screen.getByRole('status').textContent).toMatch(/^11 cartas sin precio ligado en 1 set/);
+    expect(held.textContent).not.toMatch(/\(mercado \(|\)\)/);
+    expect(held.textContent).not.toMatch(/\d{1,2} de \w+|reintent\w+ (el|a las)/i);
+  });
+  it('§12.4: set b3_unverified 100 % ligado (unlinked 0, b3Held>0) SÍ se pinta y tiene «Confirmar»', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({
+      ...EXC3, unlinkedCards: 0,
+      sets: [{ ...EXC3.sets[0], name: 'Expedition', unlinked: 0, total: 165, reason: 'b3_unverified', b3Published: 0, b3Held: 324, sample: [] }],
+    });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    expect(await screen.findByText('Expedition')).toBeTruthy();
+    expect(screen.getByTestId('b3-held-count').textContent).toMatch(/324 esperando confirmación/);
+    expect(screen.getByRole('button', { name: /Confirmar el grupo Classic Collection para Expedition/ })).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toMatch(/1 set espera tu confirmación/);
+  });
+  it('I-4 confirmar: set B3 100 % ligado sale al refrescar y el resultado queda fijo arriba', async () => {
+    const b3 = { ...EXC3.sets[0], name: 'Expedition', unlinked: 0, total: 165, reason: 'b3_unverified' as const, b3Published: 0, b3Held: 324, sample: [] };
+    const get = vi.spyOn(exc, 'getLinkExceptions').mockResolvedValueOnce({ ...EXC3, unlinkedCards: 0, sets: [b3] }).mockResolvedValue({ ...EXC3, unlinkedCards: 0, sets: [] });
+    vi.spyOn(exc, 'confirmLinkException').mockResolvedValue({ setId: UUID1, groupUsed: null, linked: 165, priced: 160, collisions: 0, conflicts: 0 });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirmar el grupo Classic Collection para Expedition/ }));
+    const top = await screen.findByTestId('confirm-resolved');
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(top.textContent).toMatch(/Confirmado en Expedition: 165 cartas ligadas y 160 precios/);
+    expect(screen.queryByText('Expedition')).toBeNull();
+  });
+  it('título: cuenta solo sets con cartas sin ligar, no los B3 con 0', async () => {
+    const b3 = { ...EXC3.sets[0], unlinked: 0, reason: 'b3_unverified' as const, b3Held: 3, sample: [] };
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, sets: [EXC3.sets[0], { ...b3, setId: UUID1 + 'a', name: 'B' }, { ...b3, setId: UUID1 + 'b', name: 'C' }] });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    await screen.findByText('B');
+    expect(screen.getByRole('status').textContent).toMatch(/^11 cartas sin precio ligado en 1 set(?!s)/);
+  });
+  it('§12.4: un set normal 100 % ligado sin B3 no se pinta', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, unlinkedCards: 0, sets: [{ ...EXC3.sets[0], unlinked: 0, reason: null, b3Held: 0, candidates: [], canConfirm: false }] });
+    const { container } = renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    await waitFor(() => expect(exc.getLinkExceptions).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(container.textContent).toBe('');
+  });
+  it('link-repair con nextAttemptAt en b3_unverified: sin fecha de reintento en la UI', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, sets: [{ ...EXC3.sets[0], reason: 'b3_unverified', b3Held: 2 }] });
+    vi.spyOn(repair, 'repairCatalogLinks').mockResolvedValue(R({ linked: 0, reason: 'b3_unverified' as never, nextAttemptAt: '2026-12-05T12:00:00Z' }));
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar este set: Scarlet/ }));
+    await waitFor(() => expect(repair.repairCatalogLinks).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.body.textContent).not.toMatch(/Disponible de nuevo|reintento/i);
+  });
+  it('422 GROUP_NOT_FOUND se explica en claro', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue(EXC3);
+    vi.spyOn(exc, 'confirmLinkException').mockRejectedValue(new ApiClientError(422, { code: 'GROUP_NOT_FOUND', message: 'x', details: {} }));
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Confirmar el grupo Classic Collection/ }));
+    expect((await screen.findByTestId('confirm-error')).textContent).toMatch(/ya no existe/);
+  });
+  it('sin canConfirm no hay botón Confirmar', async () => {
+    vi.spyOn(exc, 'getLinkExceptions').mockResolvedValue({ ...EXC3, sets: [{ ...EXC3.sets[0], canConfirm: false }] });
+    renderWithProviders(<UnlinkedPriceNotice report={undefined} />);
+    await screen.findByText('Scarlet');
+    expect(screen.queryByText('Confirmar')).toBeNull();
   });
 });

@@ -77,8 +77,22 @@ export const ErrorCode = {
   // backend remapea el fallo remoto a 502 con mensaje accionable. Money-safe (todo el fetch ocurre
   // ANTES de escribir). Emisores: familia TCGCSV del sellado (§M2 groups/products), sync/sync-all
   // (pokemontcg.io) y la familia refresh-variants (§M2 — M-34/M-35). En el batch refresh-variants-all
-  // NO se propaga como HTTP: se captura por-set y va a summary.failures[].code. 502.
+  // NO se propaga como HTTP: se captura por-set y va a summary.failures[].code. 502. §AUTO-ENLACE (contrato §3): en `link-repair`/`confirm`/`cards` el proveedor caído
+  // es 503 (`BusinessException.retriable`), mensaje fijo, nunca 502.
   UPSTREAM_ERROR: 'UPSTREAM_ERROR',
+  // §AUTO-ENLACE fase 3 (contrato §3): el `groupId` elegido para confirmar no existe en `listGroups` de TCGCSV. 422.
+  GROUP_NOT_FOUND: 'GROUP_NOT_FOUND',
+  // §AUTO-ENLACE §9.4 (confirmación por carta): 422 `PRODUCT_NOT_CANDIDATE` (el producto no es candidato de esa carta); 409 `PRODUCT_TAKEN` (otro lo ligó entre medias).
+  PRODUCT_NOT_CANDIDATE: 'PRODUCT_NOT_CANDIDATE',
+  PRODUCT_TAKEN: 'PRODUCT_TAKEN',
+  // §9.6 (iv) `unlink`: 409 si el job no corrió sobre ese set en los últimos 7 días.
+  NOTHING_TO_UNLINK: 'NOTHING_TO_UNLINK',
+  // §AUTO-ENLACE fase 4 (contrato §8b, `finish-review`): 409. `ITEM_LOCKED` (venta/reserva/custodia/dueño ≠ plataforma), `NO_TARGET_PRICE` (sin precio del
+  // acabado destino), `STALE` (el acabado ya no es el que vio el cliente), `ALREADY_RESOLVED` (ya hay una decisión contraria).
+  ITEM_LOCKED: 'ITEM_LOCKED',
+  NO_TARGET_PRICE: 'NO_TARGET_PRICE',
+  STALE: 'STALE',
+  ALREADY_RESOLVED: 'ALREADY_RESOLVED',
   // v1.31 (formalizado; refresh-variants M-34): se intentó refrescar variantes/precios de un set que NO
   // existe en BD, o existe pero SIN cartas. La reparación solo-TCGCSV NO importa el set (no llama a
   // pokemontcg.io); mensaje accionable ("impórtalo primero con POST /admin/catalog/sync"). Se usa 409

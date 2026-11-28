@@ -112,7 +112,7 @@ export function computeAportacionCostCents(referenceMxnCents: number, aportacion
  * eligiendo DE QUÉ VARIANTE se lee el mercado. Lo ÚNICO que perdió en v2.0 es tener regla de precio
  * propia.
  */
-export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil' | 'first_edition';
 
 /**
  * **H-1, EL PREDICADO** (v2.1.4, §4.36.6 / E5-bis) — «presente ⇔ `> 0`», en UN solo cuerpo.

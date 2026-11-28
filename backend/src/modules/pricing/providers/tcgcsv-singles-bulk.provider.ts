@@ -4,7 +4,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceResult, BulkPriceRow } from '../pricing.types';
 import { TcgcsvCatalogClient, deriveCardProductsFromTcgcsv } from './tcgcsv-singles.provider';
 import { SetUnresolvedSignal } from '../pricing.types';
-import { TcgcsvGroupMatchFailure, resolveTcgcsvGroupForSet } from './tcgcsv-group-match';
+import { TcgcsvGroupMatchFailure, resolveTcgcsvGroupForSet, releaseTcgcsvRow } from './tcgcsv-group-match';
+import { priorRefKey, priorTcgcsvRefKeys } from './tcgcsv-prior-refs';
 
 /**
  * TcgcsvSinglesBulkPriceProvider (v1.44, P-47, ARCHITECTURE §4.35) — PROVEEDOR PRIMARIO del barrido
@@ -51,7 +52,7 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
   readonly source: PriceSource = 'tcgcsv_singles';
   private readonly logger = new Logger(TcgcsvSinglesBulkPriceProvider.name);
   /** Cache de `groupId` por set dentro del proceso (idéntico patrón a `CardProductResolverService`). */
-  private readonly groupIdCache = new Map<string, number>();
+  private readonly groupIdCache = new Map<string, { groupId: number; via: string }>();
 
   constructor(
     private readonly tcgcsv: TcgcsvCatalogClient,
@@ -90,6 +91,7 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
       return { ...empty, setUnresolved: resolved.signal };
     }
     const groupId = resolved.groupId;
+    const via = resolved.via;
 
     let products, prices;
     try {
@@ -124,6 +126,10 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
       : [];
     const byProductId = new Map(existing.map((cp) => [cp.tcgplayerProductId, cp]));
 
+    // §12 (retención B3, ÚNICO punto de aplicación para todo escritor que consuma este provider): grupo `via:'b3'` ⇒ la variante sin referencia
+    // TCGCSV previa NO emite fila. Solo se consulta si el grupo es B3 (los demás no retienen nunca).
+    const prior = via === 'b3' ? await priorTcgcsvRefKeys(this.prisma, existing.map((e) => e.tcgplayerProductId)) : new Set<string>();
+    let b3Held = 0;
     const rows: BulkPriceRow[] = [];
     let fetchedRaw = 0;
     let skipped = 0;
@@ -172,16 +178,23 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
           skipped += 1;
           continue;
         }
-        rows.push({
+        // §13.4(b): la fila sale marcada `RetainedPriceRow` (solo así la persiste `price-ingest`); `null` ⇒ retenida (b3 sin referencia previa de ESTE producto|subtipo).
+        const out = releaseTcgcsvRow({ groupId, via }, prior.has(priorRefKey(dp.productId, pf.finish)), {
           externalId: cp.card.externalId,
           cardId: cp.cardId,
           cardProductId: cp.id,
           finish: pf.finish,
           marketCents,
-          currency: 'USD', // TCGCSV publica SIEMPRE USD (precios TCGplayer) ⇒ el ingest aplica FX+colchón.
+          currency: 'USD' as const, // TCGCSV publica SIEMPRE USD (precios TCGplayer) ⇒ el ingest aplica FX+colchón.
           // El subTypeName se mapeó por `TCGCSV_SUBTYPE_TO_FINISH` (espejo estricto), no un alias supuesto.
           finishAliasVerified: true,
-        });
+        } satisfies BulkPriceRow);
+        if (out == null) {
+          skipped += 1;
+          b3Held += 1;
+          continue;
+        }
+        rows.push(out);
       }
     }
 
@@ -191,7 +204,10 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
           `productos SIN CardProduct local (estructura no resuelta); se OMITEN hasta un --force del set (§4.35b).`,
       );
     }
-    return { rows, fetchedRaw, skipped, requestOk: true };
+    if (b3Held > 0) {
+      this.logger.log(`tcgcsv_singles: grupo ${groupId} (set "${set.name}") vía B3 SIN confirmar — ${b3Held} variante(s) sin referencia TCGCSV previa NO se publican (b3_unverified, §12).`);
+    }
+    return { rows, fetchedRaw, skipped, requestOk: true, ...(b3Held > 0 ? { omitted: [{ reason: 'b3_unverified' as const, count: b3Held }] } : {}) };
   }
 
   /**
@@ -207,14 +223,15 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
    * ese archivo para el bug entero.
    */
   private async resolveGroupId(set: CardSet): Promise<GroupIdResolution> {
-    const cached = this.groupIdCache.get(set.id);
-    if (cached != null) return { groupId: cached };
+    const cached = set.cardGroupVia === 'confirmed' ? undefined : this.groupIdCache.get(set.id); // un grupo confirmado nunca se cachea (el dueño puede cambiarlo)
+    if (cached != null) return { groupId: cached.groupId, via: cached.via };
 
     // P-PROMOS-VIEJAS: tabla fija > pptSetId numérico > nombre, en la función compartida con la ruta de estructura.
     const match = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
     if (match.groupId != null) {
-      this.groupIdCache.set(set.id, match.groupId);
-      return { groupId: match.groupId };
+      // `b3` NO se cachea: el dueño puede confirmar el grupo en cualquier momento (`via` pasa a `confirmed`) y la retención debe soltarse sin reiniciar.
+      if (match.via !== 'b3' && match.via !== 'confirmed') this.groupIdCache.set(set.id, { groupId: match.groupId, via: match.via });
+      return { groupId: match.groupId, via: match.via };
     }
 
     this.logger.warn(
@@ -238,7 +255,7 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
 
 /** Resultado interno de `resolveGroupId`: el id, o el motivo con el que se avisa a un humano. */
 type GroupIdResolution =
-  | { groupId: number; signal?: undefined }
+  | { groupId: number; via: string; signal?: undefined }
   | { groupId: null; signal: SetUnresolvedSignal };
 
 /** Motivo del matcher → motivo de la señal visible (vocabularios distintos a propósito). */

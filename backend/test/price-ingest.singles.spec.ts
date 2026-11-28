@@ -1,3 +1,5 @@
+import { tcgcsvRow } from './helpers/tcgcsv-row';
+import { releaseTcgcsvRow } from '../src/modules/pricing/providers/tcgcsv-group-match';
 import { PriceIngestService } from '../src/modules/pricing/price-ingest.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -32,13 +34,14 @@ function configMock() {
 /** Provider `tcgcsv_singles` mock: filas YA joineadas (cardId + cardProductId), como en producción. */
 function singlesProvider(
   rows: Array<Record<string, unknown>>,
-  opts: { skipped?: number; requestOk?: boolean; setUnresolved?: Record<string, unknown> } = {},
+  opts: { skipped?: number; requestOk?: boolean; setUnresolved?: Record<string, unknown>; unmarked?: boolean } = {},
 ) {
   const { skipped = 0, requestOk = true, setUnresolved } = opts;
   return {
     source: 'tcgcsv_singles',
+    // Como el provider real: las filas salen marcadas por la retención B3 (§13.4); `unmarked` simula un provider que se la salta.
     fetchPricesForSet: jest.fn(async () => ({
-      rows,
+      rows: opts.unmarked ? rows : rows.map((r) => releaseTcgcsvRow({ groupId: 1, via: 'confirmed' }, false, r)!),
       fetchedRaw: rows.length + skipped,
       skipped,
       requestOk,
@@ -92,10 +95,10 @@ describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', ()
 
     expect(pricing.persistMarketReference).toHaveBeenCalledTimes(3);
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'card-A', 'reverse_holo', { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1', expect.anything(),
+      'card-A', 'reverse_holo', tcgcsvRow(250, 'USD'), fx, 'cp-1', expect.anything(),
     );
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'card-A', 'holofoil', { marketCents: 375, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1', expect.anything(),
+      'card-A', 'holofoil', tcgcsvRow(375, 'USD'), fx, 'cp-1', expect.anything(),
     );
     expect(res).toMatchObject({ provider: 'tcgcsv_singles', cardCount: 1, priced: 3, unresolved: 0 });
   });
@@ -136,6 +139,17 @@ describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', ()
     ]);
     const { svc, pricing } = build(provider);
 
+    const res = await svc.ingestSet('local-me05', fx);
+    expect(pricing.persistMarketReference).not.toHaveBeenCalled();
+    expect(res.priced).toBe(0);
+  });
+
+  it('§13.4(b): una fila TCGCSV que NO pasó por la retención B3 (sin marca) NO se escribe (falla cerrada)', async () => {
+    const provider = singlesProvider(
+      [{ cardId: 'card-A', cardProductId: 'cp-1', externalId: 'ext-A', finish: 'normal', marketCents: 100, currency: 'USD', finishAliasVerified: true }],
+      { unmarked: true },
+    );
+    const { svc, pricing } = build(provider);
     const res = await svc.ingestSet('local-me05', fx);
     expect(pricing.persistMarketReference).not.toHaveBeenCalled();
     expect(res.priced).toBe(0);
@@ -224,7 +238,7 @@ describe('PricingService.persistMarketReference — singles keyed por cardProduc
   it('USD → FX+colchón, source tcgcsv_singles, y cardProductId en la clave/creación', async () => {
     const { svc, prisma } = pricingSvc(null);
     await svc.persistMarketReference(
-      'card-A', 'reverse_holo', { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1',
+      'card-A', 'reverse_holo', tcgcsvRow(250, 'USD'), fx, 'cp-1',
     );
     // La lectura previa acota por cardProductId (clave M-31).
     expect(prisma.priceReference.findFirst).toHaveBeenCalledWith(
@@ -245,7 +259,7 @@ describe('PricingService.persistMarketReference — singles keyed por cardProduc
   it('override manual presente (misma carta/producto/día) ⇒ NO se pisa', async () => {
     const { svc, prisma } = pricingSvc({ id: 'ref-x', isManualOverride: true, priceMxnCents: 99999 });
     await svc.persistMarketReference(
-      'card-A', 'holofoil', { marketCents: 500, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1',
+      'card-A', 'holofoil', tcgcsvRow(500, 'USD'), fx, 'cp-1',
     );
     expect(prisma.priceReference.create).not.toHaveBeenCalled();
     expect(prisma.priceReference.update).not.toHaveBeenCalled();

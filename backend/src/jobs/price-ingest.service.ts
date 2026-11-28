@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { FxService } from '../modules/pricing/fx.service';
 import { FxSnapshot, PriceIngestService } from '../modules/pricing/price-ingest.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { autoLinkLockHeld } from '../modules/catalog/auto-link-lock';
 
 /** Nombre del child job por set (encolado por el parent; procesado por el worker del scheduler). */
 export const PRICE_INGEST_SET_JOB = 'price-ingest-set';
@@ -44,6 +46,8 @@ export class PriceIngestJobService {
   constructor(
     private readonly fx: FxService,
     private readonly ingest: PriceIngestService,
+    // §AUTO-ENLACE fase 2: para consultar el candado compartido con `catalog-auto-link` (sin él, no se consulta).
+    @Optional() private readonly prisma?: PrismaService,
   ) {}
 
   /** El SchedulerService inyecta su cola cuando Redis está disponible. */
@@ -64,6 +68,13 @@ export class PriceIngestJobService {
     if (setId) {
       await this.ingest.ingestSetByExternalId(setId, fx);
       return { job: JOB, enqueued: true, scope: 'set', setId };
+    }
+
+    // §AUTO-ENLACE fase 2 (DECISIONES 3): `catalog-auto-link` y el barrido completo nunca a la vez. Si la tanda de ligado tiene el candado, este
+    // barrido se salta (el siguiente cron lo cubre; ligar+preciar de la tanda ya escribe el precio de lo que toca).
+    if (this.prisma && (await autoLinkLockHeld(this.prisma).catch(() => false))) {
+      this.logger.warn('price-ingest: catalog-auto-link tiene el candado; se salta este barrido (el siguiente cron lo cubre).');
+      return { job: JOB, enqueued: false };
     }
 
     if (this.queue) {

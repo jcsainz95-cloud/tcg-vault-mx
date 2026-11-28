@@ -19,6 +19,7 @@ const MARK_KEY: Record<Finish, string> = {
   reverse_holo: 'reverse',
   holofoil: 'holo',
   first_edition_holofoil: 'firstEdHolo',
+  first_edition: 'first_edition',
 };
 
 /**
@@ -47,6 +48,7 @@ const FINISH_BAND_BACKGROUND: Partial<Record<Finish, string>> = {
   reverse_holo: 'var(--color-finish-reverse, var(--color-accent, #B31217))', // rojo
   holofoil: 'var(--color-finish-holo, #1F5C8F)', // azul (token nuevo)
   first_edition_holofoil: 'var(--color-ink, #1A1A18)', // sin cambio (tinta)
+  first_edition: 'var(--color-ink, #1A1A18)', // §AUTO-ENLACE F4: 1st Edition sin holo, misma tinta
 };
 
 /**

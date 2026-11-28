@@ -62,6 +62,8 @@ enum Finish {
   reverse_holo
   holofoil
   first_edition_holofoil
+  // §AUTO-ENLACE fase 4 (Q1 = A): «1st Edition» NO holográfica de TCGCSV (WotC). Migración propia ANTES del código que la usa.
+  first_edition
 }
 
 // v1.1 (M-2): subtipo opcional del producto sellado (solo productType=sealed).
@@ -917,6 +919,11 @@ model CardSet {
   // ⇒ fallback: `DISTINCT tcgplayerGroupId` de los items sellados YA mapeados del set. Solo lectura
   // de catálogo (resuelve el proxy); JAMÁS fija precio (money-safe). ARCHITECTURE §11 (M-37).
   tcgcsvGroupId Int?
+  // §AUTO-ENLACE fase 3 (DECISIONES §AUTO-ENLACE 7, contrato §6): grupo TCGCSV de las CARTAS de este set (distinto de `tcgcsvGroupId`, espejo del
+  // sellado, y de `pptSetId`, del graded). `cardGroupVia`: `auto` (regla B3, informativo, se recalcula) | `confirmed` (lo eligió un super_admin; el job
+  // y la regla automática NUNCA lo pisan). `promo_table` no se guarda: sale de `PTCG_PROMO_GROUPS`. `null` ⇒ aún sin resolver.
+  cardGroupId   Int?
+  cardGroupVia  String?
   // v1.52-set-logos (M-47, §4.39): IMÁGENES DE LA EXPANSIÓN publicadas por pokemontcg.io. Se guardan
   // las URLs del CDN del proveedor (igual que el arte de las cartas), NUNCA los bytes, y JAMÁS se
   // construyen por plantilla desde el `externalId` (§4.39.2). Clase (P) PRESENTACIÓN (§5.2.2): su peor

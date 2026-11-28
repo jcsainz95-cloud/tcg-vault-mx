@@ -8,6 +8,9 @@ import { FinishReconciler } from '../src/modules/catalog/finish-reconciler.servi
 import { FxService } from '../src/modules/pricing/fx.service';
 import { TcgcsvCatalogClient } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
 import fixture from './fixtures/tcgcsv/group-24837-classic-collection.json';
+import { AutoLinkPriceGate } from '../src/modules/pricing/auto-link-price-gate.service';
+import { resolveRobustMarket, DEFAULT_PRICE_ARBITER_SOURCES } from '../src/common/robust-market';
+import { variantKey } from '../src/common/variant-key';
 
 /**
  * §PRECIO-SIN-ENLACE (fase 1) — CA-1, CA-2, CA-5, CA-8 con el grupo REAL 24837 («ME: 30th Celebration Classic
@@ -357,30 +360,163 @@ describe('grupo REAL 24837 (CA-1, CA-2)', () => {
 
   describe('B-1 / AE-2: B4 (reparación) solo precia acabados presentes en CardProduct.finishes y respeta override', () => {
     const fp = fixture.prices[0] as Record<string, unknown>;
-    const mk = (existingFinishes: string[], existingPrice: { isManualOverride: boolean } | null) => {
+    const mk = (
+      existingFinishes: string[],
+      existingPrice: { isManualOverride: boolean } | null,
+      priceOver: Record<string, unknown> = {},
+      shape: { cards?: number; addsOn?: number; manualOverride?: boolean; gate?: unknown } = {},
+    ) => {
       const prs: any[] = [];
-      const prod1 = { ...fixture.products[0], productId: 9001, name: 'Charizard', number: '4/102' };
-      const price1 = { ...fp, productId: 9001, subTypeName: 'Holofoil', marketPrice: 1877.4, lowPrice: 1800, midPrice: 1850, highPrice: 2000, directLowPrice: null };
+      const n = shape.cards ?? 1;
+      const addsOn = shape.addsOn ?? n;
+      const prods = Array.from({ length: n }, (_, i) => ({ ...fixture.products[0], productId: 9001 + i, name: `Charizard ${i}`, number: `${4 + i}/102` }));
+      const priceRows = prods.flatMap((p, i) => {
+        const base = { ...fp, productId: p.productId, lowPrice: 1800, midPrice: 1850, highPrice: 2000, directLowPrice: null };
+        const holo = { ...base, subTypeName: 'Holofoil', marketPrice: 1877.4, ...priceOver };
+        // Las tarjetas sin «adición» solo traen el acabado que el producto ya tiene.
+        return i < addsOn ? [holo] : [{ ...base, subTypeName: 'Normal', marketPrice: 10 }];
+      });
+      const cps = prods.map((p, i) => ({ id: `cp${i}`, tcgplayerProductId: p.productId, cardId: `c${i}`, kind: 'set_base', finishes: existingFinishes }));
       const prisma = {
         $executeRaw: jest.fn(async () => 0),
         cardSet: { findUnique: jest.fn(async () => ({ id: 's', name: 'Base', pptSetId: '24837', externalId: 'base1' })) },
-        card: { findMany: jest.fn(async () => [{ id: 'cC', number: '4', name: 'Charizard', tcgplayerId: null, _count: { cardProducts: 1 } }]) },
+        card: {
+          findMany: jest.fn(async () => prods.map((p, i) => ({ id: `c${i}`, number: String(4 + i), name: `Charizard ${i}`, tcgplayerId: null, _count: { cardProducts: 1 } }))),
+          findUnique: jest.fn(async (a: any) => ({ availableFinishes: ['normal'], id: a.where.id })),
+          update: jest.fn(async () => ({})),
+        },
         cardProduct: {
-          findMany: jest.fn(async () => [{ id: 'cp1', tcgplayerProductId: 9001, cardId: 'cC', kind: 'set_base', finishes: existingFinishes }]),
+          findMany: jest.fn(async () => cps),
+          findUnique: jest.fn(async (a: any) => ({ finishes: existingFinishes, id: a.where.id })),
+          update: jest.fn(async () => ({})),
           upsert: jest.fn(),
         },
-        priceReference: { findUnique: jest.fn(async () => existingPrice), upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })) },
+        priceReference: {
+          findUnique: jest.fn(async () => existingPrice),
+          findMany: jest.fn(async () => (shape.manualOverride ? prods.map((_p, i) => ({ cardId: `c${i}`, finish: 'holofoil' })) : [])),
+          upsert: jest.fn(async (a: any) => (prs.push(a), { id: 'x' })),
+        },
       } as unknown as PrismaService;
-      const client = { getProducts: jest.fn(async () => [prod1]), getPrices: jest.fn(async () => [price1]), listGroups: jest.fn(async () => []) } as unknown as TcgcsvCatalogClient;
+      const client = { getProducts: jest.fn(async () => prods), getPrices: jest.fn(async () => priceRows), listGroups: jest.fn(async () => [{ groupId: 24837, name: 'Grupo de prueba' }]) } as unknown as TcgcsvCatalogClient;
       const fx = { getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0, source: 'banxico', effectiveDate: '2026-11-25' })) } as unknown as FxService;
-      const svc = new CardProductResolverService(prisma, client, { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fx);
+      const svc = new CardProductResolverService(prisma, client, { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fx, undefined, undefined, shape.gate as never);
       return { svc, prs, prisma };
     };
-    it('B-1: producto [normal] y fuente Holofoil 187 740 ¢ ⇒ NO se escribe fila Holofoil huérfana', async () => {
+    it('§9.5 (supersede B-1): Charizard producto [normal] + fuente Holofoil 187 740 ¢ ⇒ finishes=[normal,holofoil] en CardProduct y carta, con su precio; 0 piezas tocadas', async () => {
       const { svc, prs, prisma } = mk(['normal'], null);
-      await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(res).toMatchObject({ finishesAdded: 1, pricesWritten: 1 });
+      expect(prs).toHaveLength(1);
+      expect(prs[0].create).toMatchObject({ finish: 'holofoil', cardId: 'c0', priceUsdCents: 187740 });
+      expect(prisma.cardProduct.update).toHaveBeenCalledWith({ where: { id: 'cp0' }, data: { finishes: ['normal', 'holofoil'] } });
+      expect(prisma.card.update).toHaveBeenCalledWith({ where: { id: 'c0' }, data: { availableFinishes: ['normal', 'holofoil'] } });
+      expect(prisma.cardProduct.upsert).not.toHaveBeenCalled(); // el enlace NO se rehace
+    });
+    it('§9.5 (i): subtipo DESCONOCIDO ⇒ 0 escrituras y se cuenta unknown_subtype', async () => {
+      const { svc, prs, prisma } = mk(['normal'], null, { subTypeName: 'Cosmos Foil Etched' });
+      const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(0);
+      expect(prisma.cardProduct.update).not.toHaveBeenCalled();
+      expect(prisma.card.update).not.toHaveBeenCalled();
+      expect(res).toMatchObject({ finishesAdded: 0, reasonCounts: { unknown_subtype: 1 } });
+    });
+    it('§9.5 (v): set con 30 % de adiciones (N ≥ 8) ⇒ 0 escrituras de acabados y finishSurge; con 20 % sí se añaden', async () => {
+      for (const [adds, expectSurge] of [[3, true], [2, false]] as const) {
+        const { svc, prs, prisma } = mk(['normal'], null, {}, { cards: 10, addsOn: adds });
+        const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+        expect(res?.finishSurge ?? false).toBe(expectSurge);
+        expect(res?.finishesAdded).toBe(expectSurge ? 0 : adds);
+        if (expectSurge) {
+          expect(prs.filter((r) => r.create.finish === 'holofoil')).toHaveLength(0);
+          expect(prisma.cardProduct.update).not.toHaveBeenCalled();
+          expect(prisma.card.update).not.toHaveBeenCalled();
+          expect(res?.reasonCounts).toMatchObject({ finish_not_in_product: 3 });
+        }
+      }
+    });
+    it('§9.5 (iii): override manual de mercado de ese acabado ⇒ no se añade ni se escribe', async () => {
+      const { svc, prs, prisma } = mk(['normal'], null, {}, { manualOverride: true });
+      const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(prs).toHaveLength(0);
+      expect(prisma.cardProduct.update).not.toHaveBeenCalled();
+      expect(res?.finishesAdded).toBe(0);
+    });
+    it('§9.5 (vi): tope por corrida — con finishBudget agotado no se añade nada', async () => {
+      const { svc, prisma } = mk(['normal'], null);
+      const budget = { remaining: 0 };
+      const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true, finishBudget: budget });
+      expect(res?.finishesAdded).toBe(0);
+      expect(prisma.cardProduct.update).not.toHaveBeenCalled();
+    });
+    // §9.6 — el candado de `price-ingest` (decideLock ×5) ANTES de escribir. `baselineOf(cardId)` = referencia previa (null ⇒ carta sin referencia).
+    const gateWith = (baselineOf: (cardId: string) => number | null) => {
+      const recorded: any[] = [];
+      const pricing = {
+        arbiterPreviewWithCandidates: jest.fn(async (items: any[]) => {
+          const out = new Map<string, any>();
+          const today = new Date().toISOString().slice(0, 10);
+          for (const it of items) {
+            out.set(variantKey(it.key), {
+              result: resolveRobustMarket([it.candidate], { freshnessDays: 7, admittedSources: DEFAULT_PRICE_ARBITER_SOURCES, consensusTolerancePct: 25 }, today),
+              baselineMxnCents: baselineOf(it.key.cardId),
+            });
+          }
+          return out;
+        }),
+        arbiterDetailForKeys: jest.fn(async () => new Map()),
+      };
+      const review = { recordArbiterDecision: jest.fn(async (...a: any[]) => (recorded.push(a), 'case')) };
+      const settings = { getRaw: jest.fn(async () => 5) };
+      return { gate: new AutoLinkPriceGate(pricing as never, review as never, settings as never), recorded, review, pricing };
+    };
+    const PRICE_MXN = 187_740 * 18; // 1877.40 USD × 18 en centavos MXN
+    it('§9.6 (i): salto ≥ ×5 contra la referencia vigente sin consenso ⇒ NO se escribe PriceReference y se abre el caso (eje sell); el resto sí se escribe', async () => {
+      const { gate, recorded } = gateWith((id) => (id === 'c0' ? PRICE_MXN / 10 : PRICE_MXN)); // c0: base 10× menor ⇒ salto ×10
+      const { svc, prs } = mk(['holofoil'], null, {}, { cards: 8, gate });
+      const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(res).toMatchObject({ held: 1, pricesWritten: 7, reasonCounts: { price_jump: 1 }, sanity: { checked: 8, held: 1 } });
+      expect(prs.map((r) => r.create.cardId)).not.toContain('c0');
+      expect(prs).toHaveLength(7);
+      expect(recorded).toHaveLength(1 + 0);
+      expect(recorded[0][0]).toMatchObject({ cardId: 'c0', finish: 'holofoil', productType: 'raw', gradeKey: 'raw:NM' });
+      expect(recorded[0][1]).toBe('sell');
+      expect(recorded[0][3]).toMatchObject({ outcome: 'review', publishMxnCents: null, conservedMxnCents: PRICE_MXN / 10, openCase: true });
+    });
+    it('§9.6 (ii): grupo EQUIVOCADO simulado (todas las cartas con referencia previa saltan ×20) ⇒ 0 precios publicados, 0 enlaces, set frenado price_sanity', async () => {
+      const { gate, recorded } = gateWith(() => PRICE_MXN / 20);
+      const { svc, prs, prisma } = mk(['holofoil'], null, {}, { cards: 6, gate });
+      const res = await svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(res).toMatchObject({ sanityAborted: true, joined: 0, pricesWritten: 0, sanity: { checked: 6, held: 6 }, touchedCardIds: [] });
       expect(prs).toHaveLength(0);
       expect(prisma.cardProduct.upsert).not.toHaveBeenCalled();
+      expect(prisma.cardProduct.update).not.toHaveBeenCalled();
+      expect(recorded).toHaveLength(0); // ni siquiera casos: el set entero no se publica
+    });
+    it('§9.6 (ii): con N < 5 variantes con referencia previa no hay freno por set (cada una se retiene sola); 1/5 = 20 % sí frena', async () => {
+      const four = gateWith(() => PRICE_MXN / 20);
+      const a = mk(['holofoil'], null, {}, { cards: 4, gate: four.gate });
+      const ra = await a.svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(ra).toMatchObject({ held: 4, pricesWritten: 0 });
+      expect(ra?.sanityAborted).toBeUndefined();
+      const five = gateWith((id) => (id === 'c0' ? PRICE_MXN / 20 : PRICE_MXN));
+      const b = mk(['holofoil'], null, {}, { cards: 5, gate: five.gate });
+      const rb = await b.svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(rb).toMatchObject({ sanityAborted: true, pricesWritten: 0 });
+      expect(b.prs).toHaveLength(0);
+    });
+    it('§9.6: sin referencia previa rige lo de price-ingest (se escribe y luego se registra la decisión); confirmado por el dueño no lo frena el freno por set', async () => {
+      const g1 = gateWith(() => null);
+      const a = mk(['holofoil'], null, {}, { cards: 6, gate: g1.gate });
+      const ra = await a.svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(ra).toMatchObject({ held: 0, pricesWritten: 6 });
+      expect(g1.pricing.arbiterDetailForKeys).toHaveBeenCalledTimes(1); // runPriceCandado posterior, como price-ingest
+      const g2 = gateWith(() => PRICE_MXN / 20);
+      const b = mk(['holofoil'], null, {}, { cards: 6, gate: g2.gate });
+      // grupo confirmado por el dueño: mismo candado por variante, sin el freno del set entero
+      (b.prisma.cardSet.findUnique as jest.Mock).mockResolvedValue({ id: 's', name: 'Base', pptSetId: '24837', externalId: 'base1', cardGroupId: 24837, cardGroupVia: 'confirmed' });
+      const rb = await b.svc.resolveCardProductsForSet('s', { onlyUnlinked: true });
+      expect(rb?.sanityAborted).toBeUndefined();
+      expect(rb).toMatchObject({ held: 6, pricesWritten: 0 });
     });
     it('B-1 (control): si el CardProduct ya tiene holofoil ⇒ sí se precia', async () => {
       const { svc, prs } = mk(['holofoil'], null);

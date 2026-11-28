@@ -12,7 +12,7 @@ export type ProductType = 'graded' | 'sealed' | 'raw';
 export type RawCondition = 'NM';
 // v1.6-finish: acabado/versión de carta (derivado de las llaves de tcgplayer.prices,
 // ARCHITECTURE §3.7). graded/sealed = normal. Es la lista blanca de Card.availableFinishes.
-export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil' | 'first_edition';
 
 // ---- §IDS (v1.116⟨ids⟩ / v1.116.1⟨ids⟩): idioma y versión de liga de la pieza ----
 /** §0 (M-95). Idioma de la pieza y del `OrderItem`. Sin `ja` (PROJECT §IDS.6). */
@@ -26,7 +26,7 @@ export type StampType = (typeof STAMP_TYPES)[number];
  * `finishLabelOf(finish, stampLabel)`). ⛔ El servidor no manda texto: el texto es i18n de frontend
  * (`version.finishLabel.*`), con paridad ES/EN.
  */
-export const FINISH_LABELS = ['non_holo', 'holo', 'reverse_holo', 'first_edition_holo', 'cosmos_holo'] as const;
+export const FINISH_LABELS = ['non_holo', 'holo', 'reverse_holo', 'first_edition_holo', 'first_edition', 'cosmos_holo'] as const;
 export type FinishLabel = (typeof FINISH_LABELS)[number];
 /** §IDS.5. `label` es el detalle del proveedor («Cosmos Holo», «Left Stamp»): solo admin, preparación y el rótulo D-IDS-6. */
 export interface StampDTO {
@@ -6463,6 +6463,8 @@ export interface CatalogSyncStatusResponse {
   attempt?: number | null;
   /** §PRECIO-SIN-ENLACE (aditivo): cartas sin enlace a su producto de precio. Ausente = 0 cartas. */
   unlinkedPrice?: UnlinkedPriceReport;
+  /** §AUTO-ENLACE §8c: resumen del job diario (idéntico a `link-exceptions.summary`). `summary` es del barrido. */
+  autoLink?: Record<string, unknown> | null;
 }
 
 /** §PRECIO-SIN-ENLACE: solo sets con `unlinked > 0`, orden desc, máx. 100. `null` = no medido. */

@@ -8,6 +8,7 @@ import {
   TcgcsvPriceRow,
   deriveStructuralFinishes,
   tcgcsvSubTypeToFinish,
+  TCGCSV_ALIAS_SUBTYPES,
 } from '../pricing.types';
 import { TcgcsvHttpClient } from './tcgcsv-http.client';
 
@@ -211,7 +212,7 @@ export function classifyCardProductKind(name: string | null | undefined, opts: {
 export function deriveCardProductsFromTcgcsv(
   products: TcgcsvSingleProductRef[],
   prices: TcgcsvPriceRow[],
-  opts: { variantEnabled?: boolean } = {},
+  opts: { variantEnabled?: boolean; /** §9.5: recibe cada `subTypeName` fuera de la tabla cerrada (se omite igual; el llamador lo cuenta). */ unknownSubtypes?: string[] } = {},
 ): DerivedCardProduct[] {
   // productId → filas de precio de ESE producto (subTypeName + marketPrice).
   const pricesByProduct = new Map<number, TcgcsvPriceRow[]>();
@@ -226,12 +227,15 @@ export function deriveCardProductsFromTcgcsv(
     const priceRows = pricesByProduct.get(p.productId) ?? [];
     // Acabados de ESTE producto (nunca de otro productId): estructura = presencia del subTypeName.
     const subs = priceRows.map((r) => r.subTypeName);
+    if (opts.unknownSubtypes) for (const r of priceRows) if (tcgcsvSubTypeToFinish(r.subTypeName) == null) opts.unknownSubtypes.push(String(r.subTypeName ?? ''));
     const finishes = deriveStructuralFinishes(subs);
     if (finishes.length === 0) continue; // ningún subTypeName mapeable ⇒ nada que colgar (money-safe)
     // Precio por variante: marketPrice de ESTE producto por su subTypeName→Finish.
     const pricesByFinish: { finish: Finish; marketPrice: number | null }[] = [];
     const seen = new Set<Finish>();
-    for (const r of priceRows) {
+    // Canónicos antes que alias (`Unlimited` ⇒ normal): si un producto trajera «Normal» Y «Unlimited», el precio es el de «Normal».
+    const isAlias = (r: TcgcsvPriceRow): number => (TCGCSV_ALIAS_SUBTYPES.has(String(r.subTypeName ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')) ? 1 : 0);
+    for (const r of [...priceRows].sort((a, b) => isAlias(a) - isAlias(b))) {
       const finish = tcgcsvSubTypeToFinish(r.subTypeName);
       if (finish == null || seen.has(finish)) continue;
       seen.add(finish);

@@ -1,3 +1,4 @@
+import { tcgcsvRow } from './helpers/tcgcsv-row';
 /**
  * pricing.persist-market-write-on-change.spec.ts — **P-53 §2: WRITE-ON-CHANGE del ESCRITOR DIARIO.**
  *
@@ -131,7 +132,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' },
+      tcgcsvRow(250, 'USD'),
       fx,
       'cp-1',
     );
@@ -149,7 +150,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 300, currency: 'USD', source: 'tcgcsv_singles' },
+      tcgcsvRow(300, 'USD'),
       fx,
       'cp-1',
     );
@@ -174,7 +175,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' },
+      tcgcsvRow(250, 'USD'),
       { rate: 19.5, bufferPct: 3 }, // FX distinta hoy — NO cuenta como cambio (§0.1).
       'cp-1',
     );
@@ -203,7 +204,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 300, currency: 'USD', source: 'tcgcsv_singles' },
+      tcgcsvRow(300, 'USD'),
       fx,
       'cp-1',
     );
@@ -219,7 +220,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' },
+      tcgcsvRow(250, 'USD'),
       fx,
       'cp-1',
     );
@@ -236,7 +237,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 999, currency: 'USD', source: 'tcgcsv_singles' },
+      tcgcsvRow(999, 'USD'),
       fx,
       'cp-1',
     );
@@ -261,7 +262,7 @@ describe('P-53 §2 — persistMarketReference write-on-change (escritor DIARIO)'
     await svc.persistMarketReference(
       'card-A',
       'normal',
-      { marketCents: 35_000, currency: 'MXN', source: 'tcgcsv_singles' },
+      tcgcsvRow(35_000, 'MXN'),
       { rate: 0, bufferPct: 0 },
       'cp-1',
     );

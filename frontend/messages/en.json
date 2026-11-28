@@ -1259,6 +1259,7 @@
     "reverse_holo": "Reverse Holo",
     "holofoil": "Holofoil",
     "first_edition_holofoil": "1st Edition",
+    "first_edition": "1st Edition (non-holo)",
     "reverse": "Reverse",
     "holo": "Holo",
     "firstEdHolo": "1ed Holo"
@@ -4498,6 +4499,7 @@
           "err": "Could not retry the link for {name}.",
           "errImport": "Importing the cards of {name} failed; linking prices was not attempted.",
           "resolvedTitle": "Result of the last update",
+          "b3OnlyTitle": "{sets, plural, one {# set is waiting for your group confirmation} other {# sets are waiting for your group confirmation}}",
           "finishNotice": "{n, plural, one {# card has} other {# cards have}} a finish the source does not provide for that product; they stay without a price for that finish.",
           "dismiss": "Close",
           "groupPromos": "promos group",
@@ -4544,7 +4546,7 @@
           "groupLine": "Price group: {name} ({via})",
           "groupNone": "Price group: none assigned",
           "nextAttempt": "Available again at {when}",
-          "via": {"auto": "automatic", "confirmed": "confirmed", "promo_table": "promo table"},
+          "via": {"b3": "by name match, please check", "auto": "automatic", "confirmed": "confirmed", "promo_table": "promo table"},
           "setReason": {
             "group_ambiguous": "several price groups are possible and it is unclear which one",
             "group_none": "no price group was found for this set",
@@ -4554,7 +4556,36 @@
             "wotc_pending": "waiting for your decision on the old editions",
             "provider_failing": "the price source is failing; try again later",
             "tcgcsv_source": "its price source does not allow linking",
-            "not_in_provider": "the price source does not have this set"
+            "not_in_provider": "the price source does not have this set",
+            "price_sanity": "the new prices looked off and nothing was published; retried in 7 days",
+            "finish_surge": "the source brings too many new finishes at once; re-evaluated tomorrow",
+            "reverted": "you undid it; it will not be touched for 30 days",
+            "no_source_product": "the source has no product for these cards; checked again on every run",
+            "b3_unverified": "price group not confirmed; new prices wait"
+          },
+          "autoNext": "Retries on its own at {when}",
+          "autoNextB3": "Retries on its own once you confirm the group (or the rule changes); until then no new price from this source is published.",
+          "b3Published": "{n} already priced before confirmation",
+          "b3Held": "{n} awaiting confirmation (no price)",
+          "b3Hint": "This set was linked by name match and its price group is not confirmed. Until then no new prices from this source are published (already-published prices are kept). Pick the right group once; the samples below are what would be published.",
+          "marketLabel": "market (before margin and VAT)",
+          "noSourceCount": "{n} without a product in the source",
+          "candidates": {
+            "aria": "Candidate price groups for {name}",
+            "best": "Best candidate",
+            "other": "Other candidate",
+            "products": "{n, plural, one {# product} other {# products}}",
+            "published": "published {date}",
+            "confirm": "Confirm",
+            "confirmAria": "Confirm group {group} for {name}",
+            "dismiss": "Close",
+            "done": "Confirmed in {name}: {linked, plural, one {# card linked} other {# cards linked}} and {priced, plural, one {# price updated} other {# prices updated}}.",
+            "collisions": "{n} with a repeated number were left unlinked.",
+            "conflicts": "{n} with a different owner were left unlinked.",
+            "rate": "This set was confirmed a moment ago; wait a few minutes.",
+            "groupNotFound": "That group no longer exists in the price source. Refresh the list.",
+            "upstream": "The price source did not respond; nothing was saved. Try again later.",
+            "err": "Could not confirm the group for {name}."
           }
         },
         "degradedTitle": "The list is incomplete",
@@ -4617,6 +4648,141 @@
             "catalogPhaseFailed": "<b>New cards could not be brought in</b>: the catalog source did not respond. Prices and variants were updated.",
             "failed": "The sync could not be started, so nothing was written. Prices and cards stayed as they were."
           }
+        },
+        "autoLink": {
+          "counter": "{remaining, plural, one {# card left without a price} other {# cards left without a price}}",
+          "repaired": "yesterday {n} {n, plural, one {was} other {were}} repaired",
+          "priced": "{n} priced",
+          "onState": "Automatic repair on",
+          "offState": "Automatic repair off",
+          "offHint": "Nothing is repaired on its own until you turn it on. «Update this set» still works.",
+          "pendingConfirm": "{n, plural, one {# older piece to confirm} other {# older pieces to confirm}}",
+          "turnOn": "Turn on",
+          "turnOff": "Turn off",
+          "toggleErr": "Could not change automatic repair.",
+          "confirmOffTitle": "Turn off automatic repair?",
+          "confirmOffBody": "It will stop linking and pricing cards on its own every day. Cards without a price stay that way until you turn it on or use «Update this set». A run in progress finishes its batch.",
+          "confirmOff": "Turn off",
+          "cancel": "Cancel",
+          "aria": "Automatic price repair",
+          "last": "last run {when}",
+          "neverRan": "Has not run yet",
+          "next": "next run {when}",
+          "waiting": "{n, plural, one {# waits} other {# wait}} for your decision"
+        },
+        "finishReview": {
+          "aria": "Older pieces to confirm",
+          "title": "{n, plural, one {# older piece to confirm} other {# older pieces to confirm}}",
+          "lead": "These pieces were added as Normal or Holofoil, but the card also exists as 1st Edition. Nothing changes by itself: tell us whether each one is 1st Edition (finish and price change) or Unlimited (stays as is).",
+          "finish": {
+            "normal": "Normal",
+            "holofoil": "Holofoil",
+            "first_edition": "1st Edition (non-holo)",
+            "first_edition_holofoil": "1st Edition Holo"
+          },
+          "finishChange": "{from} → {to}",
+          "priceChange": "price {from} → {to}",
+          "noPublishedPrice": "no published price",
+          "loadError": "Could not load the finish review.",
+          "retry": "Retry",
+          "moreError": "Could not load more items.",
+          "noPrice": "no price",
+          "first": "It is 1st Edition",
+          "keep": "It is Unlimited, keep",
+          "firstAria": "Mark {name} as 1st Edition",
+          "keepAria": "Keep {name} as is",
+          "more": "Show more",
+          "alreadyResolved": "This piece was already resolved; nothing was changed.",
+          "doneKeep": "{name}: stays as is.",
+          "doneFirst": "{name}: now 1st Edition, price {price}.",
+          "blocked": {
+            "has_sale": "It has a sale: it cannot be changed for now.",
+            "reserved": "It is reserved: it cannot be changed for now.",
+            "in_custody": "It is in custody: it cannot be changed for now.",
+            "customer_owned": "It belongs to a customer: it cannot be changed.",
+            "no_target_price": "There is no 1st Edition price yet; you can only keep it as is."
+          },
+          "err": {
+            "ITEM_LOCKED": "The piece has an order, a reservation or changed status: nothing was touched.",
+            "NO_TARGET_PRICE": "There is no 1st Edition price for this card; nothing was changed. You can keep it as is.",
+            "ALREADY_RESOLVED": "The opposite decision was already made for this piece.",
+            "STALE": "The piece changed finish while you were deciding. Reload the list.",
+            "generic": "Could not save the decision."
+          },
+          "manualPrice": "Manual price: please review it.",
+          "doneFirstManual": "{name}: now 1st Edition. Your manual price ({price}) was kept; please review it.",
+          "pricePending": "pending (calculated on the next sweep)"
+        },
+        "cardReview": {
+          "open": "Review {n, plural, one {# card} other {# cards}}",
+          "close": "Close review",
+          "openAria": "Review cards of {name}",
+          "loading": "Loading cards…",
+          "retry": "Retry",
+          "empty": "No cards left to review in this set.",
+          "noCandidates": "The provider has no product with that number.",
+          "marketLabel": "market (before margin and VAT)",
+          "noSource": "{n, plural, one {# card has no product in the source: nothing to review.} other {# cards have no product in the source: nothing to review.}}",
+          "noPrice": "no price",
+          "this": "This one",
+          "thisAria": "This one: link {card} to {product}",
+          "done": "{n, plural, one {# card linked} other {# cards linked}}{priced, plural, =0 { and its price was not published: it stays held until you review it.} other { and its price was set.}}",
+          "donePartial": "{n, plural, one {# card linked} other {# cards linked}}: {priced} priced and {held} held until you review them.",
+          "reason": {
+            "name_mismatch": "name does not match",
+            "collision": "repeated number"
+          },
+          "finish": {
+            "normal": "Normal",
+            "holofoil": "Holofoil",
+            "reverse_holofoil": "Reverse Holofoil",
+            "first_edition": "1st Edition",
+            "first_edition_holofoil": "1st Edition Holo"
+          },
+          "err": {
+            "rate": "Wait a minute before trying this card again.",
+            "taken": "Another card already took that product. Refresh the list.",
+            "notCandidate": "That product is no longer a valid candidate. Refresh the list.",
+            "upstream": "The price source did not respond. Try again later.",
+            "generic": "Could not link the card."
+          }
+        },
+        "autoLinkRuns": {
+          "show": "See what it did yesterday",
+          "hide": "Hide",
+          "loading": "Loading runs…",
+          "loadErr": "Could not load the runs.",
+          "retry": "Retry",
+          "none": "No runs in the last 7 days.",
+          "noPrice": "no price",
+          "runAria": "Run of {when}",
+          "run": "Run {when}: {linked} linked, {priced} priced",
+          "held": "{n} held back",
+          "aborted": "stopped before finishing",
+          "setLine": "{linked} linked, {priced} priced",
+          "finishes": "{n} finishes added",
+          "via": {
+            "auto": "automatic",
+            "b3": "by name match (please check)",
+            "promo_table": "promo table",
+            "confirmed": "confirmed by you"
+          },
+          "undo": "Undo this set",
+          "undoAria": "Undo the automatic link of {name}",
+          "undone": "This set was undone: {n, plural, one {# link} other {# links}} and {prices, plural, one {# price} other {# prices}} removed.",
+          "nothingToUnlink": "Nothing to undo: this set has no links made by the job.",
+          "marketLabel": "market (before margin and VAT)",
+          "abortReason": {
+            "lock_busy": "another price task was running",
+            "call_budget": "the daily call limit ran out"
+          },
+          "undoTitle": "Undo {name}?",
+          "undoBody": "The links and prices the job set in this set are removed. Your manual prices and anything you confirmed are untouched; pieces stay without a price until fixed.",
+          "undoConfirm": "Yes, undo",
+          "cancel": "Cancel",
+          "undoUnavailable": "This function is not available on the server yet.",
+          "undoRate": "Wait a few minutes before undoing this set again.",
+          "undoErr": "Could not undo."
         }
       },
       "sealedSpreads": {
@@ -9038,7 +9204,7 @@
     },
     "pages": {
       "home": {
-      "title": "Pokémon singles from Mexico City",
+        "title": "Pokémon singles from Mexico City",
         "description": "Pokémon singles (raw cards) and graded, verified with guaranteed condition. From Mexico City, shipping all over Mexico."
       },
       "catalog": {
@@ -10154,6 +10320,7 @@
       "holo": "Holo",
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition Holo",
+      "first_edition": "1st Edition (non-holo)",
       "cosmos_holo": "Cosmos Holo"
     },
     "finishLabelShort": {
@@ -10161,6 +10328,7 @@
       "holo": "Holo",
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition",
+      "first_edition": "1st Ed. non-holo",
       "cosmos_holo": "Cosmos"
     }
   },

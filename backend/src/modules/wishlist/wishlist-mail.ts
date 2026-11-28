@@ -57,6 +57,7 @@ const FINISH_LABELS: Record<Finish, string> = {
   reverse_holo: 'Reverse Holo',
   holofoil: 'Holofoil',
   first_edition_holofoil: '1st Edition Holofoil',
+  first_edition: '1st Edition',
 };
 
 const COPY = {

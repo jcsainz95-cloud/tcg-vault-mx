@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CardProductKind, Finish, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { deriveAvailableFinishesFromProducts } from '../../common/card-order';
+import { deriveAvailableFinishesFromProducts, orderFinishes } from '../../common/card-order';
 import { loadEffectiveVariantRows } from '../pricing/effective-variant';
 import { effectiveVariantKeys } from '../../common/variant-product';
 
@@ -85,6 +85,19 @@ export class FinishReconciler {
     }
     return changed;
   }
+}
+
+/**
+ * §AUTO-ENLACE §9.5 — SOLO UNIÓN: añade acabados a `Card.availableFinishes` (nunca quita ni reordena lo existente más allá del orden canónico).
+ * Sigue siendo ESTE servicio el único escritor de la columna. Devuelve `true` si cambió.
+ */
+export async function unionAvailableFinishes(db: Prisma.TransactionClient | PrismaService, cardId: string, add: readonly Finish[]): Promise<boolean> {
+  const c = await db.card.findUnique({ where: { id: cardId }, select: { availableFinishes: true } });
+  if (!c) return false;
+  const next = orderFinishes([...(c.availableFinishes as Finish[]), ...add]);
+  if (sameFinishes(next, c.availableFinishes as Finish[])) return false;
+  await db.card.update({ where: { id: cardId }, data: { availableFinishes: next } });
+  return true;
 }
 
 /** Igualdad de dos listas de acabados YA en orden canónico (misma longitud, mismos elementos). */

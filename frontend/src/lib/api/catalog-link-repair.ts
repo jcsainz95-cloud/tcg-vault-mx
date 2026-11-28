@@ -23,14 +23,16 @@ export type PieceExcludedKey =
 /** §AUTO-ENLACE contrato §2: motivo por set. */
 export type LinkSetReason =
   | 'group_ambiguous' | 'group_none' | 'collisions' | 'name_mismatch' | 'promo_route'
-  | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider';
+  | 'wotc_pending' | 'provider_failing' | 'tcgcsv_source' | 'not_in_provider'
+  | 'price_sanity' | 'finish_surge' | 'reverted' | 'no_source_product' | 'b3_unverified';
 export const LINK_SET_REASONS: readonly LinkSetReason[] = [
   'group_ambiguous', 'group_none', 'collisions', 'name_mismatch', 'promo_route',
   'wotc_pending', 'provider_failing', 'tcgcsv_source', 'not_in_provider',
+  'price_sanity', 'finish_surge', 'reverted', 'no_source_product', 'b3_unverified',
 ];
 /** Grupo de la fuente de precios (TCGCSV) usado por el set (solo lectura). */
 /** `name` puede venir null (grupo sin nombre conocido): se muestra con `groupLabel`, nunca se descarta. */
-export interface LinkGroupUsed { groupId: number; name: string | null; via: 'auto' | 'confirmed' | 'promo_table' }
+export interface LinkGroupUsed { groupId: number; name: string | null; via: 'auto' | 'b3' | 'confirmed' | 'promo_table' }
 
 export interface LinkRepairResult {
   linked: number;
@@ -86,7 +88,7 @@ const EXCLUDED_KEY: Record<string, PieceExcludedKey> = {
 
 export function readGroupUsed(g: { groupId?: number; name?: string | null; via?: string } | null | undefined): LinkGroupUsed | null {
   if (!g || g.groupId == null || !Number.isFinite(Number(g.groupId))) return null;
-  const via = g.via === 'confirmed' || g.via === 'promo_table' ? g.via : 'auto';
+  const via = g.via === 'confirmed' || g.via === 'promo_table' || g.via === 'b3' ? g.via : 'auto';
   return { groupId: Number(g.groupId), name: typeof g.name === 'string' && g.name ? g.name : null, via };
 }
 

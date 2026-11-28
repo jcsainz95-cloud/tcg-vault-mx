@@ -29,6 +29,8 @@ export function mockFinishLabelOf(finish: Finish, stampLabel: string | null | un
       return 'reverse_holo';
     case 'first_edition_holofoil':
       return 'first_edition_holo';
+    case 'first_edition':
+      return 'first_edition';
   }
 }
 

@@ -1,6 +1,6 @@
 # API_CONTRACT.md — TCG HUNT · API v1
-> **Estado vigente.** Índice del código (2026-11-06, 349 endpoints). Versión normativa anterior (DTOs, enums, reglas) en
-> `docs/archive/API_CONTRACT.md`: `grep -n` del endpoint ahí antes de cambiarlo (los candados de paridad leen esa copia). Manda `PROJECT.md` > este contrato > el código.
+> **Estado vigente.** Índice del código (349 endpoints). Versión normativa anterior en `docs/archive/API_CONTRACT.md`:
+> `grep -n` ahí antes de cambiar un endpoint (los candados de paridad la leen). `PROJECT.md` > contrato > código.
 ## 0. Convenciones
 - **Base**: `/api/v1`, REST/JSON. Fechas ISO-8601 UTC.
 - **Auth**: `Authorization: Bearer <access>`. `JwtAuthGuard` es global: todo endpoint exige sesión salvo `@Public()`.
@@ -94,8 +94,8 @@
 - PATCH `/admin/buylist/items/:itemId/decision` · staff
 - GET `/buylist/cards` · público
 - GET `/buylist/sets` · público
-- POST `/buylist/quote` · público
-- POST `/buylist/quote/batch` · público · máx. 50 ítems · throttle 30/min por IP (§BUYLIST-429 en DECISIONES); 429 trae `Retry-After`
+- POST `/buylist/quote` · público · idioma/liga: `API_CONTRACT_BUYLIST_ES.md`
+- POST `/buylist/quote/batch` · público · máx. 50 · 30/min por IP (§BUYLIST-429); 429 con `Retry-After`
 - GET `/buylist/bounties` · público
 - GET `/buylist/quote-policy` · público
 - POST `/buylist/requests` · cuenta

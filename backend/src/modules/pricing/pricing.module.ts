@@ -35,6 +35,7 @@ import { PriceIngestService } from './price-ingest.service';
 import { GradedBudgetService } from './graded-budget.service';
 import { SaleDecisionService } from './sale-decision.service';
 import { PatrimonyValuationService } from './patrimony-valuation.service';
+import { AutoLinkPriceGate } from './auto-link-price-gate.service';
 import { StampedIngestService } from './stamped-ingest.service';
 import { ManualVersionMergeService } from './manual-version-merge.service';
 import { PatternReclassifyService } from './pattern-reclassify.service';
@@ -97,6 +98,8 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     ListingPriceService,
     // v1.116⟨ids⟩ (§IDS.3): paso de productos de liga del barrido diario.
     StampedIngestService,
+    // §14.2: candado de precios (price_jump + freno de cordura) compartido por catálogo y por el refresco de liga en sets B3.
+    AutoLinkPriceGate,
     // §ALTA-LIGA-2: fusión de versiones de liga manuales con el producto real (disparadores + job diario).
     ManualVersionMergeService,
     // §PRICE-PATTERN: job `pattern-reclassify` (versiones alternas «Pattern/Ball» fuera del precio base).
@@ -129,6 +132,7 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     PatrimonyValuationService,
     ListingPriceService,
     StampedIngestService,
+    AutoLinkPriceGate,
     ManualVersionMergeService,
     PatternReclassifyService,
     SealedPriceIngestService,

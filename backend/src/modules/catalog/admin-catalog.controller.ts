@@ -1,13 +1,41 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Role } from '@prisma/client';
+import { BusinessException } from '../../common/business.exception';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
 import { CardLinkRepairService } from './card-link-repair.service';
+import { FinishReviewService } from './finish-review.service';
+import { LinkExceptionsService } from './link-exceptions.service';
+import { CardLinkConfirmService } from './card-link-confirm.service';
+import { AutoLinkAdminService } from './auto-link-admin.service';
 import { SetSearchKeyService } from './set-search-key.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
+
+/** §AUTO-ENLACE fase 3 — body de `POST /admin/catalog/link-exceptions/:setId/confirm`: el `groupId` entero de TCGCSV. */
+class ConfirmGroupDto {
+  /** Se valida en el servicio de abajo ⇒ 422 `VALIDATION_ERROR` (coherente con el resto del contrato §AUTO-ENLACE), no el 400 del pipe. */
+  @IsOptional() groupId?: unknown;
+}
+
+/** Entero positivo o 422 `VALIDATION_ERROR` (un `"x"`, 1.5, 0 o ausente nunca llega al servicio). */
+function positiveInt(v: unknown, field: string): number {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) throw BusinessException.validation('VALIDATION_ERROR', `${field} must be a positive integer`);
+  return v;
+}
+
+/** §AUTO-ENLACE §9.4 — body de `POST …/link-exceptions/:setId/cards/:cardId/confirm`: el `productId` entero de TCGCSV. */
+class ConfirmCardDto {
+  @IsOptional() productId?: unknown;
+}
+
+/** §AUTO-ENLACE fase 4 — body de `POST /admin/catalog/finish-review/:inventoryItemId` (los valores se validan en el servicio ⇒ 422, contrato §8b). */
+class FinishReviewDto {
+  @IsOptional() decision?: unknown;
+  @IsOptional() expectedFinish?: unknown;
+}
 
 class SyncDto {
   @IsOptional() @IsString() setId?: string;
@@ -76,6 +104,10 @@ export class AdminCatalogController {
     private readonly tcgcsvImport: TcgcsvSetImportService,
     private readonly linkRepair: CardLinkRepairService,
     private readonly searchKeys: SetSearchKeyService,
+    private readonly linkExceptions: LinkExceptionsService,
+    private readonly finishReview: FinishReviewService,
+    private readonly cardConfirm: CardLinkConfirmService,
+    private readonly autoAdmin: AutoLinkAdminService,
   ) {}
 
   @Get('remote-sets')
@@ -101,6 +133,9 @@ export class AdminCatalogController {
     return {
       ...this.sync.getSyncStatus(),
       unlinkedPrice: await this.linkRepair.unlinkedPrice(),
+      // §AUTO-ENLACE fase 2: contador «quedan X · ayer Y» (contrato §5).
+      // (⛔ no se llama `summary`: pisaría el `summary` del barrido que ya trae `getSyncStatus()`; contrato §8c.)
+      autoLink: await this.linkExceptions.summary(),
       // §BUSCADOR-CARTAS §3: cobertura de claves impresas de set («k de N sets sin clave»), aditivo.
       searchKeys: await this.searchKeys.coverage(),
     };
@@ -141,10 +176,88 @@ export class AdminCatalogController {
   @Post('link-repair')
   @HttpCode(200)
   async doLinkRepair(@Body() dto: LinkRepairDto, @CurrentUser() user: { id: string; role: Role }) {
-    const { name: _name, error: _error, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
+    // `linkedCardIds`/`samples` son de la bitácora del job (≤ 600 ids): no viajan por HTTP.
+    // §10: `b3*`, `reviewable` y `noSourceProduct` también son de bitácora/lista (forma de esta respuesta fijada, §7.4).
+    const { name: _name, error: _error, linkedCardIds: _ids, samples: _samples, b3Retained: _b3r, b3Sample: _b3s, reviewable: _rv, noSourceProduct: _ns, ...res } = await this.linkRepair.runForSet(dto.setId, user.id);
     void _name;
     void _error;
+    void _ids;
+    void _samples;
+    void _b3r;
+    void _b3s;
+    void _rv;
+    void _ns;
     return res;
+  }
+
+  /** GET /admin/catalog/link-exceptions — lista única de sets con cartas sin ligar, motivo, grupo usado y candidatos (solo lectura local; contrato §2). */
+  @Get('link-exceptions')
+  async listLinkExceptions() {
+    return this.linkExceptions.list();
+  }
+
+  /** POST /admin/catalog/link-exceptions/:setId/confirm {groupId} — persiste el grupo elegido, liga y precia el set (super_admin, auditado; contrato §3). */
+  @Post('link-exceptions/:setId/confirm')
+  @HttpCode(200)
+  async confirmLinkException(
+    @Param('setId', new ParseUUIDPipe()) setId: string,
+    @Body() dto: ConfirmGroupDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.linkExceptions.confirm(setId, positiveInt(dto.groupId, 'groupId'), user);
+  }
+
+  /** GET /admin/catalog/link-exceptions/:setId/cards — cartas del set con `name_mismatch|collision` y sus candidatos (super_admin; contrato §9.4). */
+  @Get('link-exceptions/:setId/cards')
+  async listLinkExceptionCards(@Param('setId', new ParseUUIDPipe()) setId: string) {
+    return this.cardConfirm.list(setId);
+  }
+
+  /** POST /admin/catalog/link-exceptions/:setId/cards/:cardId/confirm {productId} — liga UNA carta (enlace + precios + bitácora en una transacción; contrato §9.4). */
+  @Post('link-exceptions/:setId/cards/:cardId/confirm')
+  @HttpCode(200)
+  async confirmLinkExceptionCard(
+    @Param('setId', new ParseUUIDPipe()) setId: string,
+    @Param('cardId', new ParseUUIDPipe()) cardId: string,
+    @Body() dto: ConfirmCardDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.cardConfirm.confirm(setId, cardId, positiveInt(dto.productId, 'productId'), user);
+  }
+
+  /** POST /admin/catalog/link-exceptions/:setId/unlink — revierte lo que el job creó en ese set (super_admin; contrato §9.6 iv). */
+  @Post('link-exceptions/:setId/unlink')
+  @HttpCode(200)
+  async unlinkSet(@Param('setId', new ParseUUIDPipe()) setId: string, @CurrentUser() user: { id: string; role: Role }) {
+    return this.autoAdmin.unlink(setId, user);
+  }
+
+  /** GET /admin/catalog/auto-link-runs?days=7 — lo que hizo el job (solo lectura sobre la bitácora; contrato §9.6 iii). */
+  @Get('auto-link-runs')
+  async autoLinkRuns(@Query('days') days?: string) {
+    const n = days == null || days === '' ? undefined : Number(days);
+    if (n != null && !Number.isInteger(n)) throw BusinessException.validation('VALIDATION_ERROR', 'days must be an integer');
+    return this.autoAdmin.runs(n);
+  }
+
+  /** GET /admin/catalog/finish-review — piezas antiguas que podrían ser 1.ª edición, por confirmar (solo lectura local; contrato §8b). */
+  @Get('finish-review')
+  async listFinishReview(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+    // §12.5: `limit` ausente = 50; presente pero no entero o fuera de 1..50 ⇒ 422 (no se recorta).
+    const n = limit === undefined ? undefined : /^\d{1,6}$/.test(limit) ? Number(limit) : NaN;
+    if (n !== undefined && !(Number.isInteger(n) && n >= 1 && n <= 50)) throw BusinessException.validation('VALIDATION_ERROR', 'limit must be an integer between 1 and 50');
+    return this.finishReview.list(cursor, n);
+  }
+
+  /** POST /admin/catalog/finish-review/:inventoryItemId {decision, expectedFinish} — decide una pieza (super_admin, auditado; contrato §8b). */
+  @Post('finish-review/:inventoryItemId')
+  @HttpCode(200)
+  async decideFinishReview(
+    @Param('inventoryItemId', new ParseUUIDPipe()) inventoryItemId: string,
+    @Body() dto: FinishReviewDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.finishReview.decide(inventoryItemId, { decision: dto.decision, expectedFinish: dto.expectedFinish }, user);
   }
 
   @Post('sync')

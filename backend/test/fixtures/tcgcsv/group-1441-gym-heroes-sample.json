@@ -1,0 +1,128 @@
+{
+ "groupId": 1441,
+ "name": "Gym Heroes",
+ "products": [
+  {
+   "productId": 83862,
+   "name": "Blaine's Charmander",
+   "number": "061/132"
+  },
+  {
+   "productId": 83867,
+   "name": "Blaine's Gamble",
+   "number": "121/132"
+  },
+  {
+   "productId": 83868,
+   "name": "Blaine's Growlithe (35)",
+   "number": "035/132"
+  },
+  {
+   "productId": 83869,
+   "name": "Blaine's Growlithe (62)",
+   "number": "062/132"
+  },
+  {
+   "productId": 83871,
+   "name": "Blaine's Kangaskhan",
+   "number": "036/132"
+  },
+  {
+   "productId": 83872,
+   "name": "Blaine's Last Resort",
+   "number": "105/132"
+  },
+  {
+   "productId": 83873,
+   "name": "Blaine's Magmar",
+   "number": "037/132"
+  },
+  {
+   "productId": 83875,
+   "name": "Blaine's Moltres",
+   "number": "001/132"
+  }
+ ],
+ "prices": [
+  {
+   "productId": 83862,
+   "subTypeName": "1st Edition",
+   "marketPrice": 13.54
+  },
+  {
+   "productId": 83862,
+   "subTypeName": "Unlimited",
+   "marketPrice": 2.56
+  },
+  {
+   "productId": 83867,
+   "subTypeName": "1st Edition",
+   "marketPrice": 1.57
+  },
+  {
+   "productId": 83867,
+   "subTypeName": "Unlimited",
+   "marketPrice": 0.54
+  },
+  {
+   "productId": 83868,
+   "subTypeName": "1st Edition",
+   "marketPrice": 20.79
+  },
+  {
+   "productId": 83868,
+   "subTypeName": "Unlimited",
+   "marketPrice": 6.97
+  },
+  {
+   "productId": 83869,
+   "subTypeName": "1st Edition",
+   "marketPrice": 9.78
+  },
+  {
+   "productId": 83869,
+   "subTypeName": "Unlimited",
+   "marketPrice": 2.17
+  },
+  {
+   "productId": 83871,
+   "subTypeName": "1st Edition",
+   "marketPrice": 11.35
+  },
+  {
+   "productId": 83871,
+   "subTypeName": "Unlimited",
+   "marketPrice": 5.22
+  },
+  {
+   "productId": 83872,
+   "subTypeName": "1st Edition",
+   "marketPrice": 2.07
+  },
+  {
+   "productId": 83872,
+   "subTypeName": "Unlimited",
+   "marketPrice": 1.62
+  },
+  {
+   "productId": 83873,
+   "subTypeName": "1st Edition",
+   "marketPrice": 9.73
+  },
+  {
+   "productId": 83873,
+   "subTypeName": "Unlimited",
+   "marketPrice": 4.31
+  },
+  {
+   "productId": 83875,
+   "subTypeName": "1st Edition Holofoil",
+   "marketPrice": 243.32
+  },
+  {
+   "productId": 83875,
+   "subTypeName": "Unlimited Holofoil",
+   "marketPrice": 136.77
+  }
+ ]
+}

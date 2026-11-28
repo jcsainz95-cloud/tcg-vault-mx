@@ -55,7 +55,7 @@ const MAIL_VERSION_TEXT: Record<'es' | 'en', { language: Record<CardLanguage, st
       staff: 'Staff (promo Staff)',
       event_promo: 'Promo de evento',
     },
-    finishLabel: { non_holo: 'No holo', holo: 'Holo', reverse_holo: 'Reverse Holo', first_edition_holo: '1st Edition Holo', cosmos_holo: 'Cosmos Holo' },
+    finishLabel: { non_holo: 'No holo', holo: 'Holo', reverse_holo: 'Reverse Holo', first_edition_holo: '1st Edition Holo', first_edition: '1st Edition (no holo)', cosmos_holo: 'Cosmos Holo' },
   },
   en: {
     language: { en: 'English', es: 'Spanish' },
@@ -68,7 +68,7 @@ const MAIL_VERSION_TEXT: Record<'es' | 'en', { language: Record<CardLanguage, st
       staff: 'Staff (Staff promo)',
       event_promo: 'Event promo',
     },
-    finishLabel: { non_holo: 'Non-holo', holo: 'Holo', reverse_holo: 'Reverse Holo', first_edition_holo: '1st Edition Holo', cosmos_holo: 'Cosmos Holo' },
+    finishLabel: { non_holo: 'Non-holo', holo: 'Holo', reverse_holo: 'Reverse Holo', first_edition_holo: '1st Edition Holo', first_edition: '1st Edition (non-holo)', cosmos_holo: 'Cosmos Holo' },
   },
 };
 import {

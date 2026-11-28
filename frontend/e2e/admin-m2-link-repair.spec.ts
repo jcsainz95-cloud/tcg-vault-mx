@@ -32,7 +32,7 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await page.goto('/es/admin/m2');
     const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
     const classic = notice.getByRole('button', { name: /Actualizar este set: 30th Celebration/ });
-    const sv = notice.getByRole('button', { name: /Actualizar este set: Scarlet/ });
+    const sv = notice.getByRole('button', { name: /Actualizar este set: Scarlet & Violet(?! Promos)/ });
     await classic.click();
     await expect(sv).toBeDisabled();
     await expect(notice.getByTestId('unlinked-result')).toBeVisible();
@@ -44,7 +44,42 @@ test.describe('admin · M2 · Actualizar este set', () => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
     const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
-    await notice.getByRole('button', { name: /Actualizar este set: Scarlet/ }).click();
+    await notice.getByRole('button', { name: /Actualizar este set: Scarlet & Violet(?! Promos)/ }).click();
     await expect(notice.getByTestId('unlinked-error')).toContainText('5');
+  });
+
+  test('F2/F3: contador, dial Encendida y «Confirmar» con resultado junto al caso, sin desborde a 390 px', async ({ page }) => {
+    mockOnly('`link-exceptions` y `confirm` de `lib/mock/link-repair.ts` (dial encendido por defecto)');
+    await page.setViewportSize({ width: 390, height: 800 });
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    await expect(page.getByTestId('auto-link-counter')).toContainText('Quedan 14 cartas sin precio · ayer se repararon 87 (87 con precio)');
+    await expect(page.getByTestId('auto-link-job')).toContainText('Reparación automática encendida');
+    const notice = page.getByRole('status').filter({ hasText: 'sin precio ligado' });
+    await expect(notice.getByText(/Mejor candidato: Classic Collection/)).toBeVisible();
+    await notice.getByRole('button', { name: /Confirmar el grupo Classic Collection para 30th/ }).click();
+    const res = notice.getByTestId('confirm-result');
+    await expect(res).toContainText('Confirmado en 30th Celebration Classic Collection: 9 cartas ligadas y 18 precios actualizados.');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  test('§8a/§8b: apagar pide confirmación; piezas antiguas se deciden junto a la pieza', async ({ page }) => {
+    mockOnly('`link-exceptions`, `finish-review` y el dial salen de `lib/mock/link-repair.ts`');
+    await page.setViewportSize({ width: 390, height: 800 });
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    await page.getByTestId('auto-link-toggle').click();
+    await page.getByTestId('auto-link-confirm-off').click();
+    await expect(page.getByTestId('auto-link-job')).toContainText('Reparación automática apagada');
+    const review = page.getByTestId('finish-review');
+    await expect(review).toContainText('piezas antiguas por confirmar');
+    await review.getByRole('button', { name: /Marcar Rocket's Snorlax como 1\.ª edición/ }).click();
+    // Con precio manual: el servidor lo conserva (MX$1,131.00) y la UI avisa; no muestra el precio destino.
+    await expect(review.getByTestId('finish-review-item').filter({ hasText: "Rocket's Snorlax" }).getByTestId('finish-review-result')).toContainText('Se conservó tu precio manual (MX$1,131.00)');
+    // Sin precio manual: toma el precio de la 1.ª edición que manda el servidor.
+    await review.getByRole('button', { name: /Marcar Blaine's Vulpix como 1\.ª edición/ }).click();
+    await expect(review.getByTestId('finish-review-item').filter({ hasText: "Blaine's Vulpix" }).getByTestId('finish-review-result')).toContainText('ahora es 1.ª edición, precio MX$215.00');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { tcgcsvRow } from '../helpers/tcgcsv-row';
 /**
  * pattern-reclassify.e2e-spec.ts — §PRICE-PATTERN (docs/DECISIONES.md) contra Postgres REAL: versiones alternas «(… Pattern/Ball)» fuera del
  * precio base; desempate determinista; job `pattern-reclassify` idempotente, con auditoría y freno. Propiedad: backend.
@@ -686,7 +687,7 @@ describe('E2E — §PRICE-PATTERN', () => {
       await sleep(100);
       ingestDuringSleep = sleeping;
       const ingest = pricing
-        .persistMarketReference(X.c.id, 'holofoil', { marketCents: 1100, currency: 'MXN', source: 'tcgcsv_singles' }, { rate: 17, bufferPct: 0 }, X.base.id)
+        .persistMarketReference(X.c.id, 'holofoil', tcgcsvRow(1100, 'MXN'), { rate: 17, bufferPct: 0 }, X.base.id)
         .then(() => { ingestDoneAt = Date.now(); });
       const r = await running;
       await ingest;

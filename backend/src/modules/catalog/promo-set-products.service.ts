@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
 import { TcgcsvPriceRow, deriveStructuralFinishes, tcgcsvSubTypeToFinish } from '../pricing/pricing.types';
 import { PricingService } from '../pricing/pricing.service';
+import { releaseTcgcsvRow } from '../pricing/providers/tcgcsv-group-match';
 import { FxService } from '../pricing/fx.service';
 import { FinishReconciler } from './finish-reconciler.service';
 import { PromoSkipped, planPromoSet } from './promo-set-plan';
@@ -162,7 +163,8 @@ export class PromoSetProductsService {
           await this.pricing.persistMarketReference(
             it.cardId,
             finish,
-            { marketCents: cents, currency: 'USD', source: 'tcgcsv_singles' },
+            // §13.4: grupos de la tabla fija PTCG_PROMO_GROUPS (`promo_table`, nunca b3).
+            releaseTcgcsvRow({ groupId: null, via: 'promo_table' }, false, { marketCents: cents, currency: 'USD' as const, source: 'tcgcsv_singles' as const })!,
             fxSnap,
             cp.id,
             tx as Prisma.TransactionClient,
