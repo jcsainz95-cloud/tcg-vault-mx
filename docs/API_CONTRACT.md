@@ -94,7 +94,7 @@
 - PATCH `/admin/buylist/items/:itemId/decision` · staff
 - GET `/buylist/cards` · público
 - GET `/buylist/sets` · público
-- POST `/buylist/quote` · público · idioma/liga: `API_CONTRACT_BUYLIST_ES.md`
+- POST `/buylist/quote` · público · idioma/liga: `API_CONTRACT_BUYLIST_ES.md` · `/admin/cost-floor/*` (`super_admin`): `API_CONTRACT_PISO_COSTO.md`
 - POST `/buylist/quote/batch` · público · máx. 50 · 30/min por IP (§BUYLIST-429); 429 con `Retry-After`
 - GET `/buylist/bounties` · público
 - GET `/buylist/quote-policy` · público
