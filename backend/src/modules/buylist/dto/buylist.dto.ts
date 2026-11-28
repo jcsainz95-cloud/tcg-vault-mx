@@ -320,6 +320,21 @@ export class ItemDecisionDto {
   @IsOptional()
   @IsIn(['not_received', 'condition_mismatch', 'wrong_card', 'other'])
   reasonCode?: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other';
+  /** §BUYLIST-ES F3 §4.1: idioma recibido (default = el declarado) y producto de liga recibido (`null` = normal; ausente = el declarado). */
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) receivedLanguage?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) receivedProductId?: number | null;
+}
+
+/** §BUYLIST-ES F3 §4.1: lo recibido de UNA línea en `POST /admin/buylist/:id/receive`. */
+export class ReceiveItemVersionDto {
+  @IsString() @IsNotEmpty() @MaxLength(64) itemId!: string;
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) receivedLanguage?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) receivedProductId?: number | null;
+}
+
+/** `POST /admin/buylist/:id/receive`: cuerpo OPCIONAL (sin él, la recepción de siempre). */
+export class ReceiveRequestDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => ReceiveItemVersionDto) items?: ReceiveItemVersionDto[];
 }
 
 /**
@@ -370,6 +385,9 @@ export class RejectRequestDto {
  */
 export class ReviseItemPriceDto {
   @IsInt() revisedPriceCents!: number;
+  /** §BUYLIST-ES F3 §4.1 punto 4: idioma/versión recibida junto con la baja por condición (el monto revisado se topa en la oferta congelada de lo recibido). */
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) receivedLanguage?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) receivedProductId?: number | null;
   @IsIn(['condition_mismatch', 'wrong_card', 'other']) reasonCode!: 'condition_mismatch' | 'wrong_card' | 'other';
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }

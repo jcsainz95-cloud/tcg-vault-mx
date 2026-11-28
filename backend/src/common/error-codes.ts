@@ -329,6 +329,16 @@ export const ErrorCode = {
   // o con el interruptor `buylist_spanish_enabled` apagado (o el castigo inválido ⇒ falla cerrado).
   LANGUAGE_NOT_ELIGIBLE: 'LANGUAGE_NOT_ELIGIBLE',
   LANGUAGE_NOT_AVAILABLE: 'LANGUAGE_NOT_AVAILABLE',
+  // §BUYLIST-ES F3/F4 (API_CONTRACT_BUYLIST_ES §3.4, §4.1, §9): 400 `STAMP_NOT_AVAILABLE` (producto de liga con el dial apagado, ajeno, sin ese acabado);
+  // 422 `VERSION_PRICE_UNAVAILABLE` (recepción sin precio para lo recibido; `details.reason` = `no_price` | `wrong_card`);
+  // 422 `OVER_VERSION_CAP` (monto revisado sobre la oferta congelada de lo recibido); 422 `ES_OVER_CAP` (precio de staff en línea ES sobre min(EN viva, referencia), tope duro);
+  // 409 `VERSION_ALREADY_SET` (lo recibido ya se decidió y se pide otra versión); 409 `VERSION_MISMATCH_PENDING` (aprobar al pactado una baja `version_mismatch` viva).
+  STAMP_NOT_AVAILABLE: 'STAMP_NOT_AVAILABLE',
+  VERSION_PRICE_UNAVAILABLE: 'VERSION_PRICE_UNAVAILABLE',
+  OVER_VERSION_CAP: 'OVER_VERSION_CAP',
+  ES_OVER_CAP: 'ES_OVER_CAP',
+  VERSION_ALREADY_SET: 'VERSION_ALREADY_SET',
+  VERSION_MISMATCH_PENDING: 'VERSION_MISMATCH_PENDING',
   // ⚠️ v1.54 · **B-3 — BACKSTOP, y HOY ES INALCANZABLE.** No es un caso de negocio ni un error del
   // actor: dispara solo si `BUYLIST_ACCEPTED_PRODUCT_TYPES` autoriza un `productType` para el que
   // `BuylistService.gradeKeyInputFor` **no sabe derivar la identidad de la variante** (p. ej. añadir

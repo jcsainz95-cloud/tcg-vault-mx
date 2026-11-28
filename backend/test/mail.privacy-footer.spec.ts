@@ -170,6 +170,13 @@ const RENDERS: Record<string, Render> = {
       'Ana',
       l,
     ),
+  // §BUYLIST-ES F3 §4.4: alza de versión (vendedor ⇒ `customer`, con el aviso de privacidad).
+  sellItemVersionHigherTemplate: (l) =>
+    flujoTpl.sellItemVersionHigherTemplate(
+      { folio: 'BL-1', card: { cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo' }, payCents: 60000, versionName: 'Inglés', portalUrl: PORTAL },
+      'Ana',
+      l,
+    ),
   sellRequestExpiredTemplate: (l) =>
     buylistTpl.sellRequestExpiredTemplate({ kind: 'no_response', folio: 'BL-1', closedAt: AT, portalUrl: PORTAL }, 'Ana', l),
   sellRequestNotPursuedTemplate: (l) =>

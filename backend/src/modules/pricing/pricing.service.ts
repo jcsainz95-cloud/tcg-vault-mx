@@ -2,7 +2,7 @@ import { isRetainedRow, type RetainedPriceRow } from './providers/tcgcsv-group-m
 import { primaryFinishOf } from '../../common/card-order';
 import { runSerializable } from '../../common/serializable-retry';
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, CardProduct, CardProductKind, Finish, GradingCompany, PriceReference, PriceRefKind, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardLanguage, CardProduct, CardProductKind, Finish, GradingCompany, PriceReference, PriceRefKind, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 // v1.50.2 (§4.38l): la lista blanca de graduadoras — la guarda INV-D no puede consultar por un valor
 // que el enum de Prisma no admite (sería un 500 en una ruta de dinero).
 import { GRADING_COMPANY_VALUES } from '../../common/enum-values';
@@ -2702,6 +2702,9 @@ export class PricingService {
     // = guardarraíl. NO entra a la clave de dedupe: si la entrada ya existe con otra razón, se ACTUALIZA
     // (la cola debe reflejar el problema VIGENTE para ser triable, no el de la primera vez).
     reason: PendingReason | null = null,
+    // §BUYLIST-ES F3 (§4.5, M8/BES-5): idioma de la versión. Entra a la clave LÓGICA de dedupe (octavo componente): una línea ES abre SU entrada
+    // y la inglesa de la misma variante la suya; cerrar una no cierra la otra. Default `en` ⇒ todos los llamadores previos intactos.
+    language: CardLanguage = 'en',
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
@@ -2711,7 +2714,7 @@ export class PricingService {
     // no reutiliza ni reescribe el `reason` de la del otro, y el aviso de VENTA no vive en una fila de COMPRA que
     // `?context=inventory` no muestra (VQ-13). El CIERRE no cambia (`closePendingForVariant`).
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, context, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, context, language, status: 'open' },
     });
     if (open) {
       if (reason != null && open.reason !== reason) {
@@ -2728,6 +2731,7 @@ export class PricingService {
         cardProductId,
         sealedProductId,
         context,
+        language,
         refId,
         status: 'open',
         reason,
@@ -2785,6 +2789,9 @@ export class PricingService {
     // v2.1.6 (S48-M1): eje que CIERRA. Omitirlo conserva el cierre total (vía manual del admin, que
     // arregla el dato de mercado compartido — raíz de las DOS razones).
     context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
+    // §BUYLIST-ES F3 (§4.5): con idioma, cierra SOLO la entrada de esa versión (la línea ES cierra la ES, la EN la EN). Omitido = cierre de todos los
+    // idiomas (el dato de mercado compartido resolvió: vía manual del admin y barrido de venta).
+    language?: CardLanguage,
   ): Promise<number> {
     const res = await this.prisma.pendingPriceEntry.updateMany({
       where: {
@@ -2794,6 +2801,7 @@ export class PricingService {
         finish,
         cardProductId,
         sealedProductId,
+        ...(language ? { language } : {}),
         status: 'open',
         ...(context
           ? {
@@ -2893,6 +2901,8 @@ export class PricingService {
       finish?: Finish;
       cardProductId?: number | null;
       sealedProductId?: string | null;
+      /** §BUYLIST-ES F3 (§4.5): idioma de la versión; ausente = `en` al escalar y todos los idiomas al cerrar. */
+      language?: CardLanguage;
     },
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
     refId?: string,
@@ -2911,6 +2921,7 @@ export class PricingService {
         cardProductId,
         sealedProductId,
         reason,
+        key.language ?? 'en',
       );
     }
     // v2.1.6 (S48-M1): el EJE viaja al cierre. Sin él, el eje de compra podía apagar el aviso que
@@ -2923,6 +2934,7 @@ export class PricingService {
       cardProductId,
       sealedProductId,
       context,
+      key.language,
     );
     return undefined;
   }

@@ -313,10 +313,10 @@ describe('§BUYLIST-ES F1 · §2 — elegibilidad del español', () => {
     expect(en.offers.es).toBeNull();
   });
 
-  it('`stamped` sigue rechazado en F1 (PRODUCT_NOT_FOUND): la liga es F4', async () => {
+  it('`stamped` con el dial de liga APAGADO ⇒ 400 STAMP_NOT_AVAILABLE (F4 §3.4; antes PRODUCT_NOT_FOUND)', async () => {
     const { svc } = buildSvc({ market: 100_000, dials: ON });
     (svc as any).pricing.findCardProductByTcgId = jest.fn(async () => ({ id: 'cp-s', cardId: 'c1', finishes: ['normal'], kind: 'stamped' }));
-    await expect(svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, 888)).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND' });
+    await expect(svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, 888)).rejects.toMatchObject({ code: 'STAMP_NOT_AVAILABLE' });
   });
 
   it('el lote: lo no elegible es error POR-ÍTEM y no tumba las demás líneas', async () => {

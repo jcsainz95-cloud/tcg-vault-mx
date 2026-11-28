@@ -31,6 +31,7 @@ import {
   GuideCancellationDoneDto,
   GuideDto,
   ItemDecisionDto,
+  ReceiveRequestDto,
   OfferCancelDto,
   OfferDto,
   PaySpeiDto,
@@ -553,8 +554,9 @@ export class AdminBuylistController {
    */
   @Post(':id/receive')
   @HttpCode(HttpStatus.OK)
-  async receive(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.buylist.receive(id);
+  async receive(@Param('id') id: string, @Body() dto: ReceiveRequestDto, @CurrentUser() user: { id: string; role: Role }) {
+    // §BUYLIST-ES F3 §4.1: `items[]` OPCIONAL con lo recibido por línea; sin él, la recepción de siempre.
+    const res = await this.buylist.receive(id, dto?.items);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -658,6 +660,7 @@ export class AdminBuylistController {
       dto.approvedPriceCents,
       dto.reason,
       dto.decision === 'reject' ? dto.reasonCode : undefined,
+      dto.decision === 'reject' ? undefined : { receivedLanguage: dto.receivedLanguage, receivedProductId: dto.receivedProductId },
     );
     await this.audit.log({
       actorUserId: user.id,

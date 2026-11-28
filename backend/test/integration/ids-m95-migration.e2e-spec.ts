@@ -135,6 +135,7 @@ describe('IDS-B1 — M-95 es aditiva: lo existente no cambia (criterio 512, I-1)
           // §BUYLIST-ES F1 (migración posterior) añadió `SellRequestItem.language/receivedLanguage` sobre `CardLanguage`: el estado anterior a
           // M-95b no las tiene, y sin quitarlas la reversa no puede borrar el tipo. Se quitan DENTRO de esta transacción (se deshace al final).
           await tx.$executeRawUnsafe('ALTER TABLE "SellRequestItem" DROP COLUMN IF EXISTS "language", DROP COLUMN IF EXISTS "receivedLanguage"');
+          await tx.$executeRawUnsafe('ALTER TABLE "PendingPriceEntry" DROP COLUMN IF EXISTS "language"');
           for (const s of reversal(M95B)) await tx.$executeRawUnsafe(s);
           const cols = await tx.$queryRaw<{ n: bigint }[]>`
             SELECT count(*)::bigint AS n FROM information_schema.columns

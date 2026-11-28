@@ -388,6 +388,10 @@ export function revertBuylistEsF1(schema: string): void {
   psqlOk(
     schema,
     `BEGIN;
+-- §BUYLIST-ES F3 (20261215120000_buylist_es_f3) va ANTES: su \`PendingPriceEntry.language\` también depende de \`CardLanguage\`.
+ALTER TABLE "SellRequestItem" DROP COLUMN IF EXISTS "spanishPenaltyPctAtQuote", DROP COLUMN IF EXISTS "versionMarkets", DROP COLUMN IF EXISTS "receivedBreakdown";
+ALTER TABLE "PendingPriceEntry" DROP COLUMN IF EXISTS "language";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261215120000_buylist_es_f3';
 ALTER TABLE "SellRequestItem" DROP COLUMN IF EXISTS "language", DROP COLUMN IF EXISTS "versionOffers", DROP COLUMN IF EXISTS "receivedLanguage",
   DROP COLUMN IF EXISTS "receivedCardProductId", DROP COLUMN IF EXISTS "receivedVersionSet", DROP COLUMN IF EXISTS "offerBreakdown";
 DELETE FROM "ConfigSetting" WHERE key IN ('buylist_spanish_penalty_pct','buylist_spanish_enabled','buylist_league_enabled');

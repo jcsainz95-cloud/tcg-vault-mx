@@ -1547,6 +1547,8 @@ model PendingPriceEntry {
   // cardId/productType/gradeKey/finish): resolver el precio del set_base NO cierra la del Deck
   // Exclusive (money-safe, misma doctrina que `finish` en M-19). `null` = base (retrocompatible).
   cardProductId      Int?
+  // §BUYLIST-ES F3 (§4.5, M8/BES-5): el idioma entra a la clave LÓGICA de la cola (junto a cardProductId): una línea ES abre y cierra SOLO su entrada. Filas previas = en.
+  language           CardLanguage        @default(en)
   // v1.42 (BLOQ-2b, M-40): identidad de SELLADO. FK nullable → SealedProduct (onDelete SetNull). Entra a la
   // clave LÓGICA de dedupe/escalada de la cola (junto a cardId/gradeKey/finish/cardProductId): dos pendientes
   // de sellado con distinto sealedProductId (ETB vs blíster) son entradas SEPARADAS — resolver el override de
@@ -2729,6 +2731,10 @@ model SellRequestItem {
   receivedVersionSet     Boolean      @default(false)
   // §BUYLIST-ES F1: desglose congelado del cálculo (castigo de idioma → curva), para mesa/solicitud/correos. Solo líneas ES (o liga).
   offerBreakdown     Json?
+  // §BUYLIST-ES F3 (§1/§4): el castigo P del dial AL CREAR (toda línea, también EN), el mercado congelado por versión y el desglose de lo RECIBIDO.
+  spanishPenaltyPctAtQuote Int?
+  versionMarkets     Json?
+  receivedBreakdown  Json?
   // v1.3.1 (M-14): la cotización ya NO usa `category` (BuylistCategory). Se snapshotea la
   // REGLA POR RAREZA aplicada (auditoría). `category` queda NULLABLE/legacy (retención de
   // filas históricas); nada nuevo lo escribe. Ver ARCHITECTURE §3.2/§4.2.

@@ -108,6 +108,8 @@ describe('SRF-13 — por ausencia (criterio 253)', () => {
       // §BUYLIST-FLUJO cierre F2: C5 «Retiramos la propuesta» (buylist; no es aviso de reembolso).
       'sellItemRevisionCancelledTemplate',
       'sellItemRevisionTemplate',
+      // §BUYLIST-ES F3 §4.4: «Te pagamos MX$X por tu carta (versión)» (buylist; no es aviso de reembolso).
+      'sellItemVersionHigherTemplate',
       // v1.82 · PNL-4 (DESIGN_SYSTEM §60.6, correo 29): correo nuevo — el aviso de VARIAS cartas
       // rechazadas de una solicitud de venta. No es aviso de reembolso: no toca lo que este censo protege (AV-3).
       'sellItemsPickupTemplate',

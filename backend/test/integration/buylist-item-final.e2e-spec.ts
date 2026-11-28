@@ -48,7 +48,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
     const srId = created.body.sellRequestId as string;
     const first = await h.prisma.sellRequestItem.findFirstOrThrow({ where: { sellRequestId: srId } });
     // §BUYLIST-ES: las columnas Json nulas no se reenvían a `create` (Prisma exige DbNull) ⇒ se omiten.
-    const { id: _id, versionOffers: _vo, offerBreakdown: _ob, ...clon } = first;
+    const { id: _id, versionOffers: _vo, offerBreakdown: _ob, versionMarkets: _vm, receivedBreakdown: _rb, ...clon } = first;
     const extra = [];
     for (let i = 0; i < 2; i++) extra.push((await h.prisma.sellRequestItem.create({ data: { ...clon } })).id);
     return { srId, items: [first.id, ...extra] };
