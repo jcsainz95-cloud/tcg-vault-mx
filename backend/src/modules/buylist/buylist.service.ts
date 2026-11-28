@@ -40,7 +40,7 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 // vitrina de bounties. v1.80.2.2 (BC-9): desde aquí SOLO se entra por `quoteAcquisitionWithGuard` —
 // las reglas puras del peldaño 1 (`bountyPayoutCents`, `bountyGuardBasis`) no se importan fuera de
 // `money.ts` (censo cerrado en `test/money.bounty-cap.spec.ts`).
-import { mesaFields, mxn, type MesaFields } from './decision-table-mesa';
+import { mesaFields, mxn } from './decision-table-mesa';
 import { AcquisitionQuoteResult, PriceBasis, quoteAcquisitionWithGuard } from '../../common/money';
 // §BUYLIST-ES F1: castigo de idioma (entero half-up, la misma `scaleByPct` del español de venta) y la traza de la curva de compra (% mostrado).
 import { scaleByPct, versionKeyOf } from '../../common/card-version';
@@ -1713,21 +1713,27 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
-   * §3.3 — campos de mesa de una línea ES, TODOS desde `offerBreakdown` congelado (el dinero congelado no se reevalúa).
-   * `adjustment` (chip): `ofertamos` (`approvedPriceCents ?? quotedPriceCents`) contra `finalOfferCents` congelado.
-   * `standardOfferCents = finalOfferCents`; `standardPctBp` solo en curva pura; `standardKind` rotula el resto.
-   * `marketDriftCents` = mercado vivo − `marketMxnCents` congelado (`null` si 0, override, pendiente o sin dato).
+   * §3.3 B1-bis — campos de mesa de una línea ES. Ofertamos = `derivedPriceCents` (vivo, con el `P` congelado; lo que `POST …/offer`
+   * congela); solo el Estándar sale de `offerBreakdown` congelado: `standardOfferCents = finalOfferCents`. Chip = MESA §7 sin rama propia:
+   * `delta = derived − standard`; `reasonCode`: `MANUAL_OVERRIDE` (precio fijo vivo) > `MARKET_UP/DOWN` (`marketDriftCents`≠null) > `CURVE_CHANGED`.
+   * Pendiente congelada (o sin desglose): sin Estándar ni chip. `marketDriftCents` = mercado vivo − `marketMxnCents` congelado
+   * (`null` si 0, override, pendiente o sin dato).
    */
   private static esMesaFields(
     frozen: BuyBreakdown | null,
-    it: { approvedPriceCents?: number | null; quotedPriceCents?: number | null },
+    derivedPriceCents: number | null,
+    priceBasis: PriceBasis,
     liveMarketCents: number | null,
   ): {
     standardPctBp: number | null;
     standardOfferCents: number | null;
     standardKind: 'curve' | 'cap_en_offer' | 'cap_floor' | 'override' | 'pending' | null;
     marketDriftCents: number | null;
-    adjustment: MesaFields['adjustment'];
+    adjustment: {
+      deltaCents: number;
+      reasonCode: 'MANUAL_OVERRIDE' | 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
+      reasonText: string;
+    } | null;
   } {
     if (frozen == null) {
       return { standardPctBp: null, standardOfferCents: null, standardKind: null, marketDriftCents: null, adjustment: null };
@@ -1743,24 +1749,32 @@ export class BuylistService implements OnModuleInit {
             : frozen.cap.reason === 'en_offer'
               ? 'cap_en_offer'
               : 'cap_floor';
-    const ofertamos = it.approvedPriceCents ?? it.quotedPriceCents ?? null;
-    let adjustment: MesaFields['adjustment'] = null;
-    if (final != null && ofertamos != null && ofertamos !== final) {
-      adjustment = {
-        deltaCents: ofertamos - final,
-        reasonCode: 'MANUAL_OVERRIDE',
-        reasonText: `Monto ajustado por el staff respecto a lo cotizado (${mxn(final)})`,
-      };
-    }
     const drift =
       (frozen.source === 'curve' || frozen.source === 'bounty') && frozen.marketMxnCents != null && liveMarketCents != null
         ? liveMarketCents - frozen.marketMxnCents
         : 0;
+    const marketDriftCents = drift === 0 ? null : drift;
+    let adjustment: ReturnType<typeof BuylistService.esMesaFields>['adjustment'] = null;
+    if (final != null && derivedPriceCents != null && derivedPriceCents !== final) {
+      const deltaCents = derivedPriceCents - final;
+      if (priceBasis === 'override') {
+        adjustment = { deltaCents, reasonCode: 'MANUAL_OVERRIDE', reasonText: 'Precio fijado por el staff para esta carta' };
+      } else if (marketDriftCents != null && liveMarketCents != null && frozen.marketMxnCents != null) {
+        const up = marketDriftCents > 0;
+        adjustment = {
+          deltaCents,
+          reasonCode: up ? 'MARKET_UP' : 'MARKET_DOWN',
+          reasonText: `el mercado ${up ? 'subió' : 'bajó'} de ${mxn(frozen.marketMxnCents)} a ${mxn(liveMarketCents)} desde que se cotizó`,
+        };
+      } else {
+        adjustment = { deltaCents, reasonCode: 'CURVE_CHANGED', reasonText: 'la tabla de compra cambió desde que se cotizó' };
+      }
+    }
     return {
       standardPctBp: standardKind === 'curve' ? frozen.curveBp : null,
       standardOfferCents: final,
       standardKind,
-      marketDriftCents: drift === 0 ? null : drift,
+      marketDriftCents,
       adjustment,
     };
   }
@@ -3833,7 +3847,7 @@ export class BuylistService implements OnModuleInit {
         ...mesa,
         // §3.3 (B1/M2): línea ES ⇒ chip, Estándar y deriva salen de lo CONGELADO; «Mercado hoy» (`marketMxnCents`, vivo, sin castigo) va aparte.
         ...(isEs
-          ? { ...BuylistService.esMesaFields(frozen, it, mesa.marketMxnCents), marketTodayCents: mesa.marketMxnCents }
+          ? { ...BuylistService.esMesaFields(frozen, derivedPriceCents, decision?.priceBasis ?? 'pending', mesa.marketMxnCents), marketTodayCents: mesa.marketMxnCents }
           : {}),
         languagePenaltyPct: frozen?.languagePenalty?.pct ?? null,
         ...this.positionAndSuggestion(

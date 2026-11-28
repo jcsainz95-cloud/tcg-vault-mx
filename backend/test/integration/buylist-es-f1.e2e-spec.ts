@@ -159,15 +159,22 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
         expect(l2.breakdown).toEqual(line.breakdown);
         expect(l2).toMatchObject({ standardPctBp: 5000, standardOfferCents: 42500, languagePenaltyPct: 15 });
         expect(l2).toMatchObject({ standardKind: 'curve', marketDriftCents: null, adjustment: null, marketMxnCents: 100000 });
-        // §3.3 B1: ofertamos (approved ?? quoted) contra el final CONGELADO ⇒ chip de subida; Estándar no se mueve.
+        // §3.3 B1-bis: Ofertamos = derivada VIVA; un operador que ajusta `approvedPriceCents` no mueve el chip (compara derivada vs congelado).
         await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { approvedPriceCents: 42680 } });
         const tUp = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });
         const lUp = tUp.body.lines.find((l: any) => l.language === 'es');
-        expect(lUp.adjustment).toMatchObject({ deltaCents: 180 });
-        expect(lUp).toMatchObject({ standardOfferCents: 42500, standardPctBp: 5000, standardKind: 'curve' });
+        expect(lUp.adjustment).toBeNull();
+        expect(lUp).toMatchObject({ derivedPriceCents: 42500, standardOfferCents: 42500, standardPctBp: 5000, standardKind: 'curve' });
         await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { approvedPriceCents: null } });
-        // §3.3 B1: el mercado se movió desde la cotización ⇒ `marketDriftCents` (vivo − congelado) y NADA más cambia.
+        // Cotización congelada más baja que la derivada viva (la curva/mercado subió): chip «Subida» = derivada − congelado, Estándar intacto.
         const frozenBd = (await h.prisma.sellRequestItem.findUniqueOrThrow({ where: { id: line.itemId } })).offerBreakdown as any;
+        await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { offerBreakdown: { ...frozenBd, marketMxnCents: 90000, finalOfferCents: 40000 } } });
+        const tUp2 = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });
+        const lUp2 = tUp2.body.lines.find((l: any) => l.language === 'es');
+        expect(lUp2).toMatchObject({ derivedPriceCents: 42500, standardOfferCents: 40000, marketDriftCents: 10000 });
+        expect(lUp2.adjustment).toMatchObject({ deltaCents: 2500, reasonCode: 'MARKET_UP' });
+        await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { offerBreakdown: frozenBd } });
+        // §3.3 B1: el mercado se movió desde la cotización ⇒ `marketDriftCents` (vivo − congelado) y NADA más cambia.
         await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { offerBreakdown: { ...frozenBd, marketMxnCents: 90000 } } });
         const tDr = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });
         const lDr = tDr.body.lines.find((l: any) => l.language === 'es');
@@ -178,7 +185,7 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
         const tPe = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });
         const lPe = tPe.body.lines.find((l: any) => l.language === 'es');
         expect(lPe.breakdown).toEqual(pend);
-        expect(lPe).toMatchObject({ standardKind: 'pending', standardPctBp: null, standardOfferCents: null, marketDriftCents: null, adjustment: null, languagePenaltyPct: 15 });
+        expect(lPe).toMatchObject({ derivedPriceCents: 42500, standardKind: 'pending', standardPctBp: null, standardOfferCents: null, marketDriftCents: null, adjustment: null, languagePenaltyPct: 15 });
         // Línea ES sin `offerBreakdown` (datos previos): `breakdown:null` y nada de Estándar derivado.
         await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { offerBreakdown: Prisma.DbNull } });
         const t3 = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });

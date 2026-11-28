@@ -553,32 +553,42 @@ describe('§BUYLIST-ES §3.3 — I2: línea ES pendiente congela el castigo; ree
 });
 
 describe('§BUYLIST-ES §3.3 — B1/M2: campos de mesa de una línea ES desde lo congelado', () => {
-  const f = (frozen: any, it: any, live: number | null) => (BuylistService as any).esMesaFields(frozen, it, live);
+  const f = (frozen: any, derived: number | null, basis: string, live: number | null) => (BuylistService as any).esMesaFields(frozen, derived, basis, live);
   const curve = { marketMxnCents: 100_000, languagePenalty: { pct: 15, cents: -15_000 }, adjustedMarketCents: 85_000, curveBp: 5_000, curveOfferCents: 42_500, cap: null, source: 'curve', finalOfferCents: 42_500 };
-  it('curva pura: Estándar = final, pct = curveBp, chip «estándar» si ofertamos = final (aunque el mercado vivo se movió)', () => {
-    const r = f(curve, { quotedPriceCents: 42_500, approvedPriceCents: null }, 120_000);
+  it('curva pura: Estándar = final, pct = curveBp, chip «estándar» si derivada = final (aunque el mercado vivo se movió)', () => {
+    const r = f(curve, 42_500, 'curve', 120_000);
     expect(r).toMatchObject({ standardOfferCents: 42_500, standardPctBp: 5_000, standardKind: 'curve', adjustment: null, marketDriftCents: 20_000 });
   });
   it('deriva = vivo − congelado; null si 0', () => {
-    expect(f(curve, { quotedPriceCents: 42_500 }, 100_000).marketDriftCents).toBeNull();
-    expect(f(curve, { quotedPriceCents: 42_500 }, 90_000).marketDriftCents).toBe(-10_000);
-    expect(f(curve, { quotedPriceCents: 42_500 }, null).marketDriftCents).toBeNull();
+    expect(f(curve, 42_500, 'curve', 100_000).marketDriftCents).toBeNull();
+    expect(f(curve, 42_500, 'curve', 90_000).marketDriftCents).toBe(-10_000);
+    expect(f(curve, 42_500, 'curve', null).marketDriftCents).toBeNull();
   });
-  it('chip: ofertamos = approved ?? quoted contra el final CONGELADO (subida / bajada)', () => {
-    expect(f(curve, { quotedPriceCents: 42_500, approvedPriceCents: 42_680 }, 100_000).adjustment).toMatchObject({ deltaCents: 180 });
-    expect(f(curve, { quotedPriceCents: 42_500, approvedPriceCents: 40_000 }, 100_000).adjustment).toMatchObject({ deltaCents: -2_500 });
-    expect(f(curve, { quotedPriceCents: 42_680, approvedPriceCents: null }, 100_000).adjustment).toMatchObject({ deltaCents: 180 });
+  it('B1-bis chip (MESA §7): delta = derivada VIVA − final congelado; mercado sube 300→450 (15 %): 180.01 vs 111.88 ⇒ +68.13 MARKET_UP', () => {
+    const c300 = { ...curve, marketMxnCents: 30_000, adjustedMarketCents: 25_500, languagePenalty: { pct: 15, cents: -4_500 }, curveBp: 4_387, curveOfferCents: 11_188, finalOfferCents: 11_188 };
+    expect(f(c300, 18_001, 'curve', 45_000)).toMatchObject({
+      standardOfferCents: 11_188,
+      marketDriftCents: 15_000,
+      adjustment: { deltaCents: 6_813, reasonCode: 'MARKET_UP' },
+    });
+    expect(f(c300, 9_000, 'curve', 20_000).adjustment).toMatchObject({ deltaCents: -2_188, reasonCode: 'MARKET_DOWN' });
+  });
+  it('B1-bis chip: precio fijo agregado después (680 vs 425) ⇒ +255 MANUAL_OVERRIDE, gana a la deriva; sin mercado movido y sin fijo ⇒ CURVE_CHANGED', () => {
+    expect(f(curve, 68_000, 'override', 100_000).adjustment).toMatchObject({ deltaCents: 25_500, reasonCode: 'MANUAL_OVERRIDE' });
+    expect(f(curve, 68_000, 'override', 150_000).adjustment).toMatchObject({ deltaCents: 25_500, reasonCode: 'MANUAL_OVERRIDE' });
+    expect(f(curve, 40_000, 'curve', 100_000).adjustment).toMatchObject({ deltaCents: -2_500, reasonCode: 'CURVE_CHANGED' });
+    expect(f(curve, null, 'pending', 100_000).adjustment).toBeNull();
   });
   it('tope: sin % junto al monto post-tope; override y pending: sin deriva ni %', () => {
     const capEn = { ...curve, cap: { reason: 'en_offer', cents: 30_000 }, finalOfferCents: 30_000 };
-    expect(f(capEn, { quotedPriceCents: 30_000 }, 100_000)).toMatchObject({ standardKind: 'cap_en_offer', standardPctBp: null, standardOfferCents: 30_000 });
-    expect(f({ ...capEn, cap: { reason: 'floor', cents: 30_000 } }, { quotedPriceCents: 30_000 }, 100_000).standardKind).toBe('cap_floor');
+    expect(f(capEn, 30_000, 'curve', 100_000)).toMatchObject({ standardKind: 'cap_en_offer', standardPctBp: null, standardOfferCents: 30_000 });
+    expect(f({ ...capEn, cap: { reason: 'floor', cents: 30_000 } }, 30_000, 'curve', 100_000).standardKind).toBe('cap_floor');
     const ov = { marketMxnCents: 80_000, languagePenalty: { pct: 15, cents: -12_000 }, adjustedMarketCents: 68_000, curveBp: null, curveOfferCents: null, cap: null, source: 'override', finalOfferCents: 68_000 };
-    expect(f(ov, { quotedPriceCents: 68_000 }, 45_000)).toMatchObject({ standardKind: 'override', standardPctBp: null, standardOfferCents: 68_000, marketDriftCents: null, adjustment: null });
+    expect(f(ov, 68_000, 'override', 45_000)).toMatchObject({ standardKind: 'override', standardPctBp: null, standardOfferCents: 68_000, marketDriftCents: null, adjustment: null });
     const pend = { marketMxnCents: null, languagePenalty: { pct: 15, cents: null }, adjustedMarketCents: null, curveBp: null, curveOfferCents: null, cap: null, source: 'pending', finalOfferCents: null };
-    expect(f(pend, { quotedPriceCents: null }, 45_000)).toMatchObject({ standardKind: 'pending', standardPctBp: null, standardOfferCents: null, marketDriftCents: null, adjustment: null });
+    expect(f(pend, 7_560, 'curve', 45_000)).toMatchObject({ standardKind: 'pending', standardPctBp: null, standardOfferCents: null, marketDriftCents: null, adjustment: null });
   });
   it('sin desglose congelado: todo null, nada se re-deriva', () => {
-    expect(f(null, { quotedPriceCents: 42_500 }, 100_000)).toEqual({ standardPctBp: null, standardOfferCents: null, standardKind: null, marketDriftCents: null, adjustment: null });
+    expect(f(null, 42_500, 'curve', 100_000)).toEqual({ standardPctBp: null, standardOfferCents: null, standardKind: null, marketDriftCents: null, adjustment: null });
   });
 });
