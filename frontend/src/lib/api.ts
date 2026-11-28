@@ -17,6 +17,7 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
+import { MOCK_LEAGUE, mockApplyLeague } from './mock/buylist-league';
 import { mockUnlinkedPrice, mockLinkRepair, mockLinkExceptions, mockLinkConfirm, mockSetAutoLink, mockFinishReview, mockFinishDecision, mockSetCards, mockCardConfirm, mockAutoLinkRuns } from './mock/link-repair';
 import { registerLinkRepairMock } from './api/catalog-link-repair';
 import { registerLinkExceptionsMock, registerAutoLinkDialMock } from './api/catalog-link-exceptions';
@@ -3027,7 +3028,8 @@ type MockQuoteItemError =
   | 'PRODUCT_CARD_MISMATCH'
   | 'BUYLIST_RAW_ONLY'
   | 'LANGUAGE_NOT_ELIGIBLE'
-  | 'LANGUAGE_NOT_AVAILABLE';
+  | 'LANGUAGE_NOT_AVAILABLE'
+  | 'STAMP_NOT_AVAILABLE';
 
 /**
  * MOCK v1.30 (§4.29): resuelve UN ítem de cotización (carta BASE o PRODUCTO SEPARADO por
@@ -3059,6 +3061,13 @@ function mockResolveQuoteItem(
   if (!card) return { ok: false, code: 'NOT_FOUND' };
   const rarity = card.rarity ?? '';
 
+  if (item.productId != null && MOCK_LEAGUE[item.cardId]?.productId === item.productId) {
+    // §BUYLIST-ES F4: producto de liga. Dial apagado ⇒ 400 `STAMP_NOT_AVAILABLE`; encendido ⇒ se cotiza como versión propia.
+    if (!fx.mockBuylistQuotePolicy.leagueEnabled) return { ok: false, code: 'STAMP_NOT_AVAILABLE' };
+    const finish: Finish = item.finish ?? 'holofoil';
+    const baseQ = mockApplyLanguage(mockRuleQuote(rarity, finish, fx.mockMarketReferenceForVariant(item.cardId, finish) ?? null), 'en');
+    return { ok: true, payload: mockApplyLeague(baseQ, item.cardId, item.language, item.productId) };
+  }
   if (item.productId != null) {
     const res = fx.resolveSeparateProduct(item.cardId, item.productId);
     if (res.status === 'not_found') return { ok: false, code: 'PRODUCT_NOT_FOUND' };
@@ -3081,7 +3090,10 @@ function mockResolveQuoteItem(
   if (item.language === 'es' && !fx.mockBuylistQuotePolicy.spanishEnabled) {
     return { ok: false, code: 'LANGUAGE_NOT_AVAILABLE' };
   }
-  return { ok: true, payload: mockApplyLanguage(mockRuleQuote(rarity, finish, refCents), item.language) };
+  return {
+    ok: true,
+    payload: mockApplyLeague(mockApplyLanguage(mockRuleQuote(rarity, finish, refCents), item.language), item.cardId, item.language, undefined),
+  };
 }
 
 export async function getBuylistQuote(input: BuylistQuoteInput): Promise<BuylistQuoteResponse> {
@@ -3131,6 +3143,7 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
     BUYLIST_RAW_ONLY: 'The buylist only accepts raw cards',
     LANGUAGE_NOT_ELIGIBLE: 'This card is not eligible in Spanish',
     LANGUAGE_NOT_AVAILABLE: 'Spanish offers are not available',
+    STAMP_NOT_AVAILABLE: 'League versions are not available',
   };
   const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
     // v1.30 (§4.29): resuelve base O producto separado por-ítem; errores por-ítem NO tumban el lote.

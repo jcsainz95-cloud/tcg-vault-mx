@@ -3271,6 +3271,9 @@ export interface BuylistQuoteResponse {
   offers?: BuylistLanguageOffersDTO;
   spanishEligible?: boolean;
   breakdown?: BuylistBreakdownDTO | null;
+  /** §BUYLIST-ES F4 (§3.4): ligas de la carta (vacío/ausente ⇒ sin segmento «De liga») y todas sus versiones elegibles. */
+  stampOptions?: BuylistStampDTO[];
+  versions?: BuylistVersionDTO[];
 }
 
 // ---- Cotización en LOTE (contrato §6 · POST /buylist/quote/batch, v1.15) ----
@@ -3321,6 +3324,9 @@ export interface BuylistQuotePayload {
   offers?: BuylistLanguageOffersDTO;
   spanishEligible?: boolean;
   breakdown?: BuylistBreakdownDTO | null;
+  /** §BUYLIST-ES F4 (§3.4): ligas de la carta (vacío/ausente ⇒ sin segmento «De liga») y todas sus versiones elegibles. */
+  stampOptions?: BuylistStampDTO[];
+  versions?: BuylistVersionDTO[];
 }
 
 // Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el
@@ -3349,7 +3355,8 @@ export type BuylistBatchQuoteResultDTO =
           | 'PRODUCT_CARD_MISMATCH'
           | 'BUYLIST_RAW_ONLY'
           | 'LANGUAGE_NOT_ELIGIBLE'
-          | 'LANGUAGE_NOT_AVAILABLE';
+          | 'LANGUAGE_NOT_AVAILABLE'
+          | 'STAMP_NOT_AVAILABLE';
         message: string;
       };
     };
@@ -3410,6 +3417,19 @@ export interface BuylistStampDTO {
   type: string;
   label: string;
   productId: number;
+}
+
+/**
+ * §BUYLIST-ES F4 (§2, §3.4) · una fila por combinación idioma × (normal | cada liga): lo que ofrecemos por ESA versión. El
+ * segmento «Normal | De liga» y el de idioma eligen entre estas cifras SIN otra llamada; ⛔ el front no calcula ninguna.
+ * `offerCents:null` ⇒ sin oferta para esa versión (`reason`), nunca se paga la normal en su lugar.
+ */
+export interface BuylistVersionDTO {
+  key: string;
+  language: CardLanguage;
+  stamp: BuylistStampDTO | null;
+  offerCents: number | null;
+  reason: 'no_reference' | 'language_not_eligible' | 'precio_pendiente' | null;
 }
 
 /** §BUYLIST-ES §2 · ofertas por idioma de la versión elegida (centavos | null = sin oferta). */
@@ -5413,6 +5433,8 @@ export interface BuylistConvertAllResponse {
 /** Línea de ADMIN: `agreedPriceCents` = el precio PACTADO final (baja aceptada o el ofertado). */
 export interface AdminSellItemDTO extends SellItemDTO {
   agreedPriceCents?: number | null;
+  /** §BUYLIST-ES F4 (§4.1): versiones valoradas al cotizar (de ahí salen las ligas del selector «Versión»); ausente ⇒ solo idioma. */
+  versions?: BuylistVersionDTO[];
 }
 
 /** §BUYLIST-RASTREO: `status` es el crudo de la paquetería (picked_up, in_transit, delivered, exception…). */

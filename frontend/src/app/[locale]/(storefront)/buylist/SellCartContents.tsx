@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
-import type { BuylistQuoteResponse, CardLanguage } from '@/types/contract';
+import type { BuylistQuoteResponse, CardLanguage, StampType } from '@/types/contract';
 import type { SellRequirements } from '@/hooks/useSellRequirements';
 import { formatMoneyCents } from '@/lib/format';
 import { visibleMarketCents } from '@/lib/sell-market';
@@ -19,9 +19,10 @@ import {
   BuylistPendingLinesNote,
 } from '@/components/domain/BuylistPendingLinesNote';
 import type { CartLine, SpanishBulkResult } from './useSellCart';
-import { MAX_LINE_QUANTITY, lineLanguage, lineOffersSpanish } from './useSellCart';
+import { MAX_LINE_QUANTITY, lineLanguage, lineOffersSpanish, lineOffersStamp, lineStamp } from './useSellCart';
+import { StampSegment } from '@/components/domain/StampSegment';
 import { LanguageSegment } from '@/components/domain/LanguageSegment';
-import { LanguageChip } from '@/components/domain/VersionChip';
+import { LanguageChip, StampChip } from '@/components/domain/VersionChip';
 import { minimumShortfallCents } from './useQuotePolicy';
 import { CartTotalFigure } from './CartTotalFigure';
 import { CardCode } from '@/components/domain/CardCode';
@@ -73,6 +74,9 @@ export interface SellCartContentsProps {
   /** Solo para el texto de ayuda; el monto ya viene calculado por el servidor. */
   spanishPenaltyPct?: number;
   onSetLanguage?: (lineId: string, language: CardLanguage) => void;
+  /** §BUYLIST-ES F4: dial `leagueEnabled` de `quote-policy` y el cambio «Normal | De liga» de una línea (`null` = normal). */
+  leagueEnabled?: boolean;
+  onSetStamp?: (lineId: string, stampProductId: number | null) => void;
   onAllSpanish?: () => SpanishBulkResult;
   onSetQuantity: (lineId: string, quantity: number) => void;
   onRemoveLine: (lineId: string) => void;
@@ -119,6 +123,8 @@ export function SellCartContents({
   spanishEnabled = false,
   spanishPenaltyPct,
   onSetLanguage,
+  leagueEnabled = false,
+  onSetStamp,
   onAllSpanish,
   onSetQuantity,
   onRemoveLine,
@@ -295,6 +301,7 @@ export function SellCartContents({
                             en vez del texto plano del acabado — mismo lenguaje que la teja. */}
                         <FinishMark finish={l.finish} className="translate-y-[1px]" />
                         {isSpanish && <LanguageChip language="es" size="tile" />}
+                        {lineStamp(l) && <StampChip type={lineStamp(l)!.type as StampType} size="tile" />}
                         <span aria-hidden>·</span>
                         <span>
                           ×<span className="tabular">{l.quantity}</span>
@@ -350,6 +357,18 @@ export function SellCartContents({
                           offers={l.quote.offers}
                           disabled={noFreshPrice}
                           onChange={(lang) => onSetLanguage(l.id, lang)}
+                        />
+                      )}
+                      {/* §BUYLIST-ES F4: segmento «Normal | De liga» (fichas por liga); se combina con el de idioma, sin red. */}
+                      {onSetStamp && lineOffersStamp(l, leagueEnabled) && (
+                        <StampSegment
+                          name={l.card.name}
+                          language={lineLanguage(l)}
+                          stampOptions={l.quote.stampOptions ?? []}
+                          versions={l.quote.versions ?? []}
+                          selectedProductId={lineStamp(l)?.productId ?? null}
+                          disabled={noFreshPrice}
+                          onChange={(productId) => onSetStamp(l.id, productId)}
                         />
                       )}
                       <div className="mt-2 flex items-center gap-4">

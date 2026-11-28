@@ -76,6 +76,6 @@ describe('M5 recepción · idioma recibido (§BUYLIST-ES F3)', () => {
     );
     await openVerifying('en');
     fireEvent.click((await screen.findAllByRole('button', { name: 'Approve at agreed price' }))[0]);
-    expect(await screen.findByText(/never pay more than in English or more than the reference \(MX\$425\.00\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/cannot exceed the English offer or the reference \(MX\$425\.00\)/)).toBeInTheDocument();
   });
 });

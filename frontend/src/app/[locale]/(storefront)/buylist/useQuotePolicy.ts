@@ -25,6 +25,7 @@ import { getBuylistQuotePolicy } from '@/lib/api';
 export function useQuotePolicy(): {
   minimumRequestCents?: number;
   spanishEnabled?: boolean;
+  leagueEnabled?: boolean;
   spanishPenaltyPct?: number;
 } {
   const query = useQuery({
@@ -43,6 +44,8 @@ export function useQuotePolicy(): {
   return {
     minimumRequestCents: query.data?.minimumRequestCents,
     spanishEnabled: query.data?.spanishEnabled === true,
+    // §BUYLIST-ES F4: ligas, mismo criterio fail-closed de UI que el español.
+    leagueEnabled: query.data?.leagueEnabled === true,
     spanishPenaltyPct: query.data?.spanishPenaltyPct,
   };
 }

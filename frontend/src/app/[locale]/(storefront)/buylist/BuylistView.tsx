@@ -64,6 +64,10 @@ function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>
     ...(r.offers ? { offers: r.offers } : {}),
     ...(r.spanishEligible != null ? { spanishEligible: r.spanishEligible } : {}),
     ...(r.language ? { language: r.language } : {}),
+    // §BUYLIST-ES F4: ligas de la carta y todas sus versiones (los segmentos eligen entre estas cifras, sin red).
+    ...(r.stampOptions?.length ? { stampOptions: r.stampOptions } : {}),
+    ...(r.versions ? { versions: r.versions } : {}),
+    ...(r.productId != null ? { productId: r.productId } : {}),
   };
 }
 
@@ -115,6 +119,7 @@ export function BuylistView() {
     addLine,
     setQuantity,
     setLineLanguage,
+    setLineStamp,
     setAllSpanish,
     removeLine,
     clearCart,
@@ -312,7 +317,7 @@ export function BuylistView() {
   const sellReq = useSellRequirements(totalEstimatedCents);
   // `minimumRequestCents` queda undefined mientras carga Y si la llamada falla: la degradación es
   // fail-OPEN (sin faltante y con el CTA vivo), porque la puerta real es el 422 del servidor.
-  const { minimumRequestCents, spanishEnabled, spanishPenaltyPct } = useQuotePolicy();
+  const { minimumRequestCents, spanishEnabled, spanishPenaltyPct, leagueEnabled } = useQuotePolicy();
 
   return (
     <div className="grid lg:grid-cols-[40px_1fr]">
@@ -450,6 +455,8 @@ export function BuylistView() {
             spanishEnabled={spanishEnabled}
             spanishPenaltyPct={spanishPenaltyPct}
             onSetLanguage={setLineLanguage}
+            leagueEnabled={leagueEnabled}
+            onSetStamp={setLineStamp}
             onAllSpanish={setAllSpanish}
             onSetQuantity={setQuantity}
             onRemoveLine={removeLine}

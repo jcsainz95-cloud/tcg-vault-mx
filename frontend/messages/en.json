@@ -1061,6 +1061,7 @@
       "higher": "We pay {amount} for your {card} ({version}).",
       "arrivedAs": "Arrived as {received}; you declared {declared}",
       "unavailable": "We could not price this version; we will return the card",
+      "group": "Version of {name}",
       "floorNote": "Minimum store offer",
       "name": {
         "en": "English",
@@ -3762,6 +3763,8 @@
           "version": {
             "label": "Received language",
             "group": "Received language of {card}",
+            "versionLabel": "Received version",
+            "versionGroup": "Received version of {card}",
             "en": "English",
             "es": "Spanish",
             "declared": "declared",
@@ -3770,7 +3773,7 @@
             "errors": {
               "unavailable": "There is no price for the version that arrived. If it is not the card they declared, use “Different card”.",
               "overVersionCap": "The amount cannot exceed the offer for the received version{cap}. Nothing was saved.",
-              "esOverCap": "In Spanish we never pay more than in English or more than the reference{cap}. Nothing was saved.",
+              "esOverCap": "In Spanish the price cannot exceed the English offer or the reference{cap}. Nothing was saved.",
               "capOf": " ({amount})"
             }
           },
@@ -9675,6 +9678,10 @@
     "EMAIL_NOT_VERIFIED": "Verify your email to complete this action.",
     "EMAIL_VERIFY_TOKEN_INVALID": "The verification link is invalid or expired.",
     "RESET_TOKEN_INVALID": "The reset link is invalid or expired.",
+    "ES_OVER_CAP": "Price over the cap.",
+    "OVER_VERSION_CAP": "Amount over the cap.",
+    "STAMP_NOT_AVAILABLE": "League not available.",
+    "VERSION_PRICE_UNAVAILABLE": "Version has no price.",
     "APPROVED_PRICE_CAP_EXCEEDED": "The amount you are approving does not fit this card's cap: it cannot go over twice the quoted price, nor over the most we can buy from this seller in a month. Lower the approved amount, or reject the card with a reason. Nothing was saved.",
     "INE_REQUIRED_OPERATOR": "The offer was not sent: the seller has no INE (ID) on file, and at this amount we have to ask for it. Nothing was saved and the seller was not notified. Call them so they upload it from their profile and issue the offer again, or decline the request. No role can skip this requirement.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",

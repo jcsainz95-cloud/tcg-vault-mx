@@ -1061,6 +1061,7 @@
       "higher": "Te pagamos {amount} por tu {card} ({version}).",
       "arrivedAs": "Llegó como {received}; declaraste {declared}",
       "unavailable": "No pudimos valorar esta versión; te recogemos la carta",
+      "group": "Versión de {name}",
       "floorNote": "Oferta mínima de la tienda",
       "name": {
         "en": "Inglés",
@@ -3762,6 +3763,8 @@
           "version": {
             "label": "Idioma recibido",
             "group": "Idioma recibido de {card}",
+            "versionLabel": "Versión recibida",
+            "versionGroup": "Versión recibida de {card}",
             "en": "Inglés",
             "es": "Español",
             "declared": "declarado",
@@ -3770,7 +3773,7 @@
             "errors": {
               "unavailable": "No hay precio para la versión que llegó. Si no es la carta que declaró, usa «Carta distinta».",
               "overVersionCap": "El monto no puede pasar de la oferta de la versión recibida{cap}. No se guardó nada.",
-              "esOverCap": "En español nunca pagamos más que en inglés ni que la referencia{cap}. No se guardó nada.",
+              "esOverCap": "En español el precio no puede superar la oferta en inglés ni la referencia{cap}. No se guardó nada.",
               "capOf": " ({amount})"
             }
           },
@@ -9675,6 +9678,10 @@
     "EMAIL_NOT_VERIFIED": "Verifica tu correo para completar esta acción.",
     "EMAIL_VERIFY_TOKEN_INVALID": "El enlace de verificación es inválido o expiró.",
     "RESET_TOKEN_INVALID": "El enlace de restablecimiento es inválido o expiró.",
+    "ES_OVER_CAP": "Precio sobre el tope.",
+    "OVER_VERSION_CAP": "Monto sobre el tope.",
+    "STAMP_NOT_AVAILABLE": "Liga no disponible.",
+    "VERSION_PRICE_UNAVAILABLE": "Versión sin precio.",
     "APPROVED_PRICE_CAP_EXCEEDED": "El monto que estás aprobando no cabe en el tope de esta carta: no puede pasar del doble de lo cotizado ni del máximo que le podemos comprar al vendedor en el mes. Baja el monto aprobado, o rechaza la carta con su motivo. No se guardó nada.",
     "INE_REQUIRED_OPERATOR": "La oferta no salió: el vendedor no tiene su INE en el expediente y por este monto se lo tenemos que pedir. No se guardó nada y él no recibió aviso. Llámalo para que lo suba desde su perfil y vuelve a emitir, o declina la solicitud. Ningún rol puede saltarse este requisito.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "Esta oferta dejaría al vendedor por encima del máximo que le podemos comprar este mes, así que no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope.",

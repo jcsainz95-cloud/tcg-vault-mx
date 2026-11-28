@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  BuylistStampDTO,
   CardLanguage,
   RawCondition,
   Finish,
@@ -85,6 +86,34 @@ export function lineOffersSpanish(l: CartLine, spanishEnabled: boolean | undefin
   if (!spanishEnabled) return false;
   if (lineLanguage(l) === 'es') return true;
   return l.quote.spanishEligible === true && l.quote.offers?.es != null;
+}
+
+/**
+ * §BUYLIST-ES F4 · liga elegida de una línea: la opción de `stampOptions` cuyo `productId` es el de la línea; `null` ⇒ normal.
+ * (Solo esas: un `productId` de promo/deck_exclusive no es una liga y no ofrece el segmento.)
+ */
+export function lineStamp(l: CartLine): BuylistStampDTO | null {
+  if (l.productId == null) return null;
+  return l.quote.stampOptions?.find((o) => o.productId === l.productId) ?? null;
+}
+
+/**
+ * ¿Esta línea ofrece el segmento «Normal | De liga»? Solo con el dial `leagueEnabled`, si el servidor manda `stampOptions` y la
+ * línea es la normal o ya es una de esas ligas. Con el dial apagado devuelve `false` ⇒ la UI no muestra nada nuevo.
+ */
+export function lineOffersStamp(l: CartLine, leagueEnabled: boolean | undefined): boolean {
+  if (!leagueEnabled || !l.quote.stampOptions?.length || !l.quote.versions?.length) return false;
+  return l.productId == null || lineStamp(l) != null;
+}
+
+/** Oferta (centavos, del servidor) de la versión idioma × liga; `null` = sin oferta. */
+export function versionOfferCents(
+  quote: BuylistQuoteResponse,
+  language: CardLanguage,
+  stampProductId: number | null,
+): number | null {
+  const v = quote.versions?.find((x) => x.language === language && (x.stamp?.productId ?? null) === stampProductId);
+  return v?.offerCents ?? null;
 }
 
 /** Línea entrante (sin id/cantidad: los asigna el merge con dedup). */
@@ -222,6 +251,8 @@ function payloadToQuote(p: BuylistQuotePayload, prev: BuylistQuoteResponse): Buy
     ...(p.offers ? { offers: p.offers } : {}),
     ...(p.spanishEligible != null ? { spanishEligible: p.spanishEligible } : {}),
     ...(p.breakdown ? { breakdown: p.breakdown } : {}),
+    ...(p.stampOptions?.length ? { stampOptions: p.stampOptions } : {}),
+    ...(p.versions ? { versions: p.versions } : {}),
   };
 }
 
@@ -271,6 +302,34 @@ function switchLanguage(l: CartLine, lang: CardLanguage): CartLine {
     ...rest,
     ...(lang === 'es' ? { language: 'es' as const } : {}),
     quote: { ...quoteRest, language: lang, quote: { ...l.quote.quote, quotedPriceCents: cents } },
+  };
+}
+
+/**
+ * Pasa UNA línea a la versión normal (`null`) o a la liga `productId` SIN red: las ofertas ya vienen en `versions[]`. Conserva el
+ * idioma; si esa versión no tiene oferta en ese idioma devuelve la línea intacta (el segmento la deja apagada, «Sin oferta»).
+ * `offers` se recompone con las dos cifras de la versión elegida, para que el segmento de idioma siga sin red.
+ * ⛔ El front no calcula dinero: solo elige entre cifras del servidor.
+ */
+function switchStamp(l: CartLine, stampProductId: number | null): CartLine {
+  if ((l.productId ?? null) === stampProductId) return l;
+  const lang = lineLanguage(l);
+  const cents = versionOfferCents(l.quote, lang, stampProductId);
+  if (cents == null) return l;
+  const { breakdown: _bd, productId: _pid, ...quoteRest } = l.quote;
+  void _bd;
+  void _pid;
+  const { productId: _lp, ...rest } = l;
+  void _lp;
+  return {
+    ...rest,
+    ...(stampProductId != null ? { productId: stampProductId } : {}),
+    quote: {
+      ...quoteRest,
+      ...(stampProductId != null ? { productId: stampProductId } : {}),
+      offers: { en: versionOfferCents(l.quote, 'en', stampProductId), es: versionOfferCents(l.quote, 'es', stampProductId) },
+      quote: { ...l.quote.quote, quotedPriceCents: cents },
+    },
   };
 }
 
@@ -486,6 +545,14 @@ export function useSellCart() {
     [commit],
   );
 
+  /** Interruptor «Normal | De liga» de UNA línea (`null` = normal): cambia el monto sin llamada (contrato BUYLIST-ES §5/§6.9). */
+  const setLineStamp = useCallback(
+    (lineId: string, stampProductId: number | null) => {
+      commit((prev) => dedupLines(prev.map((l) => (l.id === lineId ? switchStamp(l, stampProductId) : l))));
+    },
+    [commit],
+  );
+
   /**
    * «Todas en español»: pasa a español toda línea elegible (con oferta ES) y cuenta las que omitió. Se calcula
    * sobre el carrito actual y devuelve el resultado para que la pantalla lo anuncie.
@@ -587,6 +654,7 @@ export function useSellCart() {
     addLine,
     setQuantity,
     setLineLanguage,
+    setLineStamp,
     setAllSpanish,
     removeLine,
     clearCart,

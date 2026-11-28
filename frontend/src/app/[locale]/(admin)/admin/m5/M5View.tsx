@@ -482,7 +482,13 @@ export function M5View() {
       decideBuylistItem(vars.itemId, {
         decision: vars.decision,
         approvedPriceCents: vars.approvedPriceCents,
-        ...(vars.received ? { receivedLanguage: vars.received.language } : {}),
+        ...(vars.received
+          ? {
+              receivedLanguage: vars.received.language,
+              // F4: solo si la carta tiene liga que elegir (`undefined` = no aplica; `null` = normal).
+              ...(vars.received.productId !== undefined ? { receivedProductId: vars.received.productId } : {}),
+            }
+          : {}),
       }),
     onSuccess: (_d, vars) => {
       if (vars.decision === 'adjust') closeAdjust();

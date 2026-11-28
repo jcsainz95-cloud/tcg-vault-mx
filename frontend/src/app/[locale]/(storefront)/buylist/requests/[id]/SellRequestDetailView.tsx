@@ -1,7 +1,7 @@
 'use client';
 
 import { BuylistBreakdown } from '@/components/domain/BuylistBreakdown';
-import { LanguageChip } from '@/components/domain/VersionChip';
+import { LanguageChip, StampChip } from '@/components/domain/VersionChip';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -11,7 +11,7 @@ import { useSession } from '@/lib/session';
 import { useBuylistSteps } from '@/lib/pipelines';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
-import type { SellItemDTO, SellRequestDetailDTO } from '@/types/contract';
+import type { SellItemDTO, SellRequestDetailDTO, StampType } from '@/types/contract';
 import { Link } from '@/i18n/navigation';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
@@ -479,9 +479,11 @@ function Detail({
                 </span>
                 <LineSpec line={line} />
                 {/* §BUYLIST-ES: chip «Español» solo en líneas declaradas en español (inglés = sin chip, como hoy). */}
-                {line.language === 'es' && (
-                  <span className="mt-1">
-                    <LanguageChip language="es" size="tile" />
+                {(line.language === 'es' || line.stamp) && (
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    {line.language === 'es' && <LanguageChip language="es" size="tile" />}
+                    {/* §BUYLIST-ES F4: chip de liga (el servidor manda `stamp` en la línea declarada de liga). */}
+                    {line.stamp && <StampChip type={line.stamp.type as StampType} size="tile" />}
                   </span>
                 )}
               </span>
