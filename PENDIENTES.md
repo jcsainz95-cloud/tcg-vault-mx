@@ -18,6 +18,7 @@
 | AE-15 | Si `evaluate` no devuelve veredicto para una variante, `refreshPublished` escribe sin candado (`auto-link-price-gate.service.ts:76`). No alcanzable hoy; NO MEDIDO con BD. Baja; caduca 2027-01-15. | 2026-11-27 | backend | `auto-link-price-gate.service.ts:76` |
 | AE-MENORES | `link-exceptions` devuelve `nextAttemptAt` en `b3_unverified` (front lo oculta 5/5); sin test de error de confirm arriba; `docs/STATUS.md` 260+ líneas (tope 150). | 2026-11-27 | backend / frontend / orquestador | `wc -l docs/STATUS.md` |
 | BES-M8 | §BUYLIST-ES: la cola de la mesa es por variante sin idioma; una causa solo-ES (`premium_at_floor`) se cierra si después llega una línea EN no pendiente de la misma variante. No mueve dinero. Se arregla en F3 con clave variante + idioma (`docs/API_CONTRACT_BUYLIST_ES.md` §8 F3). | 2026-11-28 (qa re-gate 43dfad01) | backend (F3) | re-gate qa F3 |
+| BES-MENORES | §BUYLIST-ES (qa re-gate 4, dc62ae33): texto EN `mesa.reason.MARKET_*` oculto siempre por `sinceQuote` (`BuylistDecisionDesk.tsx:802`); fallback ES a `reasonText` del servidor; leyenda de la mesa cortada a 1440; doble nota al cambiar el mercado; §3.3 nombra claves `buylist.es.*` (hoy `admin.m5.desk`) y «con con». Seguridad: BES-1 media (no encender `buylist_spanish_enabled` antes de F3), BES-4/5/6 bajas (hasta 2027-01-15). | 2026-11-28 | frontend / arquitecto / backend (F3) | re-gate F3 |
 
 ## 2026-11-12 — Abiertos de la sesión §PROV
 
