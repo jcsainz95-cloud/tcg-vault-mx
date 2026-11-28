@@ -849,6 +849,8 @@ Causa (diagnóstico a): TCGCSV da subtipos «1st Edition», «Unlimited», «Unl
 La oferta de liga parte del mercado de SU producto de liga y pasa por el mismo cálculo (ej.: normal MX$500 / liga MX$1,000 ⇒ liga inglés MX$500; español 1000→850→MX$425). Descartada B (normal + prima fija). Riesgo aceptado: poca liquidez; mitigado por el candado anti-inflado y «sin oferta para esta versión» sin precio fresco. F4 ya no espera al dueño. Contrato §3.1.
 ### Ratificación F1 (2026-11-28, arquitecto)
 `offerBreakdown Json?` congela el desglose (§1); dials booleanos true/false; redondeo de la oferta ES = half_up de la curva vigente (se retira half_down); EN «precio pendiente» + ES ⇒ 200 `precio_pendiente`, no 400; ejemplo §3.1 sin cifras bajo MX$500; sin idempotencia de solicitud. Cero cambios de código.
+### Gate F1+F2 (2026-11-28, arquitecto; contrato §3.2)
+`curveBp` informativo derivado del dinero (tolerancia ≤ 1 centavo, nunca recalcula monto) + `curveOfferCents` + `cap{reason,cents}`; override sí recibe castigo ES; mesa ES muestra % real de curva más «−15 % idioma»; desglose y mesa leen solo `offerBreakdown` congelado; se elimina `esOnlyPending`. Dinero cobrado intacto.
 ### Defaults de lo demás (se avisan, no se preguntan)
 Si llega inglés cuando se declaró español (o liga cuando se declaró normal) se paga la versión recibida. Sin bounty en español ni en liga. Promo/deck_exclusive/Pattern/graduada no elegibles para ES ni liga.
 
