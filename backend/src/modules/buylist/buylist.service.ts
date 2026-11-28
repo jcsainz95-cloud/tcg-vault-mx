@@ -48,7 +48,6 @@ import {
   MarketBracket as MarketBracketType,
   PendingReason,
   PricingCurve,
-  displayBpValue,
   explainBuyFromCurve,
   isBountyEffective,
   marketBracketOf,
@@ -763,14 +762,22 @@ export type BuylistBatchQuoteResult =
  * congela y lo escala). Mismo invariante que el eje de venta: `pendingReason != null` ⇒
  * `quotedPriceCents === null` y `priceBasis === 'pending'`.
  */
-/** §BUYLIST-ES §3 — desglose por línea, EN ESE ORDEN: mercado → castigo de idioma → mercado ajustado → % base → oferta. Enteros de centavos. */
+/**
+ * §BUYLIST-ES §3 / §3.2 — desglose por línea, EN ESE ORDEN: mercado → castigo de idioma → mercado ajustado → curva → (tope) → oferta. Enteros de centavos.
+ * El DINERO manda: `curveBp` es informativo (derivado de `curveOfferCents`), nunca se recalcula el monto con él.
+ */
 export interface BuyBreakdown {
   marketMxnCents: number;
   /** `null` en línea inglesa. `cents` es NEGATIVO: `marketMxnCents + cents = adjustedMarketCents` exacto. */
   languagePenalty: { pct: number; cents: number } | null;
   adjustedMarketCents: number;
-  /** % de la curva de compra evaluada sobre el mercado ajustado; `null` si el monto no salió de la curva (override/bounty). */
-  curvePct: number | null;
+  /** `round_half_up(curveOfferCents × 10000 / adjustedMarketCents)`; `null` si el monto no salió de la curva (override/bounty en inglés). */
+  curveBp: number | null;
+  /** Oferta de la curva ANTES de topes (sin piso ni tope de inglés). */
+  curveOfferCents: number;
+  /** Tope que fijó el monto final: piso de compra o «no más que la inglesa». `null` ⇒ `finalOfferCents = curveOfferCents`. */
+  cap: { reason: 'en_offer' | 'floor'; cents: number } | null;
+  source: 'curve' | 'override' | 'bounty';
   finalOfferCents: number;
 }
 
@@ -1526,7 +1533,26 @@ export class BuylistService implements OnModuleInit {
     } | null = null;
     if (spanishEligible) {
       const ref = en.referenceMxnCents;
-      if (enOffer == null || ref == null || ref <= 0) {
+      if (enOffer != null && en.quote.basis === 'override') {
+        // §3.2: el override de la inglesa SÍ recibe el castigo (ES nunca paga más que EN y el % de idioma se ve):
+        // ES = round_half_up(overrideEN × (100−P)/100). La traza de la línea no es de la curva: `curveBp` 10000, sin tope.
+        const adjusted = scaleByPct(enOffer, 100 - (penaltyPct as number));
+        es = {
+          offerCents: adjusted,
+          quote: { ...en.quote, priceCents: adjusted },
+          pendingReason: null,
+          breakdown: {
+            marketMxnCents: enOffer,
+            languagePenalty: { pct: penaltyPct as number, cents: -(enOffer - adjusted) },
+            adjustedMarketCents: adjusted,
+            curveBp: 10000,
+            curveOfferCents: adjusted,
+            cap: null,
+            source: 'override',
+            finalOfferCents: adjusted,
+          },
+        };
+      } else if (enOffer == null || ref == null || ref <= 0) {
         // La inglesa está detenida (o no hay mercado): la española hereda la causa y nunca se cotiza sola.
         es = { offerCents: null, quote: null, pendingReason: en.pendingReason ?? 'no_market', breakdown: null };
       } else {
@@ -1540,7 +1566,10 @@ export class BuylistService implements OnModuleInit {
         } else {
           // Anti-inflado (§3.4): jamás por encima de la inglesa ni de la referencia.
           const finalCents = Math.min(q.priceCents, enOffer, ref);
-          const trace = explainBuyFromCurve(adjusted, a.curve);
+          const parts = BuylistService.curveParts(adjusted, a.curve, q.priceCents);
+          let cap: BuyBreakdown['cap'] = null;
+          if (finalCents < q.priceCents) cap = { reason: finalCents === enOffer ? 'en_offer' : 'floor', cents: finalCents };
+          else if (parts.floorWon) cap = { reason: 'floor', cents: finalCents };
           es = {
             offerCents: finalCents,
             // `marketMxnCents` instrumentado = mercadoRef (§3); `basis` = el de la curva evaluada sobre el ajustado.
@@ -1550,7 +1579,10 @@ export class BuylistService implements OnModuleInit {
               marketMxnCents: ref,
               languagePenalty: { pct: penaltyPct as number, cents: -penaltyCents },
               adjustedMarketCents: adjusted,
-              curvePct: trace.basis === 'pending' || trace.appliedBp == null ? null : displayBpValue(trace.appliedBp) / 100,
+              curveBp: parts.curveBp,
+              curveOfferCents: parts.curveOfferCents,
+              cap,
+              source: 'curve',
               finalOfferCents: finalCents,
             },
           };
@@ -1599,23 +1631,68 @@ export class BuylistService implements OnModuleInit {
     };
   }
 
-  /** Desglose de una línea inglesa cotizada (castigo `null`); `basePct` solo si el monto salió de la curva. */
+  /**
+   * `curveOfferCents` (la curva sin piso) y `curveBp` (informativo, `round_half_up(curveOfferCents × 10000 / mercado)`) de un mercado.
+   * `floorWon`: el piso de compra (`binCents`) fue mayor que la curva. `candidateCents` = lo que la curva+piso dio (para el invariante).
+   */
+  private static curveParts(
+    marketCents: number,
+    curve: PricingCurve,
+    candidateCents: number,
+  ): { curveOfferCents: number; curveBp: number; floorWon: boolean } {
+    const trace = explainBuyFromCurve(marketCents, curve);
+    const curveOfferCents = trace.rawCents ?? candidateCents;
+    return {
+      curveOfferCents,
+      curveBp: Math.floor((curveOfferCents * 20000 + marketCents) / (2 * marketCents)),
+      floorWon: trace.constantWon,
+    };
+  }
+
+  /** Desglose de una línea inglesa cotizada (castigo `null`); `curveBp` solo si el monto salió de la curva. */
   private breakdownOf(
     ref: number | null,
     quote: AcquisitionQuoteResult,
     curve: PricingCurve,
     finalCents: number | null,
   ): BuyBreakdown | null {
-    if (finalCents == null || ref == null) return null;
-    const fromCurve = quote.basis === 'market' || quote.basis === 'floor';
-    const trace = fromCurve ? explainBuyFromCurve(ref, curve) : null;
+    if (finalCents == null) return null;
+    const fromCurve = (quote.basis === 'market' || quote.basis === 'floor') && ref != null && ref > 0;
+    if (!fromCurve) {
+      if (ref == null) return null;
+      const source = quote.basis === 'override' ? 'override' : 'bounty';
+      return {
+        marketMxnCents: ref,
+        languagePenalty: null,
+        adjustedMarketCents: ref,
+        curveBp: null,
+        curveOfferCents: finalCents,
+        cap: null,
+        source,
+        finalOfferCents: finalCents,
+      };
+    }
+    const parts = BuylistService.curveParts(ref, curve, finalCents);
     return {
       marketMxnCents: ref,
       languagePenalty: null,
       adjustedMarketCents: ref,
-      curvePct: trace && trace.appliedBp != null ? displayBpValue(trace.appliedBp) / 100 : null,
+      curveBp: parts.curveBp,
+      curveOfferCents: parts.curveOfferCents,
+      cap: parts.floorWon ? { reason: 'floor', cents: finalCents } : null,
+      source: 'curve',
       finalOfferCents: finalCents,
     };
+  }
+
+  /** §BUYLIST-ES §3.2: el desglose CONGELADO tal cual se escribió; `null` si falta o no trae la forma vigente (nunca se re-deriva). */
+  private static frozenBreakdown(raw: Prisma.JsonValue | null | undefined): BuyBreakdown | null {
+    const b = raw as Partial<BuyBreakdown> | null | undefined;
+    if (b == null || typeof b !== 'object') return null;
+    const ok =
+      Number.isInteger(b.marketMxnCents) && Number.isInteger(b.adjustedMarketCents) && Number.isInteger(b.finalOfferCents) &&
+      Number.isInteger(b.curveOfferCents) && (b.curveBp === null || Number.isInteger(b.curveBp));
+    return ok ? (b as BuyBreakdown) : null;
   }
 
   /** §BUYLIST-ES: el castigo CONGELADO al cotizar (`offerBreakdown.languagePenalty.pct`); `null` si la línea no lo trae. */
@@ -2113,21 +2190,17 @@ export class BuylistService implements OnModuleInit {
       });
       // v2.1.6 (fase de seguridad) — la escritura en la cola se DIFIERE hasta después de que la
       // solicitud exista de verdad (ver abajo). Aquí solo se ACUMULA la intención.
-      // §BUYLIST-ES: la cola del dueño es POR VARIANTE (sin idioma). Una línea ES solo la toca si la causa es de la variante (la inglesa
-      // también está detenida); un «sin oferta» exclusivo del español no abre ni CIERRA entradas de la inglesa.
-      const esOnlyPending = line.language === 'es' && line.offers.en != null && line.pendingReason != null;
-      if (!esOnlyPending) {
-        pendingSettlements.push({
-          reason: line.pendingReason,
-          key: {
-            cardId: it.cardId,
-            productType: it.productType,
-            gradeKey: line.gradeKey,
-            finish: line.finish,
-            cardProductId: it.productId ?? null,
-          },
-        });
-      }
+      // §BUYLIST-ES §3.2: toda línea pendiente (EN, ES o liga) entra al mismo filtro de la cola del dueño (sin exclusión de solo-ES).
+      pendingSettlements.push({
+        reason: line.pendingReason,
+        key: {
+          cardId: it.cardId,
+          productType: it.productType,
+          gradeKey: line.gradeKey,
+          finish: line.finish,
+          cardProductId: it.productId ?? null,
+        },
+      });
       quotedTotalCents += line.quotedPriceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
@@ -3639,6 +3712,16 @@ export class BuylistService implements OnModuleInit {
       const decision = decisions.get(it.id) ?? null;
       const derivedPriceCents = decision?.quotedPriceCents ?? null;
       if (derivedPriceCents != null) buyableGrossCents += derivedPriceCents;
+      const isEs = (it.language ?? 'en') === 'es';
+      const frozen = isEs ? BuylistService.frozenBreakdown(it.offerBreakdown) : null;
+      const mesa = mesaFields({
+        marketMxnCents: decision?.quote.marketMxnCents ?? null,
+        curveQuoteCents: decision?.quote.curveQuoteCents ?? null,
+        derivedPriceCents,
+        priceBasis: decision?.priceBasis ?? 'pending',
+        quotedPriceCents: it.quotedPriceCents ?? null,
+        quotedMarketMxnCents: it.marketMxnCents ?? null,
+      });
 
       dtoLines.push({
         itemId: it.id,
@@ -3653,7 +3736,8 @@ export class BuylistService implements OnModuleInit {
         stamp: null,
         receivedLanguage: itemRows.get(it.id)?.receivedLanguage ?? null,
         receivedStamp: null,
-        breakdown: decision?.breakdown ?? null,
+        // §3.2 fuente única: una línea ES se sirve SIEMPRE de lo congelado (sin él, `null`; jamás se re-deriva con dial/curva vigentes).
+        breakdown: isEs ? frozen : (decision?.breakdown ?? null),
         // (a) lo que se le cotizó — el snapshot congelado al crear la solicitud.
         quotedPriceCents: it.quotedPriceCents ?? null,
         // §BUYLIST-FLUJO F1c: lo PACTADO, congelado al ofertar (solo lectura; `null` = linea `skip`/pre-ciclo). Los campos
@@ -3664,14 +3748,12 @@ export class BuylistService implements OnModuleInit {
         priceBasis: decision?.priceBasis ?? ('pending' as PriceBasis),
         pendingReason: decision?.pendingReason ?? null,
         // BUYLIST-MESA: campos aditivos derivados del MISMO `decision` que congela `POST …/offer`.
-        ...mesaFields({
-          marketMxnCents: decision?.quote.marketMxnCents ?? null,
-          curveQuoteCents: decision?.quote.curveQuoteCents ?? null,
-          derivedPriceCents,
-          priceBasis: decision?.priceBasis ?? 'pending',
-          quotedPriceCents: it.quotedPriceCents ?? null,
-          quotedMarketMxnCents: it.marketMxnCents ?? null,
-        }),
+        ...mesa,
+        // §3.2 columna Estándar de líneas ES: el % REAL de la curva y la oferta, LEÍDOS de lo congelado (ya no 42.5 % = oferta/mercado); chip aparte del castigo.
+        ...(isEs
+          ? { standardPctBp: frozen?.curveBp ?? null, standardOfferCents: frozen?.finalOfferCents ?? null }
+          : {}),
+        languagePenaltyPct: frozen?.languagePenalty?.pct ?? null,
         ...this.positionAndSuggestion(
           position,
           l.positionKey,

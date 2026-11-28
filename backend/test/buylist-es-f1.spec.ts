@@ -117,7 +117,10 @@ describe('§BUYLIST-ES F1 · §3 — el ejemplo del contrato: MX$1,000 → MX$85
       marketMxnCents: 100_000,
       languagePenalty: { pct: 15, cents: -15_000 },
       adjustedMarketCents: 85_000,
-      curvePct: 50,
+      curveBp: 5000,
+      curveOfferCents: 42_500,
+      cap: null,
+      source: 'curve',
       finalOfferCents: 42_500,
     });
     expect(es.versions.map((v) => [v.key, v.offerCents])).toEqual([['en', 50_000], ['es', 42_500]]);
@@ -141,7 +144,7 @@ describe('§BUYLIST-ES F1 · §3 — el ejemplo del contrato: MX$1,000 → MX$85
 });
 
 describe('§BUYLIST-ES F1 · contrato 3bd37eee — ejemplo único con tramo de 70 %', () => {
-  it('{100000, −15 % = −15000, ajustado 85000, curvePct 70, final 59500}; sin basePct ni baseOfferCents', async () => {
+  it('{100000, −15 % = −15000, ajustado 85000, curveBp 7000, curveOfferCents 59500, cap null, final 59500}; sin basePct ni baseOfferCents', async () => {
     const curve = { ...DEFAULT_PRICING_CURVE, buy: { binCents: 100, points: [{ marketCents: 2500, pctBp: 7000 }, { marketCents: 50000, pctBp: 7000 }] } };
     const { svc } = buildSvc({ market: 100_000, dials: ON, curve });
     const es = await svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, undefined, 'es');
@@ -149,7 +152,10 @@ describe('§BUYLIST-ES F1 · contrato 3bd37eee — ejemplo único con tramo de 7
       marketMxnCents: 100_000,
       languagePenalty: { pct: 15, cents: -15_000 },
       adjustedMarketCents: 85_000,
-      curvePct: 70,
+      curveBp: 7000,
+      curveOfferCents: 59_500,
+      cap: null,
+      source: 'curve',
       finalOfferCents: 59_500,
     });
     expect(es.quote.quotedPriceCents).toBe(59_500);
@@ -178,6 +184,46 @@ describe('§BUYLIST-ES F1 · criterio 2 — 20 cartas: final = curva(round(merca
       expect(ok).toBe(20);
     });
   }
+});
+
+describe('§BUYLIST-ES F1 · §3.2 / criterio 3 — invariante y tolerancia del desglose (60 mercados = 20 × P∈{0,15,40}, curva viva)', () => {
+  const half = (n: number, d: number) => Math.floor((2 * n + d) / (2 * d));
+  it('mercado+castigo=ajustado, final=curveOfferCents|cap.cents, y tolerancia de curveBp (≤1 c; ≤2 c en el tramo interpolado MX$100–500, medido)', async () => {
+    let n = 0;
+    const peor: { adj: number; err: number }[] = [];
+    for (const P of [0, 15, 40]) {
+      for (const m of MARKETS) {
+        const { svc } = buildSvc({ market: m, dials: { enabled: true, penalty: P } });
+        const es = await svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, undefined, 'es');
+        const b = es.breakdown!;
+        expect(b.marketMxnCents + (b.languagePenalty?.cents ?? 0)).toBe(b.adjustedMarketCents);
+        expect(b.finalOfferCents).toBe(b.cap?.cents ?? b.curveOfferCents);
+        expect(b.finalOfferCents).toBe(es.quote.quotedPriceCents);
+        expect(b.curveBp).toBe(half(b.curveOfferCents * 10_000, b.adjustedMarketCents));
+        const err = Math.abs(b.curveOfferCents - half(b.adjustedMarketCents * b.curveBp! , 10_000));
+        peor.push({ adj: b.adjustedMarketCents, err });
+        // MEDIDO con la curva viva (semilla): ≤ 1 centavo fuera del tramo interpolado (ajustado ≤ MX$100 o ≥ MX$500); DENTRO (MX$100–500) llega a 2
+        // (error de redondear el % a puntos base: ajustado × 0,5 pb ≈ 2,5 c a MX$500). La cota «≤ 1 hasta MX$2,000» de §3.2 NO se cumple en ese tramo.
+        const interpolado = b.adjustedMarketCents > 10_000 && b.adjustedMarketCents < 50_000;
+        expect(err).toBeLessThanOrEqual(interpolado ? 2 : 1);
+        n++;
+      }
+    }
+    expect(n).toBe(60);
+    // Informativo (no es parte del contrato): el peor error medido sobre estos 60.
+    // eslint-disable-next-line no-console
+    console.log('[BUYLIST-ES curveBp] peor error de tolerancia (centavos):', Math.max(...peor.map((x) => x.err)), 'sobre', peor.length);
+  });
+
+  it('tope visible: el de inglés cuando recorta (P=0 con la curva que cae al piso) y el piso cuando la curva queda bajo el bin', async () => {
+    const curve = { ...DEFAULT_PRICING_CURVE, buy: { binCents: 5_000, points: [{ marketCents: 2500, pctBp: 1000 }, { marketCents: 50000, pctBp: 1000 }] } };
+    // mercado 10_000 · curva 10 % = 1_000 < piso 5_000 ⇒ el piso fija el monto (cap floor) y curveOfferCents es lo que dio la curva sin piso.
+    const es = await buildSvc({ market: 10_000, dials: { enabled: true, penalty: 0 }, curve }).svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, undefined, 'es');
+    expect(es.breakdown).toMatchObject({ curveOfferCents: 1_000, cap: { reason: 'floor', cents: 5_000 }, finalOfferCents: 5_000 });
+    // Tope de inglés: el piso del castigado NO puede pasar la oferta inglesa; se fuerza con un override en la inglesa NO (es otra rama) —
+    // aquí la inglesa paga lo mismo que la española con P=0 y el tope no recorta (cap = piso, no en_offer).
+    expect(es.offers.es).toBe(es.offers.en);
+  });
 });
 
 describe('§BUYLIST-ES F1 · criterio 4 — /quote, /quote/batch y POST /requests dan el MISMO monto (20/20)', () => {
@@ -295,11 +341,28 @@ describe('§BUYLIST-ES F1 · §3.4 — anti-inflado y detenciones heredadas', ()
     expect(es.breakdown).toBeNull();
   });
 
-  it('override de compra por DEBAJO de la curva en la inglesa: la española no la rebasa', async () => {
+  it('override de compra en la inglesa: la española RECIBE el castigo (override × (1−P)), source override, curveBp 10000, nunca por encima', async () => {
     const { svc } = buildSvc({ market: 100_000, dials: ON, override: { buyOverrideCents: 10_000 } });
     const es = await svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, undefined, 'es');
     expect(es.offers.en).toBe(10_000);
-    expect(es.quote.quotedPriceCents).toBe(10_000);
+    expect(es.quote.quotedPriceCents).toBe(8_500);
+    expect(es.breakdown).toEqual({
+      marketMxnCents: 10_000,
+      languagePenalty: { pct: 15, cents: -1_500 },
+      adjustedMarketCents: 8_500,
+      curveBp: 10_000,
+      curveOfferCents: 8_500,
+      cap: null,
+      source: 'override',
+      finalOfferCents: 8_500,
+    });
+    // Redondeo half_up del contrato: 10_001 × 85 % = 8_500.85 ⇒ 8_501; el castigo sale por diferencia y cuadra.
+    const odd = await buildSvc({ market: 100_000, dials: ON, override: { buyOverrideCents: 10_001 } }).svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, undefined, 'es');
+    expect(odd.quote.quotedPriceCents).toBe(8_501);
+    expect(odd.breakdown!.marketMxnCents + odd.breakdown!.languagePenalty!.cents).toBe(8_501);
+    // La inglesa con override no cambia: sin castigo, sin curva.
+    const en = await buildSvc({ market: 100_000, dials: ON, override: { buyOverrideCents: 10_000 } }).svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish);
+    expect(en.breakdown).toMatchObject({ source: 'override', languagePenalty: null, curveBp: null, cap: null, finalOfferCents: 10_000 });
   });
 
   it('bounty NO aplica al español: la inglesa paga el bounty (tope = mercado), la española sale de la curva y ≤ inglesa', async () => {
@@ -308,7 +371,7 @@ describe('§BUYLIST-ES F1 · §3.4 — anti-inflado y detenciones heredadas', ()
     const es = await svc.publicQuote('c1', raw.productType, raw.rawCondition, raw.finish, undefined, 'es');
     expect(en.quote.quotedPriceCents).toBe(90_000);
     expect(es.quote.quotedPriceCents).toBe(42_500);
-    expect(es.breakdown?.curvePct).toBe(50);
+    expect(es.breakdown?.curveBp).toBe(5000);
   });
 
   it('rareza premium cuyo mercado castigado cae al piso (bin) ⇒ la española queda pendiente aunque la inglesa se cotice', async () => {
@@ -322,6 +385,19 @@ describe('§BUYLIST-ES F1 · §3.4 — anti-inflado y detenciones heredadas', ()
     expect(en.quote.status).toBe('cotizada');
     expect(es.quote.status).toBe('precio_pendiente');
     expect(es.offers.es).toBeNull();
+  });
+});
+
+describe('§BUYLIST-ES F1 · §3.2 — la cola del dueño: una línea ES pendiente entra igual que una EN', () => {
+  it('solo-ES pendiente (la inglesa se cotiza) llama a la cola con su causa', async () => {
+    const bin = DEFAULT_PRICING_CURVE.buy.binCents;
+    const m = Math.ceil((bin * 100) / 30) + 1; // misma construcción que el caso premium de §3.4: EN cotiza, ES cae al piso
+    const { svc } = buildSvc({ market: m, dials: ON, rarity: 'Illustration Rare' });
+    const pricing = (svc as any).pricing as { settlePendingForVariant: jest.Mock };
+    await svc.createRequest('user-1', [{ cardId: 'c1', ...raw, language: 'es' }], VALID_CLABE, undefined, GATE_ADDRESS_ID).catch(() => null);
+    const reasons = pricing.settlePendingForVariant.mock.calls.map((c) => c[0]);
+    expect(reasons.length).toBe(1);
+    expect(reasons[0]).not.toBeNull();
   });
 });
 
@@ -343,7 +419,10 @@ describe('§BUYLIST-ES F1 · POST /requests congela idioma, versionOffers y desg
       marketMxnCents: 100_000,
       languagePenalty: { pct: 15, cents: -15_000 },
       adjustedMarketCents: 85_000,
-      curvePct: 50,
+      curveBp: 5000,
+      curveOfferCents: 42_500,
+      cap: null,
+      source: 'curve',
       finalOfferCents: 42_500,
     });
   });

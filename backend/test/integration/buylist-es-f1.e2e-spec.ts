@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 /**
  * §BUYLIST-ES F1 — POR HTTP, CONTRA POSTGRES REAL. quote / batch / requests con idioma, dial apagado = hoy, anti-inflado,
  * `quote-policy`, migración (siembra idempotente, 100 % `language='en'`) y `convertToInventory` con idioma / `received*`.
@@ -105,7 +106,10 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
         marketMxnCents: 100000,
         languagePenalty: { pct: 15, cents: -15000 },
         adjustedMarketCents: 85000,
-        curvePct: 50,
+        curveBp: 5000,
+        curveOfferCents: 42500,
+        cap: null,
+        source: 'curve',
         finalOfferCents: 42500,
       });
       const b = await h.api('POST', '/buylist/quote/batch', { json: { items: [{ cardId, ...base, language: 'es' }] } });
@@ -145,6 +149,28 @@ describe('E2E — §BUYLIST-ES F1 (idioma en la compra)', () => {
       const line = t.body.lines.find((l: any) => l.language === 'es');
       expect(line).toMatchObject({ language: 'es', stamp: null, derivedPriceCents: 42500 });
       expect(line.breakdown).toMatchObject({ adjustedMarketCents: 85000, finalOfferCents: 42500 });
+      // §3.2: la columna Estándar de la línea ES es el % REAL de la curva (no 42,5 %) y la oferta, leídos de lo CONGELADO.
+      expect(line).toMatchObject({ standardPctBp: 5000, standardOfferCents: 42500, languagePenaltyPct: 15 });
+      // La mesa NO re-deriva: con el castigo movido (y la curva vigente) sigue mostrando lo congelado.
+      await setDial('buylist_spanish_penalty_pct', 40);
+      try {
+        const t2 = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });
+        const l2 = t2.body.lines.find((l: any) => l.language === 'es');
+        expect(l2.breakdown).toEqual(line.breakdown);
+        expect(l2).toMatchObject({ standardPctBp: 5000, standardOfferCents: 42500, languagePenaltyPct: 15 });
+        // Línea ES sin `offerBreakdown` (datos previos): `breakdown:null` y nada de Estándar derivado.
+        await h.prisma.sellRequestItem.update({ where: { id: line.itemId }, data: { offerBreakdown: Prisma.DbNull } });
+        const t3 = await h.api('GET', `/admin/buylist/${r.body.sellRequestId}/decision-table`, { token: operator });
+        const l3 = t3.body.lines.find((l: any) => l.language === 'es');
+        expect(l3.breakdown).toBeNull();
+        expect(l3.standardPctBp).toBeNull();
+        expect(l3.standardOfferCents).toBeNull();
+        // El EN no cambia de forma: Estándar de la curva, sin chip de idioma.
+        const en = t3.body.lines.find((l: any) => l.language === 'en');
+        expect(en.languagePenaltyPct).toBeNull();
+      } finally {
+        await setDial('buylist_spanish_penalty_pct', 15);
+      }
     });
   });
 
