@@ -177,7 +177,7 @@ describe('M5View · Buylist admin end-to-end', () => {
     fireEvent.click(approveButtons[0]);
 
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'approve', approvedPriceCents: undefined }),
+      expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'approve', approvedPriceCents: undefined, receivedLanguage: 'en' }),
     );
     expect(await screen.findByText('Ítem aprobado.')).toBeInTheDocument();
   });

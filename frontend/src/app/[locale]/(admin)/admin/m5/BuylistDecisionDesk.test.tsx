@@ -545,7 +545,9 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(chips).toEqual(['standard', 'up', 'down', 'noPrice']);
     expect(screen.getAllByTestId('line-chip')[1]).toHaveTextContent('Subida +MX$50.00');
     expect(screen.getAllByTestId('line-chip')[2]).toHaveTextContent('Bajada −MX$200.00');
-    expect(screen.getByText('Ya tenemos 10.')).toBeInTheDocument();
+    // §3.3: el motivo se pinta por `reasonCode` con i18n (`admin.m5.desk.reason.STOCK_CAP`), no con `reasonText` del servidor.
+    expect(screen.getByText('Ya tenemos el tope de esta carta.')).toBeInTheDocument();
+    expect(screen.queryByText('Ya tenemos 10.')).toBeNull();
     expect(screen.getByTestId('line-since-quote')).toHaveTextContent('Cotizamos MX$700.00; hoy ofertamos MX$750.00 (MX$50.00 más): el mercado subió desde la cotización');
     expect(screen.getAllByTestId('line-standard')[0]).toHaveTextContent('70 % → MX$700.00');
     expect(screen.getAllByTestId('line-stock')[2]).toHaveTextContent('ya no necesitamos');
@@ -644,7 +646,9 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(chip).toHaveTextContent('Subida');
     expect(note).toHaveTextContent('Cambió desde la cotización (era MX$300.00)');
     expect(chip.parentElement).toBe(note.parentElement);
-    expect(screen.getByTestId('line-reason')).toHaveTextContent('El mercado subió desde la cotización.');
+    // Una sola nota de mercado: `MARKET_UP` no tiene línea de motivo propia (la explica «Cambió desde la cotización»).
+    expect(screen.queryByTestId('line-reason')).toBeNull();
+    expect(screen.queryByTestId('line-since-quote')).toBeNull();
   });
 
   it('§3.3 I2: ES pendiente no pinta «Estándar» junto a «—»; sí el chip «−P % idioma»', async () => {
@@ -892,7 +896,7 @@ describe('Mesa de decisión — B-L1 rejilla y textos EN', () => {
     expect(Array.from(grid.children).indexOf(std)).toBeLessThan(Array.from(grid.children).indexOf(rows[0]));
   });
 
-  it('EN: MARKET_UP/DOWN/CURVE_CHANGED en inglés con el monto; sin repetir si sinceQuote ya lo dice', async () => {
+  it('§3.3: MARKET_UP/DOWN no pintan motivo propio; CURVE_CHANGED y STOCK_CAP salen por reasonCode en inglés; sin repetir si sinceQuote ya lo dice', async () => {
     render(
       table({
         lines: [
@@ -903,17 +907,36 @@ describe('Mesa de decisión — B-L1 rejilla y textos EN', () => {
             adjustment: { deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'Cambió la curva.' },
             sinceQuote: { quotedCents: 65000, deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'x' },
           } as never),
+          line({ itemId: 's', adjustment: { deltaCents: -5000, reasonCode: 'STOCK_CAP', reasonText: 'Ya tenemos 10.' }, sinceQuote: null } as never),
+          line({ itemId: 'x', adjustment: { deltaCents: 5000, reasonCode: 'FUTURE_CODE', reasonText: 'Texto del servidor.' }, sinceQuote: null } as never),
         ],
       }),
       'en',
     );
     await screen.findAllByTestId('desk-line');
     const reasons = screen.getAllByTestId('line-reason').map((e) => e.textContent);
-    expect(reasons).toHaveLength(2);
-    expect(reasons[0]).toMatch(/market rose.*50\.00 above the standard/);
-    expect(reasons[1]).toMatch(/market fell.*50\.00 below the standard/);
-    expect(document.body.textContent).not.toMatch(/El mercado|Cambió la curva/);
+    expect(reasons).toEqual(['We already hold the cap for this card.', 'Texto del servidor.']);
+    expect(document.body.textContent).not.toMatch(/El mercado|Cambió la curva|Ya tenemos 10/);
     expect(screen.getAllByTestId('line-since-quote')).toHaveLength(1);
   });
+
+  it('§3.3: UNA sola nota de mercado (deriva + sinceQuote MARKET_*: solo «Cambió desde la cotización»; sin deriva: solo sinceQuote)', async () => {
+    const sq = { quotedCents: 30000, deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'x' };
+    const withDrift = line({
+      itemId: 'w',
+      language: 'es',
+      marketDriftCents: 15000,
+      adjustment: { deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'x' },
+      sinceQuote: sq,
+      breakdown: { marketMxnCents: 30000, languagePenalty: { pct: 15, cents: -4500 }, adjustedMarketCents: 25500, curveBp: 3729, curveOfferCents: 11188, cap: null, source: 'curve', finalOfferCents: 11188 },
+    } as never);
+    const noDrift = line({ itemId: 'n', adjustment: { deltaCents: 6813, reasonCode: 'MARKET_UP', reasonText: 'x' }, sinceQuote: sq } as never);
+    render(table({ lines: [withDrift, noDrift] }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getAllByTestId('line-market-drift')).toHaveLength(1);
+    expect(screen.getAllByTestId('line-since-quote')).toHaveLength(1);
+    expect(screen.queryByTestId('line-reason')).toBeNull();
+  });
+
 });
 

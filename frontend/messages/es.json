@@ -1055,6 +1055,19 @@
         "alreadyDone": "Esta carta ya se entregó; no se puede cambiar el método.",
         "generic": "No pudimos guardar tu elección. Intenta de nuevo."
       }
+    },
+    "version": {
+      "lower": "{card} llegó como {received} y declaraste {declared}; nueva oferta {amount} (antes {before}). Acéptala o recházala en 7 días.",
+      "higher": "Te pagamos {amount} por tu {card} ({version}).",
+      "arrivedAs": "Llegó como {received}; declaraste {declared}",
+      "unavailable": "No pudimos valorar esta versión; te recogemos la carta",
+      "floorNote": "Oferta mínima de la tienda",
+      "name": {
+        "en": "Inglés",
+        "es": "Español",
+        "normal": "Normal",
+        "league": "De liga"
+      }
     }
   },
   "buylistCarrier": {
@@ -3746,6 +3759,21 @@
             "netIf": "Si acepta se depositarían {net}",
             "cancelsNote": "Si apruebas o rechazas esta carta, la propuesta de baja se cancela y el vendedor la ve como «retirada»."
           },
+          "version": {
+            "label": "Idioma recibido",
+            "group": "Idioma recibido de {card}",
+            "en": "Inglés",
+            "es": "Español",
+            "declared": "declarado",
+            "mismatch": "Distinto de lo declarado ({declared}): al aprobar se vuelve a valorar y, si vale menos, el vendedor decide en 7 días.",
+            "differentCard": "Carta distinta",
+            "errors": {
+              "unavailable": "No hay precio para la versión que llegó. Si no es la carta que declaró, usa «Carta distinta».",
+              "overVersionCap": "El monto no puede pasar de la oferta de la versión recibida{cap}. No se guardó nada.",
+              "esOverCap": "En español nunca pagamos más que en inglés ni que la referencia{cap}. No se guardó nada.",
+              "capOf": " ({amount})"
+            }
+          },
           "revisionPendingPay": "Hay una baja de precio esperando al vendedor: no se puede pagar hasta que conteste (o venza su plazo).",
           "revise": {
             "newPrice": "Nuevo precio (MX$)",
@@ -3932,6 +3960,15 @@
           "override": "Precio fijo",
           "curve": "Curva {pct} %"
         },
+        "reason": {
+          "STOCK_CAP": "Ya tenemos el tope de esta carta.",
+          "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
+          "BOUNTY": "Hay un bounty que la busca.",
+          "FLOOR": "Se aplicó el precio mínimo.",
+          "NO_MARKET": "No hay precio de mercado.",
+          "CURVE_CHANGED": "Cambió la curva: {amount} de diferencia con el estándar."
+        },
+        "fixedPrice": "Precio fijo",
         "title": "Mesa de decisión",
         "open": "Abrir la mesa de decisión",
         "close": "Cerrar la mesa",
@@ -3965,16 +4002,6 @@
             "up": "Subida +{amount}",
             "down": "Bajada −{amount}",
             "noPrice": "Sin precio"
-          },
-          "reason": {
-            "STOCK_CAP": "Ya tenemos el tope de esta carta.",
-            "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
-            "BOUNTY": "Hay un bounty que la busca.",
-            "FLOOR": "Se aplicó el precio mínimo.",
-            "NO_MARKET": "No hay precio de mercado.",
-            "MARKET_UP": "El mercado subió: {amount} más que el estándar.",
-            "MARKET_DOWN": "El mercado bajó: {amount} menos que el estándar.",
-            "CURVE_CHANGED": "Cambió la curva: {amount} de diferencia con el estándar."
           },
           "sinceQuote": {
             "MARKET_UP": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} más): el mercado subió desde la cotización.",

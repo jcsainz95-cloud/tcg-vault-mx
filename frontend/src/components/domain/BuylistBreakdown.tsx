@@ -21,14 +21,25 @@ export function BuylistBreakdown({
   breakdown,
   offerLabel,
   className,
+  audience = 'client',
+  fixedPriceLabel,
 }: {
   breakdown: BuylistBreakdownDTO | null | undefined;
   /** «Te pagamos» (vendedor) u «Oferta» (mesa del dueño). */
   offerLabel?: 'offer' | 'offerAdmin';
   className?: string;
+  /**
+   * BES-4 (§9.2): `client` (por defecto) NUNCA pinta el monto de un tope ni la oferta de la curva (el DTO del cliente
+   * no los trae; aunque llegaran, aquí no se leen). Con tope `floor` dice «Oferta mínima de la tienda» y nada más.
+   * `admin` (la mesa M5) conserva `Piso de compra (MX$X)` y el monto de la curva.
+   */
+  audience?: 'client' | 'admin';
+  /** Rótulo «Precio fijo» de la mesa (`admin.m5.desk.fixedPrice`); el cliente usa `buylist.es.fixedPrice`. */
+  fixedPriceLabel?: string;
 }) {
   const t = useTranslations('buylist.breakdown');
   const te = useTranslations('buylist.es');
+  const tv = useTranslations('sellerFlujo.version');
   const locale = useLocale() as AppLocale;
   if (!breakdown || !breakdown.languagePenalty || breakdown.source === 'pending') return null;
   const { languagePenalty: pen } = breakdown;
@@ -36,11 +47,12 @@ export function BuylistBreakdown({
   const bp = breakdown.curveBp;
   // Presentación del % (puntos base del servidor → %); no es dinero.
   const pctText = bp == null ? '' : formatCurvePct(bp, locale);
+  const client = audience === 'client';
   const override = breakdown.source === 'override';
   // §3.3 M6: con precio fijo la cadena es «Precio fijo · Idioma −P % · Te pagamos» (sin Mercado, Ajustado ni Curva).
   const rows: { key: string; label: string; value: string; strong?: boolean }[] = override
     ? [
-        { key: 'fixed', label: te('fixedPrice'), value: money(breakdown.marketMxnCents) },
+        { key: 'fixed', label: fixedPriceLabel ?? te('fixedPrice'), value: money(breakdown.marketMxnCents) },
         {
           key: 'language',
           label: t('language', { pct: pen.pct }),
@@ -56,19 +68,33 @@ export function BuylistBreakdown({
           value: `−${money(Math.abs(pen.cents))}`,
         },
         { key: 'adjusted', label: t('adjusted'), value: money(breakdown.adjustedMarketCents) },
-        {
-          key: 'base',
-          // `curveBp` puede venir `null`: la fila se pinta sin cifra, nunca «null %».
-          label: bp == null ? t('baseNone') : t('base', { pct: pctText }),
-          value: breakdown.curveOfferCents != null ? money(breakdown.curveOfferCents) : '—',
-        },
+        // Cliente con tope `floor`: el servidor manda `curveBp:null`; la fila de curva no se pinta (la nota del piso la reemplaza).
+        ...(client && bp == null
+          ? []
+          : [
+              {
+                key: 'base',
+                // `curveBp` puede venir `null`: la fila se pinta sin cifra, nunca «null %».
+                label: bp == null ? t('baseNone') : t('base', { pct: pctText }),
+                value: client ? '' : breakdown.curveOfferCents != null ? money(breakdown.curveOfferCents) : '—',
+              },
+            ]),
       ];
   if (breakdown.cap) {
-    rows.push({
-      key: 'cap',
-      label: t(breakdown.cap.reason === 'floor' ? 'capFloor' : 'capEn'),
-      value: money(breakdown.cap.cents),
-    });
+    if (client) {
+      // BES-4: «piso» ⇒ solo la nota, sin cifra; «tope inglés» ⇒ su monto ES la oferta final (no el `cap.cents`).
+      rows.push(
+        breakdown.cap.reason === 'floor'
+          ? { key: 'cap', label: tv('floorNote'), value: '' }
+          : { key: 'cap', label: t('capEn'), value: money(breakdown.finalOfferCents) },
+      );
+    } else {
+      rows.push({
+        key: 'cap',
+        label: t(breakdown.cap.reason === 'floor' ? 'capFloor' : 'capEn'),
+        value: money(breakdown.cap.cents ?? null),
+      });
+    }
   }
   rows.push({
     key: 'offer',
@@ -85,7 +111,9 @@ export function BuylistBreakdown({
       {rows.map((r) => (
         <div key={r.key} data-row={r.key} className="flex items-baseline justify-between gap-x-3 py-0.5">
           <dt className="min-w-0 text-muted">{r.label}</dt>
-          <dd className={`tabular shrink-0 whitespace-nowrap font-mono ${r.strong ? 'font-medium text-text' : 'text-muted'}`}>{r.value}</dd>
+          {r.value !== '' && (
+            <dd className={`tabular shrink-0 whitespace-nowrap font-mono ${r.strong ? 'font-medium text-text' : 'text-muted'}`}>{r.value}</dd>
+          )}
         </div>
       ))}
     </dl>

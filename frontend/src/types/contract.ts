@@ -3395,10 +3395,21 @@ export interface BuylistBreakdownDTO {
   languagePenalty: { pct: number; cents: number } | null;
   adjustedMarketCents: number;
   curveBp: number | null;
-  curveOfferCents: number | null;
-  cap: { reason: 'en_offer' | 'floor'; cents: number } | null;
-  source?: 'curve' | 'override' | 'bounty' | 'pending';
+  curveOfferCents?: number | null;
+  /**
+   * BES-4 (§9.2): en el DTO del CLIENTE `cents` NO viaja (ni `curveOfferCents`); con `reason:'floor'` el servidor manda
+   * además `curveBp:null` y la UI pinta «Oferta mínima de la tienda», jamás una cifra de tope. El DTO admin lo conserva.
+   */
+  cap: { reason: 'en_offer' | 'floor'; cents?: number } | null;
+  source?: 'curve' | 'override' | 'bounty' | 'pending' | 'received';
   finalOfferCents: number | null;
+}
+
+/** §BUYLIST-ES F4 (§3.4) · versión de liga de una carta: `{type,label,productId}` (la etiqueta sale de `card-version.ts`). */
+export interface BuylistStampDTO {
+  type: string;
+  label: string;
+  productId: number;
 }
 
 /** §BUYLIST-ES §2 · ofertas por idioma de la versión elegida (centavos | null = sin oferta). */
@@ -3425,6 +3436,16 @@ export interface SellItemDTO {
   // §BUYLIST-ES (ADITIVOS): idioma declarado y desglose congelado; ausentes ⇒ servidor anterior ⇒ inglés, sin chip.
   language?: CardLanguage;
   breakdown?: BuylistBreakdownDTO | null;
+  /**
+   * §BUYLIST-ES F3/F4 (§2, §4.3; ADITIVOS): versión DECLARADA (`stamp`, liga o `null`) y lo que se RECIBIÓ al verificar.
+   * `receivedVersionSet` = la recepción ya fijó la versión; `receivedBreakdown` (`source:'received'`) explica el monto de
+   * lo recibido en el mismo orden de §3. Ausentes ⇒ servidor anterior ⇒ no se pinta nada.
+   */
+  stamp?: BuylistStampDTO | null;
+  receivedLanguage?: CardLanguage | null;
+  receivedStamp?: BuylistStampDTO | null;
+  receivedVersionSet?: boolean;
+  receivedBreakdown?: BuylistBreakdownDTO | null;
   // v2.0 (P-48): snapshot INFORMATIVO del catálogo — el monto no depende de la rareza (criterio 84).
   rarity?: string;
   // v2.0 (P-48, §N.8 instrumentación): `appliedRule` SE RETIRA. La línea persiste la decisión de
@@ -5341,6 +5362,7 @@ export interface BuylistTrackingDTO {
   daysInTransit: number;
 }
 export type BuylistRejectionCode =
+  | 'version_mismatch'
   | 'not_received'
   | 'condition_mismatch'
   | 'wrong_card'
@@ -5635,6 +5657,9 @@ export interface RevealClabeResponse {
 export interface BuylistItemDecisionInput {
   decision: 'approve' | 'adjust' | 'reject';
   approvedPriceCents?: number;
+  /** §BUYLIST-ES §4.1: idioma/versión que el operador vio (default de la UI = lo declarado). `null` = normal. */
+  receivedLanguage?: CardLanguage;
+  receivedProductId?: number | null;
   reason?: string;
   /** §BUYLIST-FLUJO F2b: OBLIGATORIO con `reject` (sin él ⇒ 400 `field:'reasonCode'`). */
   reasonCode?: BuylistRejectReasonCode;

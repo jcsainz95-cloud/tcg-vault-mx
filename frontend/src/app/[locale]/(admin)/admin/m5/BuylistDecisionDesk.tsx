@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { CardPhotoLightbox } from './CardPhotoLightbox';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PriceBasisTag } from '@/components/domain/PriceBasisTag';
+import { versionErrorText } from './version-errors';
 import { BuylistBreakdown, formatCurvePct } from '@/components/domain/BuylistBreakdown';
 import { LanguageChip } from '@/components/domain/VersionChip';
 import {
@@ -220,7 +221,9 @@ function SuggestionLine({ line }: { line: BuylistDecisionLineDTO }) {
 function hasBreakdown(b: BuylistBreakdownDTO | null | undefined): boolean {
   return !!b && !!b.languagePenalty && b.source !== 'pending';
 }
-const KNOWN_REASONS = new Set<string>(['STOCK_CAP', 'MANUAL_OVERRIDE', 'BOUNTY', 'FLOOR', 'NO_MARKET', 'MARKET_UP', 'MARKET_DOWN', 'CURVE_CHANGED']);
+/** Códigos con texto propio en `admin.m5.desk.reason.<CÓDIGO>` (es/en). `MARKET_*` no: los explica la nota de mercado. */
+const KNOWN_REASONS = new Set<string>(['STOCK_CAP', 'MANUAL_OVERRIDE', 'BOUNTY', 'FLOOR', 'NO_MARKET', 'CURVE_CHANGED']);
+const isMarketReason = (code: string): boolean => code === 'MARKET_UP' || code === 'MARKET_DOWN';
 
 type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
 
@@ -312,6 +315,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
   // diría al operador que suba **su** INE. El destinatario se resuelve con `details` del servidor
   // primero y con esto después (DESIGN_SYSTEM §26.2 · `lib/error-audience.ts`).
   const getErrorMessage = useErrorMessage('operator');
+  const tVerr = useTranslations('admin.m5.flow.f2.version.errors');
 
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [overrides, setOverrides] = useState<Record<string, LineOverride>>({});
@@ -799,15 +803,17 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                             {t('mesa.editedByYou')}
                           </span>
                         )}
-                        {!changed && adj && !(sq && sq.reasonCode === adj.reasonCode) && (
+                        {/* §3.3 B1-bis: UNA sola nota de mercado. `MARKET_UP`/`MARKET_DOWN` no tienen línea de motivo propia: su explicación
+                            es «Cambió desde la cotización» (arriba) o, en líneas sin ese campo, la frase de `sinceQuote`. El motivo de los
+                            demás códigos se pinta por `reasonCode` con i18n (`reason.<CÓDIGO>`); `reasonText` solo respalda códigos desconocidos. */}
+                        {!changed && adj && !isMarketReason(adj.reasonCode) && !(sq && sq.reasonCode === adj.reasonCode) && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason">
-                            {(locale === 'es' && adj.reasonText) || !KNOWN_REASONS.has(adj.reasonCode)
-                              ? adj.reasonText
-                              : t(`mesa.reason.${adj.reasonCode}`, { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })}
+                            {KNOWN_REASONS.has(adj.reasonCode)
+                              ? t(`reason.${adj.reasonCode}`, { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })
+                              : adj.reasonText}
                           </span>
                         )}
-                        {/* Nota APARTE del chip: el mercado se movió desde la cotización. No cambia el chip. */}
-                        {sq && !changed && (
+                        {sq && !changed && !(isMarketReason(sq.reasonCode) && line.marketDriftCents != null) && (
                           <span className="text-xs leading-[1.5] text-muted" data-testid="line-since-quote">
                             {t(`mesa.sinceQuote.${sq.reasonCode}`, {
                               quoted: formatMoneyCents(sq.quotedCents, locale),
@@ -848,7 +854,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
                           desglose pinta algo (ES con castigo y no pendiente); las líneas EN no llevan contenedor. */}
                       {hasBreakdown(line.breakdown) && (
                         <div className="lg:col-span-5 lg:col-start-3 lg:row-start-2 lg:max-w-[28rem]" data-testid="line-breakdown-row">
-                          <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" />
+                          <BuylistBreakdown breakdown={line.breakdown} offerLabel="offerAdmin" audience="admin" fixedPriceLabel={t('fixedPrice')} />
                         </div>
                       )}
                     </div>
@@ -987,7 +993,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady
               )}
               {emit.isError && Object.keys(priceChanged).length === 0 && (
                 <Banner variant="danger" role="alert">
-                  {getErrorMessage(emit.error)}
+                  {versionErrorText(emit.error, tVerr, locale) ?? getErrorMessage(emit.error)}
                 </Banner>
               )}
 

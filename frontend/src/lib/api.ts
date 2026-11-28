@@ -6151,6 +6151,55 @@ export async function decideBuylistItem(
     return delay({ ...item });
   }
   const hadPendingBaja = item.revision?.state === 'pending';
+  // §BUYLIST-ES F3 (§4.1; servidor FALSO, ADITIVO): `receivedLanguage` ≠ declarado ⇒ la versión se fija UNA vez y paga según §4.
+  // EN→ES (vale menos): propuesta de baja a la oferta española del mock; ES→EN (vale más): se paga lo ofertado en inglés (≤ referencia);
+  // sin mercado ⇒ `422 VERSION_PRICE_UNAVAILABLE`. El mock reparte cifras de demostración; los montos reales los fija el servidor.
+  if (input.decision === 'approve' && input.receivedLanguage && !item.receivedVersionSet) {
+    const declared = item.language === 'es' ? 'es' : 'en';
+    if (input.receivedLanguage !== declared) {
+      if (item.marketMxnCents == null) {
+        throw new ApiClientError(422, { code: 'VERSION_PRICE_UNAVAILABLE', message: 'No price for the received version' });
+      }
+      const penalty = Math.round(item.marketMxnCents * 0.15);
+      const adjusted = item.marketMxnCents - penalty;
+      const offer = Math.min(Math.round(adjusted * 0.5), item.quotedPriceCents ?? Number.MAX_SAFE_INTEGER);
+      item.receivedLanguage = input.receivedLanguage;
+      item.receivedVersionSet = true;
+      if (input.receivedLanguage === 'es') {
+        item.receivedBreakdown = {
+          marketMxnCents: item.marketMxnCents,
+          languagePenalty: { pct: 15, cents: -penalty },
+          adjustedMarketCents: adjusted,
+          curveBp: 5000,
+          curveOfferCents: offer,
+          cap: null,
+          source: 'received',
+          finalOfferCents: offer,
+        };
+        item.revision = {
+          state: 'pending',
+          proposedCents: offer,
+          previousCents: item.offeredPriceCents ?? item.quotedPriceCents ?? null,
+          reasonCode: 'version_mismatch',
+          note: null,
+          proposedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+          respondedAt: null,
+        };
+        return delay({ ...item });
+      }
+      item.receivedBreakdown = {
+        marketMxnCents: item.marketMxnCents,
+        languagePenalty: null,
+        adjustedMarketCents: item.marketMxnCents,
+        curveBp: null,
+        curveOfferCents: null,
+        cap: null,
+        source: 'received',
+        finalOfferCents: item.offeredPriceCents ?? item.quotedPriceCents ?? null,
+      };
+    } else item.receivedVersionSet = true;
+  }
   if (input.decision === 'approve') mockCancelPendingRevision(item); // aprobar = retirar la baja y pagar lo pactado
   item.itemStatus = next[input.decision];
   item.approvedPriceCents =

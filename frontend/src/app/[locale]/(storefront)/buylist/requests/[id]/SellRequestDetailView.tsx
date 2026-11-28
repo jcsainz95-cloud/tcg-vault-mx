@@ -28,6 +28,7 @@ import { OfferAmounts } from './OfferAmounts';
 import { readOffer } from './offer-readiness';
 import { SellerLabelBlock } from './SellerLabelBlock';
 import { SellerFlujoLines } from './SellerFlujoLines';
+import { SellerVersionOutcome } from './SellerVersionOutcome';
 import { SellerCarrierLine } from './SellerCarrierLine';
 
 /** Identidad de la carta bajo su nombre: set · número · acabado. Mismo renglón que el correo. */
@@ -493,6 +494,12 @@ function Detail({
               {!hideMoney && line.language === 'es' && (
                 <div className="basis-full">
                   <BuylistBreakdown breakdown={line.breakdown} />
+                </div>
+              )}
+              {/* §BUYLIST-ES F3/F4 (§4.2): llegó en otro idioma/versión ⇒ «Llegó como …» + desglose de lo recibido. */}
+              {!hideMoney && (
+                <div className="basis-full">
+                  <SellerVersionOutcome line={line} />
                 </div>
               )}
             </li>

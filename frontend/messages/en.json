@@ -1055,6 +1055,19 @@
         "alreadyDone": "This card was already delivered; the method cannot be changed.",
         "generic": "We could not save your choice. Try again."
       }
+    },
+    "version": {
+      "lower": "{card} arrived as {received} but you declared {declared}; new offer {amount} (was {before}). Accept or decline within 7 days.",
+      "higher": "We pay {amount} for your {card} ({version}).",
+      "arrivedAs": "Arrived as {received}; you declared {declared}",
+      "unavailable": "We could not price this version; we will return the card",
+      "floorNote": "Minimum store offer",
+      "name": {
+        "en": "English",
+        "es": "Spanish",
+        "normal": "Normal",
+        "league": "League"
+      }
     }
   },
   "buylistCarrier": {
@@ -3746,6 +3759,21 @@
             "netIf": "If they accept, the deposit would be {net}",
             "cancelsNote": "If you approve or reject this card, the reduction proposal is cancelled and the seller sees it as \"withdrawn\"."
           },
+          "version": {
+            "label": "Received language",
+            "group": "Received language of {card}",
+            "en": "English",
+            "es": "Spanish",
+            "declared": "declared",
+            "mismatch": "Differs from declared ({declared}): approving re-prices it and, if it is worth less, the seller decides within 7 days.",
+            "differentCard": "Different card",
+            "errors": {
+              "unavailable": "There is no price for the version that arrived. If it is not the card they declared, use “Different card”.",
+              "overVersionCap": "The amount cannot exceed the offer for the received version{cap}. Nothing was saved.",
+              "esOverCap": "In Spanish we never pay more than in English or more than the reference{cap}. Nothing was saved.",
+              "capOf": " ({amount})"
+            }
+          },
           "revisionPendingPay": "A price reduction is waiting for the seller: payment is blocked until they answer (or it expires).",
           "revise": {
             "newPrice": "New price (MX$)",
@@ -3932,6 +3960,15 @@
           "override": "Fixed price",
           "curve": "Curve {pct}%"
         },
+        "reason": {
+          "STOCK_CAP": "We already hold the cap for this card.",
+          "MANUAL_OVERRIDE": "Price set by staff.",
+          "BOUNTY": "A bounty is looking for it.",
+          "FLOOR": "The minimum price applied.",
+          "NO_MARKET": "There is no market price.",
+          "CURVE_CHANGED": "The curve changed: {amount} difference from the standard."
+        },
+        "fixedPrice": "Fixed price",
         "title": "Decision desk",
         "open": "Open the decision desk",
         "close": "Close the desk",
@@ -3965,16 +4002,6 @@
             "up": "Raise +{amount}",
             "down": "Cut −{amount}",
             "noPrice": "No price"
-          },
-          "reason": {
-            "STOCK_CAP": "We already hold the cap for this card.",
-            "MANUAL_OVERRIDE": "Price set by staff.",
-            "BOUNTY": "A bounty is looking for it.",
-            "FLOOR": "The minimum price applied.",
-            "NO_MARKET": "There is no market price.",
-            "MARKET_UP": "The market rose: {amount} above the standard.",
-            "MARKET_DOWN": "The market fell: {amount} below the standard.",
-            "CURVE_CHANGED": "The curve changed: {amount} difference from the standard."
           },
           "sinceQuote": {
             "MARKET_UP": "Quoted {quoted}; we now offer {offer} ({delta} more): the market rose since the quote.",

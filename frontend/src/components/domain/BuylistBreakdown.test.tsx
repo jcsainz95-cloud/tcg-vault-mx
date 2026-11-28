@@ -36,14 +36,14 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
   });
 
   it('curveBp null: fila sin «null» ni NaN', () => {
-    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, curveBp: null, curveOfferCents: null }} />);
+    renderWithIntl(<BuylistBreakdown audience="admin" breakdown={{ ...ES, curveBp: null, curveOfferCents: null }} />);
     const txt = screen.getByTestId('buylist-breakdown').textContent ?? '';
     expect(txt).toContain('Curva de compra');
     expect(txt).not.toMatch(/null|NaN/);
   });
 
   it('curvaBp no entero ⇒ «≈» y monto de la curva tal cual; sin multiplicar en el cliente', () => {
-    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, curveBp: 6998, curveOfferCents: 59483, finalOfferCents: 59483 }} />);
+    renderWithIntl(<BuylistBreakdown audience="admin" breakdown={{ ...ES, curveBp: 6998, curveOfferCents: 59483, finalOfferCents: 59483 }} />);
     const row = screen.getByTestId('buylist-breakdown').querySelector('[data-row="base"]');
     expect(row?.textContent).toContain('Curva de compra ≈ 69.98 %');
     expect(row?.textContent).toContain('594.83');
@@ -57,8 +57,33 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
   });
 
   it('cap floor: «Piso de compra»', () => {
-    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, cap: { reason: 'floor', cents: 60000 }, finalOfferCents: 60000 }} />);
+    renderWithIntl(<BuylistBreakdown audience="admin" breakdown={{ ...ES, cap: { reason: 'floor', cents: 60000 }, finalOfferCents: 60000 }} />);
     expect(screen.getByText('Piso de compra')).toBeInTheDocument();
+  });
+
+  it('BES-4 cliente: tope «piso» ⇒ «Oferta mínima de la tienda», sin curveBp ni monto de tope; jamás una cifra de tope', () => {
+    // DTO del cliente: sin `curveOfferCents` ni `cap.cents`; con `floor` el servidor manda `curveBp:null`.
+    const floor = { ...ES, curveBp: null, curveOfferCents: null, cap: { reason: 'floor' as const }, finalOfferCents: 60000 };
+    renderWithIntl(<BuylistBreakdown breakdown={floor} />);
+    const rows = Array.from(document.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'));
+    expect(rows).toEqual(['market', 'language', 'adjusted', 'cap', 'offer']);
+    expect(screen.getByText('Oferta mínima de la tienda')).toBeInTheDocument();
+    expect(screen.queryByText(/Piso de compra/)).toBeNull();
+    expect(document.querySelector('[data-row="cap"] dd')).toBeNull();
+    expect(screen.getByTestId('buylist-breakdown').textContent).not.toMatch(/null|NaN/);
+  });
+
+  it('BES-4 cliente: aunque llegara `cap.cents`/`curveOfferCents`, no se pintan (floor y en_offer)', () => {
+    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, curveBp: null, cap: { reason: 'floor', cents: 77777 }, finalOfferCents: 60000 }} />);
+    expect(screen.getByTestId('buylist-breakdown').textContent).not.toContain('777.77');
+    expect(screen.getByTestId('buylist-breakdown').textContent).not.toContain('595.00');
+  });
+
+  it('BES-4 cliente: tope inglés ⇒ el monto es su propia oferta final, no `cap.cents`', () => {
+    renderWithIntl(<BuylistBreakdown breakdown={{ ...ES, cap: { reason: 'en_offer', cents: 12345 }, finalOfferCents: 50000 }} />);
+    const row = document.querySelector('[data-row="cap"]');
+    expect(row?.textContent).toContain('500.00');
+    expect(row?.textContent).not.toContain('123.45');
   });
 
   it('source override: precio fijo con castigo, sin fila de curva', () => {
@@ -70,7 +95,7 @@ describe('BuylistBreakdown · orden del dueño (§BUYLIST-ES §3)', () => {
   });
 
   it('mesa del dueño: la última fila dice «Oferta»', () => {
-    renderWithIntl(<BuylistBreakdown breakdown={ES} offerLabel="offerAdmin" />);
+    renderWithIntl(<BuylistBreakdown breakdown={ES} offerLabel="offerAdmin" audience="admin" />);
     expect(screen.getByText('Oferta')).toBeInTheDocument();
   });
 

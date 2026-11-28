@@ -1,5 +1,7 @@
 'use client';
 
+import { ReceivedVersionSelector, declaredPick, type ReceivedPick } from './ReceivedVersion';
+import { versionErrorCode, versionErrorText } from './version-errors';
 import { LanguageChip } from '@/components/domain/VersionChip';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -245,6 +247,7 @@ export function M5View() {
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tDesk = useTranslations('admin.m5.desk');
   const tf2 = useTranslations('admin.m5.flow.f2');
+  const tVerr = useTranslations('admin.m5.flow.f2.version.errors');
   const tItems = useTranslations('admin.m5.items');
   /** La mesa abierta YA cargó bien: solo entonces la mesa sustituye a la lista de cartas (si carga o falla, la lista sigue). */
   const [deskReady, setDeskReady] = useState(false);
@@ -361,6 +364,9 @@ export function M5View() {
   const [adjustTarget, setAdjustTarget] = useState<{ requestId: string; item: SellItemDTO } | null>(null);
   const [adjustPrice, setAdjustPrice] = useState('');
   const [adjustError, setAdjustError] = useState<string | null>(null);
+  // §BUYLIST-ES F3 (§4.1): idioma recibido por línea (solo lo que el operador tocó; el resto = declarado) y el aviso de «sin precio».
+  const [receivedPicks, setReceivedPicks] = useState<Record<string, ReceivedPick>>({});
+  const [versionIssue, setVersionIssue] = useState<{ itemId: string; text: string } | null>(null);
   const adjustCents = pesosToCents(adjustPrice);
 
   // §BUYLIST-FLUJO F2: el panel abierto en la fila (Bajar precio / No aceptar / No llegó); uno a la vez.
@@ -470,7 +476,14 @@ export function M5View() {
       // El rechazo (siempre con `reasonCode`) vive en `RejectPanel` (§BUYLIST-FLUJO F2b), no aquí.
       decision: 'approve' | 'adjust';
       approvedPriceCents?: number;
-    }) => decideBuylistItem(vars.itemId, { decision: vars.decision, approvedPriceCents: vars.approvedPriceCents }),
+      /** §BUYLIST-ES F3 (§4.1): idioma recibido que vio el operador (default = declarado). Solo con `approve`. */
+      received?: ReceivedPick;
+    }) =>
+      decideBuylistItem(vars.itemId, {
+        decision: vars.decision,
+        approvedPriceCents: vars.approvedPriceCents,
+        ...(vars.received ? { receivedLanguage: vars.received.language } : {}),
+      }),
     onSuccess: (_d, vars) => {
       if (vars.decision === 'adjust') closeAdjust();
       ok(
@@ -502,7 +515,14 @@ export function M5View() {
       }
       // El ajuste/rechazo muestran el error DENTRO de su modal (p. ej. 422
       // APPROVED_PRICE_CAP_EXCEEDED o el 400 VALIDATION_ERROR del motivo).
-      if (vars.decision === 'adjust') setAdjustError(getError(e));
+      // §BUYLIST-ES F3: 422 de versión. `VERSION_PRICE_UNAVAILABLE` ⇒ aviso en la fila con «Carta distinta»; los demás, texto claro.
+      const vText = versionErrorText(e, tVerr, locale);
+      if (versionErrorCode(e) === 'VERSION_PRICE_UNAVAILABLE') {
+        setVersionIssue({ itemId: vars.itemId, text: vText ?? '' });
+        return;
+      }
+      if (vars.decision === 'adjust') setAdjustError(vText ?? getError(e));
+      else if (vText) setFeedback({ requestId: vars.requestId, kind: 'error', message: vText });
       else fail(vars.requestId, e);
     },
   });
@@ -1646,13 +1666,30 @@ export function M5View() {
                         {canDecide && decidable && !notBought && (
                           <>
                             {/* §BUYLIST-FLUJO F2 (diseño A): Aprobar al pactado · Bajar precio · No aceptar · No llegó, en la fila. */}
+                            {/* §BUYLIST-ES F3 (§4.1): «Idioma recibido» por línea; default = declarado, un toque para cambiarlo. */}
+                            {it.revision?.state !== 'pending' && it.itemStatus !== 'aprobada' && (
+                              <ReceivedVersionSelector
+                                item={it}
+                                pick={receivedPicks[it.id] ?? declaredPick(it)}
+                                onChange={(next) => {
+                                  setVersionIssue(null);
+                                  setReceivedPicks((p) => ({ ...p, [it.id]: next }));
+                                }}
+                                disabled={decisionPending}
+                              />
+                            )}
                             <ReviewItemActions
                               item={it}
                               panel={reviewPanel}
                               onPanel={setReviewPanel}
                               approving={decisionPending && decisionMutation.variables?.decision === 'approve'}
                               onApprove={() =>
-                                decisionMutation.mutate({ requestId: req.id, itemId: it.id, decision: 'approve' })
+                                decisionMutation.mutate({
+                                  requestId: req.id,
+                                  itemId: it.id,
+                                  decision: 'approve',
+                                  received: receivedPicks[it.id] ?? declaredPick(it),
+                                })
                               }
                             />
                             {canAdjust && it.revision?.state !== 'pending' && (
@@ -1680,6 +1717,26 @@ export function M5View() {
                         )}
                       </div>
                     </div>
+                    {versionIssue?.itemId === it.id && (
+                      <div data-testid={`version-unavailable-${it.id}`}>
+                      <Banner variant="warning" role="alert" className="mt-2">
+                        <span className="flex flex-wrap items-center gap-3">
+                          <span>{versionIssue.text}</span>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setVersionIssue(null);
+                              setReviewPanel({ itemId: it.id, kind: 'wrong_card' });
+                            }}
+                            data-testid={`version-different-card-${it.id}`}
+                          >
+                            {tf2('version.differentCard')}
+                          </Button>
+                        </span>
+                      </Banner>
+                      </div>
+                    )}
                     {reviewPanel?.itemId === it.id && reviewPanel.kind === 'reduce' && (
                       <RevisePricePanel
                         req={req}
@@ -1698,7 +1755,7 @@ export function M5View() {
                         key={reviewPanel.kind}
                         req={req}
                         item={it}
-                        initialCause={reviewPanel.kind === 'not_received' ? 'not_received' : null}
+                        initialCause={reviewPanel.kind === 'not_received' ? 'not_received' : reviewPanel.kind === 'wrong_card' ? 'wrong_card' : null}
                         getError={getError}
                         onClose={() => setReviewPanel(null)}
                         onDone={(msg) => {
